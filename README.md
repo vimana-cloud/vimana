@@ -1,0 +1,136 @@
+# Overview
+
+Actio is organized into independent zones,
+each corresponding to a Kubernetes cluster.
+For example, `aws/us-east-1-bos-1a`
+would run exclusively in AWS' `us-east-1-bos-1a` zone,
+while `gcp/us-east1-a`
+would run exclusively in GCP's `us-east1-a` zone.
+
+Zones are grouped into regions.
+For instance, `multi/us-east`
+may include clusters in any of AWS, GCP, or Azure's zones in the eastern US.
+Most regions are multi-cloud.
+
+Each user is associated with an Actio account,
+and each account can belong to one or more domains.
+Domains are units of customer organization,
+defining TODO
+
+A customer could deploy to a region,
+but may deploy to a specific cluster,
+such as to optimize latency to a database in a known location.
+
+## Clusters
+
+Each cluster comprises 3 components:
+
+- **Ingress** nodes receive requests from external clients.
+  They communicate with the *controller*
+  to route traffic to the *work* servers.
+- **Controller** nodes act as the control plane.
+- **Work** nodes serve the business logic.
+
+## Regions
+
+Each region assigns traffic to its various clusters
+according to a bias.
+The default bias is compute cost.
+`eu.multi.actio.host` would have bias against compute cost,
+while `prox.eu.multi.actio.host` would have proximity bias,
+and `mem.eu.multi.actio.host` would have bias against memory cost,
+all in the EU multi-cloud region.
+
+Regions are configured entirely via [DNS](#dns).
+
+## DNS
+
+A centralized DNS system underpins the whol
+
+# Deployment Walk-Through
+
+Understand how services in Actio are deployed
+with a detailed walk-through.
+
+## Initial Deployment
+
+Alice wants to deploy the following service for the first time:
+
+```proto
+// api.proto
+
+syntax = "proto3";
+
+// Domain: "example.com"
+package com.example;
+
+service HelloWorld {
+  rpc SayHello(HelloRequest) returns (HelloResponse) {}
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloResponse {
+  bool talk_to_me = 1;
+}
+```
+
+Alice generates the bindings,
+implements version `1.0`,
+and pushes the implementation.
+
+Now, it's time to deploy:
+
+```bash
+actio deploy com.example.HelloWorld@1.0 100%
+```
+
+This invokes [`Domains/Deploy`][TODO], which does:
+
+1. Lock the key `example.com:com.example.HelloWorld` in the service config store.
+   Concurrent calls to `Domains/Deploy` for a given service are disallowed.
+2. Estimate how many workers `N` will be needed for version `1.0`
+   based on the number of workers serving all prior deployed versions
+   and the percentage of traffic being stolen by `1.0`.
+   The minimum value of `N` is one.
+   Since `1.0` is the first ever version of this particular service,
+   `N` would be one.
+3. Pick `N` good candidates to serve `1.0`
+   based on available memory and bandwidth,
+   spinning up new nodes if necessary.
+   Send each candidate [`Control/Preload`][TODO]
+   so they'll be ready to serve traffic sooner.
+4. Update the service config for `example.com:com.example.HelloWorld`,
+   including the new candidates, and release the lock.
+   The service config includes information like:
+   - How to pick a version to serve a request.
+   - Which work node(s) can serve each version.
+
+# Ingress
+
+Ingress receives a request.
+It checks the following places, in order, for the domain:
+
+1. The [`Host` header], if present.
+2. The [`:authority` header] for HTTP/2 and /3,
+   or the [request target] for HTTP/1.
+
+[`Host` header]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/host
+[`:authority` header]: https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md#protocol
+[request target]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Messages#request_line
+
+It gets the service name from the HTTP path,
+and loads the configuration for that domain/service from the service config store,
+caching locally.
+The request is forwarded to a good work node one
+for the version chosen for the request,
+with the chosen version added as the request header `TODO`.
+
+# Work
+
+A work node receives a request,
+and extracts the domain, service name, and version,
+which are used to look up the implementation.
+[TODO]: #todo
