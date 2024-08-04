@@ -1,2 +1,5 @@
-# Prevents bazel from creating noisy `bazel-out/` etc. symlinks.
+# Prevent bazel from creating noisy `bazel-out/` etc. symlinks.
 build --experimental_convenience_symlinks=ignore
+
+# Use the default protoc toolchain instead of building from source.
+common --incompatible_enable_proto_toolchain_resolution
