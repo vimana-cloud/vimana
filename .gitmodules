@@ -1,0 +1,3 @@
+[submodule "extern/cri-api"]
+	path = extern/cri-api
+	url = git@github.com:actio-cloud/cri-api.git
