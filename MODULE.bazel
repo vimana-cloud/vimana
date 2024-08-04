@@ -1,0 +1,4 @@
+module(name = "actio")
+
+bazel_dep(name = "cri-api")
+local_path_override(module_name = "cri-api", path = "extern/cri-api")

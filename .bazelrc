@@ -1,0 +1,2 @@
+# Prevents bazel from creating noisy `bazel-out/` etc. symlinks.
+build --experimental_convenience_symlinks=ignore
