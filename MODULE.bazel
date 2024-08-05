@@ -6,6 +6,8 @@ bazel_dep(name = "toolchains_protoc", version = "0.3.1")
 bazel_dep(name = "cri-api")
 local_path_override(module_name = "cri-api", path = "extern/cri-api")
 
+# Rust setup:
+
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 # https://crates.io/crates/prost
 crate.spec(package = "prost", version = "0.13.1")
@@ -20,7 +22,7 @@ crate.annotation(crate = "protoc-gen-tonic", gen_binaries = ["protoc-gen-tonic"]
 # https://crates.io/crates/tonic
 crate.spec(package = "tonic", version = "0.12.1")
 # https://crates.io/crates/tokio
-crate.spec(package = "tokio", version = ">=1.39.2", features = ["macros", "rt-multi-thread"    , "sync"])
+crate.spec(package = "tokio", version = ">=1.39.2", features = ["macros", "rt-multi-thread", "sync"])
 # https://crates.io/crates/tokio-stream
 crate.spec(package = "tokio-stream", version = ">=0.1.15", features = ["net"])
 # https://crates.io/crates/wasmtime
@@ -28,4 +30,4 @@ crate.spec(package = "wasmtime", version = ">=23.0.1")
 crate.from_specs()
 use_repo(crate, "crates")
 
-register_toolchains("//:prost_toolchain")
+register_toolchains("//:prost-toolchain")

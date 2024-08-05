@@ -39,5 +39,5 @@ rust_library(
 # K8s Container Runtime Interface "Runtime API".
 rust_prost_library(
     name = "runtime-api-prost",
-    proto = "@cri-api//pkg/apis/runtime/v1:api_proto",
+    proto = "@cri-api//pkg/apis/runtime/v1:api-proto",
 )
