@@ -23,6 +23,8 @@ crate.spec(package = "tonic", version = "0.12.1")
 crate.spec(package = "tokio", version = ">=1.39.2", features = ["macros", "rt-multi-thread"    , "sync"])
 # https://crates.io/crates/tokio-stream
 crate.spec(package = "tokio-stream", version = ">=0.1.15", features = ["net"])
+# https://crates.io/crates/wasmtime
+crate.spec(package = "wasmtime", version = ">=23.0.1")
 crate.from_specs()
 use_repo(crate, "crates")
 

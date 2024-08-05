@@ -3,15 +3,20 @@
 /// for the Work Node runtime.
 
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{Request, Response, Status};
+use tonic::{Code, Request, Response, Status};
 
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_server::ImageService;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
 
+use names::ServiceName;
+use state::WorkRuntime;
+
 const CONTAINER_RUNTIME_NAME: &str = "actio-work";
 
-pub struct ActioCriService {}
+/// Wrapper around [ActioRuntime] that can implement [RuntimeService] and [ImageService]
+/// without running afoul of Rust's rules on foreign types / traits.
+pub struct ActioCriService(pub WorkRuntime);
 
 /// Type boilerplate for a typical Tonic response result.
 type TonicResult<T> = Result<Response<T>, Status>;
@@ -55,8 +60,28 @@ impl RuntimeService for ActioCriService {
         todo!()
     }
 
-    async fn create_container(&self, _r: Request<v1::CreateContainerRequest>) -> TonicResult<v1::CreateContainerResponse> {
-        todo!()
+    async fn create_container(&self, r: Request<v1::CreateContainerRequest>) -> TonicResult<v1::CreateContainerResponse> {
+        let request = r.into_inner();
+        let config = request.config.unwrap_or_default();
+        let image_id = config.image.unwrap_or_default().image;
+
+        let name = ServiceName::parse(&image_id);
+        match name.version.and(name.domain) {
+            Some(domain) => {
+                match self.0.get_instance_pool(domain, name.without_domain).await {
+                    Ok(_pool) => {
+                        // TODO: Add another thing to the pool.
+                        Ok(Response::new(v1::CreateContainerResponse {
+                            container_id: "TODO".to_string(),
+                        }))
+                    },
+                    // TODO: Better error handling.
+                    Err(msg) => Err(Status::new(Code::Internal, msg)),
+                }
+            },
+            // Must have both an explicit domain and version to be valid.
+            None => Err(Status::new(Code::InvalidArgument, format!("Invalid image ID: {image_id}"))),
+        }
     }
 
     async fn start_container(&self, _r: Request<v1::StartContainerRequest>) -> TonicResult<v1::StartContainerResponse> {
@@ -100,7 +125,10 @@ impl RuntimeService for ActioCriService {
     }
 
     async fn port_forward(&self, _r: Request<v1::PortForwardRequest>) -> TonicResult<v1::PortForwardResponse> {
-        todo!()
+        Ok(Response::new(v1::PortForwardResponse {
+            // Never forward ports. Always use port 443 for data-plane traffic.
+            url: "https://TODO:443".into(),
+        }))
     }
 
     async fn container_stats(&self, _r: Request<v1::ContainerStatsRequest>) -> TonicResult<v1::ContainerStatsResponse> {

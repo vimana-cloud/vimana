@@ -1,11 +1,37 @@
 load("@rules_rust//proto/prost:defs.bzl", "rust_prost_library")
-load("@rules_rust//rust:defs.bzl", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+# Top-level target: the runtime executable.
+rust_binary(
+    name = "runtime",
+    srcs = ["main.rs"],
+    deps = [
+        ":cri",
+        ":runtime-api-prost",
+        ":state",
+        "@crates//:tokio",
+        "@crates//:tokio-stream",
+        "@crates//:tonic",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+rust_library(
+    name = "state",
+    srcs = ["state.rs"],
+    deps = [
+        "@crates//:tokio",
+        "@crates//:wasmtime",
+    ],
+)
 
 rust_library(
     name = "cri",
     srcs = ["cri.rs"],
     deps = [
         ":runtime-api-prost",
+        ":state",
+        "//util:names",
         "@crates//:tokio-stream",
     ],
 )
