@@ -1,0 +1,6 @@
+package local:demo;
+
+world my-world {
+  import log: func(param: string);
+  export run: func();
+}

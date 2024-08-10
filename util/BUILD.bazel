@@ -10,3 +10,5 @@ rust_test(
     name = "names-test",
     crate = ":names",
 )
+
+exports_files(["wit-bindgen"])
