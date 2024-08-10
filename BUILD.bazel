@@ -2,7 +2,7 @@ load("@rules_rust//proto/prost:defs.bzl", "rust_prost_toolchain")
 load("@rules_rust//rust:defs.bzl", "rust_library_group")
 
 # Set up a Prost Bazel toolchain
-# using the same Prost and Tonic crates downloaded in `MODULE.bazel`
+# using the Prost and Tonic binaries referenced in `MODULE.bazel`
 # http://bazelbuild.github.io/rules_rust/rust_proto.html#custom-prost-deps
 
 rust_library_group(
