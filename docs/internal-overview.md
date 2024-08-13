@@ -1,35 +1,39 @@
 # Overview
 
-Actio is organized into independent zones,
-each corresponding to a Kubernetes cluster.
+Actio is organized into isolated zones,
+each corresponding to a single Kubernetes cluster.
 For example, `aws/us-east-1-bos-1a`
 would run exclusively in AWS' `us-east-1-bos-1a` zone,
 while `gcp/us-east1-a`
 would run exclusively in GCP's `us-east1-a` zone.
 
+W
+
 Zones are grouped into regions.
-For instance, `multi/us-east`
+For instance, `all/us-east`
 may include clusters in any of AWS, GCP, or Azure's zones in the eastern US.
 Most regions are multi-cloud.
 
-Each user is associated with an Actio account,
-and each account can belong to one or more domains.
-Domains are units of customer organization,
-defining TODO
+Domains organize services into groups.
+Each user account can belong to zero or more domains.
+These groups are meant to be small.
 
 A customer could deploy to a region,
 but may deploy to a specific cluster,
 such as to optimize latency to a database in a known location.
 
-## Clusters
+## Zones
 
-Each cluster comprises 3 components:
+Each cluster (zone) comprises 4 components:
 
 - **Ingress** nodes receive requests from external clients.
-  They communicate with the *controller*
-  to route traffic to the *work* servers.
-- **Controller** nodes act as the control plane.
-- **Work** nodes serve the business logic.
+  They communicate with the *control* nodes
+  to route traffic to the *work* nodes.
+- **Control** nodes serve the control plane;
+  the K8s API, and other zone administration.
+- **Work** nodes serve hosted services to external clients
+  (via *ingress*).
+- **DNS** servers manage the
 
 ## Regions
 
