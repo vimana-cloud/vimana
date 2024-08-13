@@ -12,11 +12,25 @@ local_path_override(module_name = "cri-api", path = "extern/cri-api")
 
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 
+crate.spec(package = "bytes", version = "1.7.1")
+crate.spec(package = "http-body-util", version = "0.1.2")
+crate.spec(package = "hyper", version = "1.4.1", features = ["server", "http1"])
+crate.spec(package = "hyper-util", version = "0.1.7", features = ["tokio"])
+crate.spec(package = "prost", version = "0.13.1")
+crate.spec(package = "prost-types", version = "0.13.1")
+crate.spec(package = "protoc-gen-prost", version = "0.3.1")
+crate.spec(package = "protoc-gen-tonic", version = "0.4.0")
+crate.spec(package = "tokio", version = "1.39.2", features = ["macros", "rt-multi-thread", "sync"])
+crate.spec(package = "tokio-stream", version = "0.1.15", features = ["net"])
+crate.spec(package = "tonic", version = "0.12.1")
+crate.spec(package = "wasmtime", version = "23.0.1")
+
 # Generate certain binaries needed for building.
 crate.annotation(crate = "protoc-gen-prost", gen_binaries = ["protoc-gen-prost"])
 crate.annotation(crate = "protoc-gen-tonic", gen_binaries = ["protoc-gen-tonic"])
 
-crate.from_cargo(name = "crates", cargo_lockfile = "//:Cargo.lock", manifests = ["//:Cargo.toml"])
+crate.from_specs()
+
 use_repo(crate, "crates")
 
 register_toolchains("//:prost-toolchain")
