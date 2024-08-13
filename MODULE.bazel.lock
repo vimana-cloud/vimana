@@ -88,6 +88,8 @@
     "https://bcr.bazel.build/modules/rules_python/0.22.1/MODULE.bazel": "26114f0c0b5e93018c0c066d6673f1a2c3737c7e90af95eff30cfee38d0bbac7",
     "https://bcr.bazel.build/modules/rules_python/0.22.1/source.json": "57226905e783bae7c37c2dd662be078728e48fa28ee4324a7eabcafb5a43d014",
     "https://bcr.bazel.build/modules/rules_python/0.4.0/MODULE.bazel": "9208ee05fd48bf09ac60ed269791cf17fb343db56c8226a720fbb1cdf467166c",
+    "https://bcr.bazel.build/modules/rules_rust/0.49.1/MODULE.bazel": "b9687abc62fcaa8891c17cea412e044b4a6c84dab81b9decc7d02319ea7946f1",
+    "https://bcr.bazel.build/modules/rules_rust/0.49.1/source.json": "176c9d73779a5edb8e4f66ee13f527b98099ca97f47e4eed2e8dc541dc46e1b7",
     "https://bcr.bazel.build/modules/stardoc/0.5.0/MODULE.bazel": "f9f1f46ba8d9c3362648eea571c6f9100680efc44913618811b58cc9c02cd678",
     "https://bcr.bazel.build/modules/stardoc/0.5.1/MODULE.bazel": "1a05d92974d0c122f5ccf09291442580317cdd859f07a8655f1db9a60374f9f8",
     "https://bcr.bazel.build/modules/stardoc/0.5.4/MODULE.bazel": "6569966df04610b8520957cb8e97cf2e9faac2c0309657c537ab51c16c18a2a4",
@@ -789,8 +791,8 @@
     },
     "@@rules_rust~//rust:extensions.bzl%rust": {
       "general": {
-        "bzlTransitiveDigest": "1o/b7Y8jEnrOScZ+yQtYRKKvtsG0oN4i7cwaXawLv3E=",
-        "usagesDigest": "DLXyMO+HcbK2g6XKQAKugSdGHqsh87wE3CAoRCG6/mo=",
+        "bzlTransitiveDigest": "1Qu65WzwUQ51Z/isepeTyG1NpPkdQdFlId7HFJGMWX0=",
+        "usagesDigest": "96OW3T1Wlf7mr4NG6feQBLj1+XKpIHbixWvTHD+v0k4=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -3552,8 +3554,8 @@
     },
     "@@rules_rust~//rust/private:extensions.bzl%i": {
       "general": {
-        "bzlTransitiveDigest": "p17hUtOPu4LRI8NoPwlg+CR6hLjUy7VL9tdgaer1qU8=",
-        "usagesDigest": "kTJ7k2c/0FWmrEo38M1iHV3P1yz9TvOrNpj0kM0e7yc=",
+        "bzlTransitiveDigest": "ytlE+JigauTKfpzpZ5n0nV/G6Zqc7SvUvvjuMlRKbgI=",
+        "usagesDigest": "G2MQN/io1m6/q/SiBTjnPO5LDNPn2CBtP77/wXWGbB8=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -13946,11 +13948,6 @@
             "rules_rust~",
             "bazel_tools",
             "bazel_tools"
-          ],
-          [
-            "rules_rust~",
-            "cargo_bazel_bootstrap",
-            "rules_rust~~cargo_bazel_bootstrap~cargo_bazel_bootstrap"
           ],
           [
             "rules_rust~",
