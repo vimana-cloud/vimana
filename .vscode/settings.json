@@ -1,0 +1,5 @@
+{
+    "bazel.buildifierExecutable": "@buildtools//:buildifier",
+    "bazel.buildifierFixOnFormat": true,
+    "bazel.enableCodeLens": true
+}
