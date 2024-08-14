@@ -23,3 +23,10 @@ rust_test(
 )
 
 exports_files(["wit-bindgen"])
+
+sh_binary(
+    name = "update-dependencies",
+    srcs = ["update-dependencies.sh"],
+    data = ["@buildtools//:buildozer"],
+    args = ["$(rootpath @buildtools//:buildozer)"],
+)

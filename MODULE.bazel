@@ -1,36 +1,91 @@
+"Actio Mono-repo"
+
 module(name = "actio")
 
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0", dev_dependency = True, repo_name = "buildtools")
-bazel_dep(name = "rules_nodejs", version = "6.2.0")
-bazel_dep(name = "rules_rust", version = "0.49.1")
-bazel_dep(name = "toolchains_protoc", version = "0.3.1")
 
+bazel_dep(name = "rules_nodejs", version = "6.2.0")
+bazel_dep(name = "rules_rust", version = "0.49.3")
+bazel_dep(name = "toolchains_protoc", version = "0.3.1")
 bazel_dep(name = "cri-api")
-local_path_override(module_name = "cri-api", path = "extern/cri-api")
+local_path_override(
+    module_name = "cri-api",
+    path = "extern/cri-api",
+)
 
 # Rust setup:
 
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
-
-crate.spec(package = "bytes", version = "1.7.1")
-crate.spec(package = "http-body-util", version = "0.1.2")
-crate.spec(package = "hyper", version = "1.4.1", features = ["server", "http1"])
-crate.spec(package = "hyper-util", version = "0.1.7", features = ["tokio"])
-crate.spec(package = "prost", version = "0.13.1")
-crate.spec(package = "prost-types", version = "0.13.1")
-crate.spec(package = "protoc-gen-prost", version = "0.3.1")
-crate.spec(package = "protoc-gen-tonic", version = "0.4.0")
-crate.spec(package = "tokio", version = "1.39.2", features = ["macros", "rt-multi-thread", "sync"])
-crate.spec(package = "tokio-stream", version = "0.1.15", features = ["net"])
-crate.spec(package = "tonic", version = "0.12.1")
-crate.spec(package = "wasmtime", version = "23.0.1")
+crate.spec(
+    package = "bytes",
+    version = "1.7.1",
+)
+crate.spec(
+    package = "http-body-util",
+    version = "0.1.2",
+)
+crate.spec(
+    features = [
+        "server",
+        "http1",
+    ],
+    package = "hyper",
+    version = "1.4.1",
+)
+crate.spec(
+    features = ["tokio"],
+    package = "hyper-util",
+    version = "0.1.7",
+)
+crate.spec(
+    package = "prost",
+    version = "0.13.1",
+)
+crate.spec(
+    package = "prost-types",
+    version = "0.13.1",
+)
+crate.spec(
+    package = "protoc-gen-prost",
+    version = "0.3.1",
+)
+crate.spec(
+    package = "protoc-gen-tonic",
+    version = "0.4.0",
+)
+crate.spec(
+    features = [
+        "macros",
+        "rt-multi-thread",
+        "sync",
+    ],
+    package = "tokio",
+    version = "1.39.2",
+)
+crate.spec(
+    features = ["net"],
+    package = "tokio-stream",
+    version = "0.1.15",
+)
+crate.spec(
+    package = "tonic",
+    version = "0.12.1",
+)
+crate.spec(
+    package = "wasmtime",
+    version = "23.0.2",
+)
 
 # Generate certain binaries needed for building.
-crate.annotation(crate = "protoc-gen-prost", gen_binaries = ["protoc-gen-prost"])
-crate.annotation(crate = "protoc-gen-tonic", gen_binaries = ["protoc-gen-tonic"])
-
+crate.annotation(
+    crate = "protoc-gen-prost",
+    gen_binaries = ["protoc-gen-prost"],
+)
+crate.annotation(
+    crate = "protoc-gen-tonic",
+    gen_binaries = ["protoc-gen-tonic"],
+)
 crate.from_specs()
-
 use_repo(crate, "crates")
 
 register_toolchains("//:prost-toolchain")
