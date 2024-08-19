@@ -3,15 +3,20 @@
 module(name = "actio")
 
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0", dev_dependency = True, repo_name = "buildtools")
-
 bazel_dep(name = "rules_nodejs", version = "6.2.0")
 bazel_dep(name = "rules_rust", version = "0.49.3")
 bazel_dep(name = "toolchains_protoc", version = "0.3.1")
+
+# Load submodule dependencies.
 bazel_dep(name = "cri-api")
 local_path_override(
     module_name = "cri-api",
     path = "extern/cri-api",
 )
+
+# Access protobuf well-known types proto rules in the `@protobuf` repo.
+protoc = use_extension("@toolchains_protoc//protoc:extensions.bzl", "protoc")
+use_repo(protoc, protobuf = "com_google_protobuf")
 
 # Rust setup:
 
