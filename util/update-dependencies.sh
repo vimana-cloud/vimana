@@ -9,12 +9,23 @@
 # Run this with `bazel run` as an `sh_binary` rule.
 # Modifies `MODULE.bazel` in place.
 
-# Terminal colors used for colored output.
-red='\033[1;31m'
-green='\033[1;32m'
-brown='\033[1;33m'
-blue='\033[1;34m'
-reset='\033[0m' # No Color
+# Use colored output if stderr (2) is a terminal (-t).
+if [ -t 2 ]
+then
+  # Terminal escape codes used for colored output.
+  red='\033[1;31m'
+  green='\033[1;32m'
+  brown='\033[1;33m'
+  blue='\033[1;34m'
+  reset='\033[0m' # No Color
+else
+  # Make them all empty (no color) if we're printing to a pipe.
+  red=''
+  green=''
+  brown=''
+  blue=''
+  reset=''
+fi
 
 # Move to the top level of the Git Repo for this function.
 # This means the source repo becomes the working directory
@@ -27,8 +38,10 @@ pushd "$BUILD_WORKSPACE_DIRECTORY" > /dev/null
 # Use `bazel info` to construct an absolute path.
 buildozer="$(bazel info bazel-bin)/$1" 
 
-# Print the name and version of each `bazel_dep` in `MODULE.bazel`.
-"$buildozer" "print name version" "//MODULE.bazel:%bazel_dep" |
+# The following creates a Buildozer command file to run a batch of commands together,
+# storing the contents in a variable.
+# Start by reading the name and version of each `bazel_dep` in `MODULE.bazel`.
+bazel_updates="$("$buildozer" "print name version" "//MODULE.bazel:%bazel_dep" |
   while read line
   do
     # Break each line into two space-delimited parts.
@@ -46,11 +59,12 @@ buildozer="$(bazel info bazel-bin)/$1"
 
       if [[ "$current_version" != "$latest_version" ]]
       then
-        echo -e "$green$name$reset $red$current_version$reset → $blue$latest_version$reset"
-        "$buildozer" "replace version $current_version $latest_version" "//MODULE.bazel:$name"
+        echo -e "$green$name$reset $red$current_version$reset → $blue$latest_version$reset" >&2
+        echo "replace version $current_version $latest_version|//MODULE.bazel:$name"
       fi
     )
   done
+)"
 
 # https://doc.rust-lang.org/cargo/reference/registry-index.html#index-files
 # $1 is a package name on crates.io.
@@ -64,10 +78,13 @@ function crate_index_folder {
   fi
 }
 
-# Print the line number, package name, and version of each `crate.spec` in `MODULE.bazel`.
-# We need the line numbers for this one because they're technically not "rules",
-# and can be referenced by line number, but not by name.
-"$buildozer" "print startline package version" "//MODULE.bazel:%crate.spec" |
+# The following creates a Buildozer command file to run a batch of commands together,
+# storing the contents in a variable.
+# Start by reading the line number, package name, and version
+# of each `crate.spec` in `MODULE.bazel`.
+# We need line numbers for this one because they're technically not "rules",
+# and cannot be referenced by name, but can be referenced by line number.
+rust_updates="$("$buildozer" "print startline package version" "//MODULE.bazel:%crate.spec" |
   while read line
   do
     # Break each line into three space-delimited parts.
@@ -83,11 +100,13 @@ function crate_index_folder {
 
       if [[ "$current_version" != "$latest_version" ]]
       then
-        echo -e "$brown$name$reset $red$current_version$reset → $blue$latest_version$reset"
-        "$buildozer" "replace version $current_version $latest_version" "//MODULE.bazel:%$line_number"
+        echo -e "$brown$name$reset $red$current_version$reset → $blue$latest_version$reset" >&2
+        echo "replace version $current_version $latest_version|//MODULE.bazel:%$line_number"
       fi
     )
-  done
+  done)"
+
+echo -e "$bazel_updates\n$rust_updates" | "$buildozer" -f -
 
 # Go back to the initial working directory, because why not.
 popd > /dev/null

@@ -2,7 +2,8 @@
 
 module(name = "actio")
 
-bazel_dep(name = "buildifier_prebuilt", version = "6.4.0", dev_dependency = True, repo_name = "buildtools")
+bazel_dep(name = "buildifier_prebuilt", version = "7.1.2", dev_dependency = True, repo_name = "buildtools")
+
 bazel_dep(name = "rules_nodejs", version = "6.2.0")
 bazel_dep(name = "rules_rust", version = "0.49.3")
 bazel_dep(name = "toolchains_protoc", version = "0.3.1")
@@ -65,7 +66,7 @@ crate.spec(
         "sync",
     ],
     package = "tokio",
-    version = "1.39.2",
+    version = "1.39.3",
 )
 crate.spec(
     features = ["net"],
