@@ -1,4 +1,5 @@
 {
+    "editor.formatOnSave": true,
     "bazel.buildifierExecutable": "@buildtools//:buildifier",
     "bazel.buildifierFixOnFormat": true,
     "bazel.enableCodeLens": true
