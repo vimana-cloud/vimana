@@ -18,7 +18,7 @@ For general information about documentation, see [`docs`](docs/).
 Run a local documentation server:
 
 ```bash
-./docs/local.sh
+bazel run //docs:dev
 ```
 
 Check for updates to any Bazel or Rust dependency in `MODULE.bazel`,
