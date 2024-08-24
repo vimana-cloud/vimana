@@ -1,0 +1,6 @@
+sh_binary(
+    name = "dev",
+    srcs = ["local.sh"],
+    data = ["@nodejs//:npm"],
+    args = ["$(rlocationpath @nodejs//:npm)"],
+)
