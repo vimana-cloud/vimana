@@ -5,15 +5,21 @@ module(name = "actio")
 bazel_dep(name = "buildifier_prebuilt", version = "7.1.2", dev_dependency = True, repo_name = "buildtools")
 
 bazel_dep(name = "rules_nodejs", version = "6.2.0")
-bazel_dep(name = "rules_rust", version = "0.49.3")
+bazel_dep(name = "rules_rust", version = "0.50.0")
 bazel_dep(name = "toolchains_protoc", version = "0.3.1")
 
-# Load submodule dependencies.
 bazel_dep(name = "cri-api")
 git_override(
     module_name = "cri-api",
     remote = "git@github.com:actio-cloud/cri-api.git",
     commit = "5dd4a0f3d0bf9f9ea655b757ee2cc8421e3c2dd2",
+)
+
+bazel_dep(name = "rules_wasm")
+git_override(
+    module_name = "rules_wasm",
+    remote = "git@github.com:actio-cloud/rules_wasm.git",
+    commit = "a17471201305568015426400fe81b5e9c6b0e900",
 )
 
 # Access protobuf well-known types proto rules in the `@protobuf` repo.
@@ -54,7 +60,7 @@ crate.spec(
 )
 crate.spec(
     package = "protoc-gen-prost",
-    version = "0.3.1",
+    version = "0.4.0",
 )
 crate.spec(
     package = "protoc-gen-tonic",
