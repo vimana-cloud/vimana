@@ -10,9 +10,10 @@ bazel_dep(name = "toolchains_protoc", version = "0.3.1")
 
 # Load submodule dependencies.
 bazel_dep(name = "cri-api")
-local_path_override(
+git_override(
     module_name = "cri-api",
-    path = "extern/cri-api",
+    remote = "git@github.com:actio-cloud/cri-api.git",
+    commit = "5dd4a0f3d0bf9f9ea655b757ee2cc8421e3c2dd2",
 )
 
 # Access protobuf well-known types proto rules in the `@protobuf` repo.
