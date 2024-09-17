@@ -15,6 +15,7 @@ rust_test(
 rust_library(
     name = "names",
     srcs = ["names.rs"],
+    deps = [":error"],
 )
 
 rust_test(
@@ -22,11 +23,9 @@ rust_test(
     crate = ":names",
 )
 
-exports_files(["wit-bindgen"])
-
 sh_binary(
     name = "update-dependencies",
     srcs = ["update-dependencies.sh"],
-    data = ["@buildtools//:buildozer"],
     args = ["$(rootpath @buildtools//:buildozer)"],
+    data = ["@buildtools//:buildozer"],
 )
