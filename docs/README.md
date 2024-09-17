@@ -3,7 +3,7 @@
 ## Internal
 
 The mono-repo hosts internal documentation at [`docs.corp.actio.co`](https://TODO).
-You can preview it locally by running [`local.sh`](local.sh).
+You can preview it locally by running `bazel run //docs:dev`.
 
 ### How to Write Docs
 

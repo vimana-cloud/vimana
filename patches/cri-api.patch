@@ -1,0 +1,43 @@
+diff --git MODULE.bazel MODULE.bazel
+new file mode 100644
+index 0000000..89dfee6
+--- /dev/null
++++ MODULE.bazel
+@@ -0,0 +1,3 @@
++module(name = "cri-api")
++
++bazel_dep(name = "rules_proto", version = "6.0.2")
+diff --git pkg/apis/runtime/v1/BUILD.bazel pkg/apis/runtime/v1/BUILD.bazel
+new file mode 100644
+index 0000000..3ccbcfe
+--- /dev/null
++++ pkg/apis/runtime/v1/BUILD.bazel
+@@ -0,0 +1,7 @@
++load("@rules_proto//proto:defs.bzl", "proto_library")
++
++proto_library(
++    name = "api-proto",
++    srcs = ["api.proto"],
++    visibility = ["//visibility:public"],
++)
+diff --git pkg/apis/runtime/v1/api.proto pkg/apis/runtime/v1/api.proto
+index bc1a1cc..522c0e8 100644
+--- pkg/apis/runtime/v1/api.proto
++++ pkg/apis/runtime/v1/api.proto
+@@ -20,16 +20,6 @@ syntax = "proto3";
+ package runtime.v1;
+ option go_package = "k8s.io/cri-api/pkg/apis/runtime/v1";
+ 
+-import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+-
+-option (gogoproto.goproto_stringer_all) = false;
+-option (gogoproto.stringer_all) =  true;
+-option (gogoproto.goproto_getters_all) = true;
+-option (gogoproto.marshaler_all) = true;
+-option (gogoproto.sizer_all) = true;
+-option (gogoproto.unmarshaler_all) = true;
+-option (gogoproto.goproto_unrecognized_all) = false;
+-
+ // Runtime service defines the public APIs for remote container runtimes
+ service RuntimeService {
+     // Version returns the runtime name, runtime version, and runtime API version.

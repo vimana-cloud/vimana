@@ -11,8 +11,9 @@ bazel_dep(name = "toolchains_protoc", version = "0.3.1")
 bazel_dep(name = "cri-api")
 git_override(
     module_name = "cri-api",
-    remote = "git@github.com:actio-cloud/cri-api.git",
-    commit = "5dd4a0f3d0bf9f9ea655b757ee2cc8421e3c2dd2",
+    remote = "git@github.com:kubernetes/cri-api.git",
+    commit = "010fdf8d785a7f35fa5a1cc80c40bde0c13e1dfd",
+    patches = [":patches/cri-api.patch"],
 )
 
 bazel_dep(name = "rules_wasm")
