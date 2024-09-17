@@ -7,114 +7,134 @@
 ///   fields requests from Ingress to all hosted services.
 /// - Unix `/run/actio/container-runtime-interface.sock`
 ///   handles orchestration requests from Kubelet.
-
 use std::collections::HashMap;
 use std::mem::drop;
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock};
+use wasmtime::component::{InstancePre, Linker};
 use wasmtime::{Config as WasmConfig, Engine as WasmEngine, Store};
-use wasmtime::component::Instance;
 
-// TODO: This should be the protobuf of method configs
-//       attached to the image.
-//       Contains encoder, decoder, Wasm function name, etc.
-type MethodConfig = u32;
+use containers::ContainerStore;
+use error::{Error, Result};
+use names::FullVersionName;
+use pods_proto::pods::PodConfig;
+use pool::{Key, KeyedPodPool, Pod};
 
-/// A service implementation,
-/// corresponding to a specific version of a service.
-pub struct Implementation {
-
-    // A running instance of the component.
-    instance: Instance,
-
-    // The store associated with `instance`.
-    store: Mutex<Store<()>>,
-
-    // A mapping from gRPC method names to method configs.
-    methods: HashMap<String, MethodConfig>,
-}
-
-/// Use a two-level map structure to look up service implementations,
+// TODO: There may be a better data structure for pod pools.
+/// Use a two-level map structure to look up pods,
 /// providing some degree of contention isolation between domains.
 /// The top level keys are domains.
 /// The lower level is [ComponentMap],
 /// with keys composed of the service name and version.
 /// Together, they are effectively a single key-value store
-/// mapping (domain, service-name, version) keys to [Implementation] values.
+/// mapping (domain, service-name, version) keys to [Pod] values.
 type DomainMap = RwLock<HashMap<String, ComponentMap>>;
 
 /// The lower level of [DomainMap].
 /// Keys are of the form: <service-name> "@" <version>
-type ComponentMap = RwLock<HashMap<String, InstancePool>>;
+type ComponentMap = RwLock<HashMap<String, KeyedPodPool>>;
 
-/// A pool of instances of the same component.
-// TODO: Implement a real type.
-type InstancePool = ();
-
-/// Global runtime state for an Actio Work Node.
+/// Global runtime state for a work node.
 pub struct WorkRuntime {
-    /// Local cache of [Implementation] information.
-    implementations: DomainMap,
     /// Global Wasm engine to run hosted services.
     /// This is a cheap, thread-safe handle to the "real" engine.
     wasmtime: WasmEngine,
+
+    /// Local cache of [Pod] information.
+    pods: DomainMap,
+
+    /// Store from which to retrieve container images by ID.
+    containers: ContainerStore,
 }
 
 impl WorkRuntime {
-
     /// Return a new, empty [WorkRuntime].
-    pub fn new() -> Self {
-        WorkRuntime {
-            implementations:
-                RwLock::new(HashMap::new()),
-            wasmtime:
-                WasmEngine::new(
-                    WasmConfig::new()
-                        // Allows host functions to be `async` Rust.
-                        // Means you have to use `Func::call_async` instead of `Func::call`.
-                        // Components themselves effectively have a GIL
-                        // because they need [exclusive access] to a Store.
-                        .async_support(true)
-                        // Epoch interruption for preemptive multithreading.
-                        // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.epoch_interruption
-                        .epoch_interruption(true)
-                        // Enable support for various Wasm proposals...
-                        .wasm_component_model(true)
-                        .wasm_gc(true)
-                        .wasm_tail_call(true)
-                        .wasm_function_references(true)
-                ).unwrap(),
-        }
+    pub fn new() -> Result<Self> {
+        Ok(WorkRuntime {
+            wasmtime: Self::default_engine()?,
+            pods: RwLock::new(HashMap::new()),
+            containers: ContainerStore::new(),
+        })
     }
 
-    /// Get a loaded implementation.
-    pub async fn get_instance_pool(&self, domain: &str, component_name: &str) -> Result<InstancePool, String> {
-        // Look for an existing instance pool.
-        let domain_map = self.implementations.read().await;
-        match domain_map.get(domain) {
-            Some(locked_component_map) => {
-                let component_map = locked_component_map.read().await;
-                match component_map.get(component_name) {
-                    Some(pool) => Ok(pool.clone()),
-                    None => {
-                        // No existing instance pool; free all acquired read locks before fetching.
-                        drop(component_map);
-                        drop(domain_map);
-                        self.new_instance_pool(domain, component_name).await
-                    }
-                }
-            },
+    // A new instance of the default engine for this runtime.
+    pub fn default_engine() -> Result<WasmEngine> {
+        WasmEngine::new(
+            WasmConfig::new()
+                // Allows host functions to be `async` Rust.
+                // Means you have to use `Func::call_async` instead of `Func::call`.
+                .async_support(true)
+                // Epoch interruption for preemptive multithreading.
+                // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.epoch_interruption
+                .epoch_interruption(true)
+                // Enable support for various Wasm proposals...
+                .wasm_component_model(true)
+                .wasm_gc(true)
+                .wasm_tail_call(true)
+                .wasm_function_references(true),
+        )
+        .map_err(|err| Error::wrap(ENGINE_ALLOCATION_ERROR, err.into()))
+    }
+
+    /// Add a new pod to the pool.
+    pub async fn create_container(&self, name: FullVersionName<'_>) -> Result<Key> {
+        let (config, pod) = self.containers.new_container(&name)?;
+
+        // Optimistically try read-locking first.
+        let domain_map = self.pods.read().await;
+        match domain_map.get(name.domain) {
+            Some(component_map) => {
+                self.add_pod_for_domain(component_map, name, config, pod)
+                    .await
+            }
             None => {
-                // No existing instance pool; free all acquired read locks before fetching.
+                // No existing pods for the domain.
+                // Drop the read-lock then get a write-lock for the whole pool.
                 drop(domain_map);
-                self.new_instance_pool(domain, component_name).await
-            },
+                let mut domain_map_mut = self.pods.write().await;
+
+                // There may have been a concurrent insertion
+                // in between the first check and acquiring the write-lock.
+                if let Some(concurrent_insertion) =
+                    domain_map_mut.insert(String::from(name.domain), RwLock::new(HashMap::new()))
+                {
+                    // Defer to the prior insertion (insert it back).
+                    domain_map_mut.insert(String::from(name.domain), concurrent_insertion);
+                }
+                drop(domain_map_mut); // Drop the write-lock.
+
+                // Try again with a read-lock,
+                // now that we're *pretty* sure the lookup will work.
+                match self.pods.read().await.get(name.domain) {
+                    Some(component_map) => {
+                        self.add_pod_for_domain(component_map, name, config, pod)
+                            .await
+                    }
+                    None => Err(Error::leaf("Memory error while inserting pod into pool")),
+                }
+            }
         }
     }
 
-    /// Create a new instance pool for the named component.
-    async fn new_instance_pool(&self, _domain: &str, _component_name: &str) -> Result<InstancePool, String> {
-        todo!()
+    async fn add_pod_for_domain(
+        &self,
+        component_map: &ComponentMap,
+        name: FullVersionName<'_>,
+        config: PodConfig,
+        pod: Pod,
+    ) -> Result<Key> {
+        let mut component_map = component_map.write().await;
+        match component_map.get_mut(name.without_domain) {
+            Some(pool) => pool.add(pod),
+            None => {
+                let mut pool = KeyedPodPool::new(config);
+                let key = pool.add(pod);
+                component_map.insert(String::from(name.without_domain), pool);
+                key
+            }
+        }
     }
 }
+
+const ENGINE_ALLOCATION_ERROR: &str = "Error allocating engine";

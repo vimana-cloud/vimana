@@ -1,0 +1,45 @@
+// Control plane configuration.
+// These configurations are loaded and used by front-end servers to handle
+// incoming traffic.
+
+syntax = "proto3";
+
+package work.runtime.pods;
+
+import "work/runtime/coding.proto";
+
+// Configuration common to all pods of a particular versioned service
+// implementation.
+message PodConfig {
+
+  // Domain name, e.g. `api.example.com`.
+  string domain = 1;
+
+  // Fully-qualified service name, e.g. `com.example.api.HelloWorld`
+  string name = 2;
+
+  // Service version.
+  string version = 3;
+
+  // Mapping from all method names (e.g. `SayHello`) to method configuration.
+  map<string, Method> methods = 4;
+
+  // Represents a method signature.
+  message Method {
+
+    // The name of the Wasm function to invoke for this method.
+    string function_name = 1;
+
+    // Type definition of request messages.
+    work.runtime.coding.Field request_decoder = 2;
+
+    // Type definition of response messages.
+    work.runtime.coding.Field response_encoder = 3;
+
+    // True iff the method uses client-side streaming.
+    bool client_streaming = 4;
+
+    // True iff the method uses server-side streaming.
+    bool server_streaming = 5;
+  }
+}

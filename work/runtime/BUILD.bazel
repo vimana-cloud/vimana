@@ -1,10 +1,11 @@
 load("@rules_rust//proto/prost:defs.bzl", "rust_prost_library")
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 
 # Top-level target: the runtime executable.
 rust_binary(
     name = "runtime",
     srcs = ["main.rs"],
+    visibility = ["//visibility:public"],
     deps = [
         ":cri",
         ":runtime-api-prost",
@@ -13,13 +14,17 @@ rust_binary(
         "@crates//:tokio-stream",
         "@crates//:tonic",
     ],
-    visibility = ["//visibility:public"],
 )
 
 rust_library(
     name = "state",
     srcs = ["state.rs"],
     deps = [
+        ":containers",
+        ":pods-prost",
+        ":pool",
+        "//util:error",
+        "//util:names",
         "@crates//:tokio",
         "@crates//:wasmtime",
     ],
@@ -31,8 +36,20 @@ rust_library(
     deps = [
         ":runtime-api-prost",
         ":state",
+        "//util:error",
         "//util:names",
         "@crates//:tokio-stream",
+    ],
+)
+
+rust_library(
+    name = "containers",
+    srcs = ["containers.rs"],
+    deps = [
+        ":pods-prost",
+        ":pool",
+        "//util:error",
+        "//util:names",
     ],
 )
 
@@ -40,6 +57,51 @@ rust_library(
 rust_prost_library(
     name = "runtime-api-prost",
     proto = "@cri-api//pkg/apis/runtime/v1:api-proto",
+)
+
+rust_library(
+    name = "pool",
+    srcs = ["pool.rs"],
+    deps = [
+        ":pods-prost",
+        "//util:error",
+        "@crates//:tokio",
+        "@crates//:wasmtime",
+    ],
+)
+
+rust_test(
+    name = "pool-test",
+    crate = ":pool",
+    deps = [
+        ":state",
+    ],
+)
+
+proto_library(
+    name = "pods-proto",
+    srcs = ["pods.proto"],
+    deps = [
+        ":coding-proto",
+    ],
+)
+
+rust_prost_library(
+    name = "pods-prost",
+    proto = "pods-proto",
+)
+
+rust_library(
+    name = "grpc",
+    srcs = ["grpc.rs"],
+    deps = [
+        ":state",
+        "@crates//:bytes",
+        "@crates//:http-body-util",
+        "@crates//:hyper",
+        "@crates//:hyper-util",
+        "@crates//:tokio",
+    ],
 )
 
 proto_library(

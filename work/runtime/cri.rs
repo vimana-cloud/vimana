@@ -1,6 +1,7 @@
-/// Implementation of the
-/// [Container Runtime Interface](https://kubernetes.io/docs/concepts/architecture/cri/)
-/// for the Work Node runtime.
+//! Implementation of the
+//! [Container Runtime Interface](https://kubernetes.io/docs/concepts/architecture/cri/)
+//! for the Work Node runtime.
+use std::sync::Arc;
 
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Code, Request, Response, Status};
@@ -9,21 +10,26 @@ use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_server::ImageService;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
 
-use names::ServiceName;
+use error::Error;
+use names::Name;
 use state::WorkRuntime;
 
 const CONTAINER_RUNTIME_NAME: &str = "actio-work";
 
 /// Wrapper around [ActioRuntime] that can implement [RuntimeService] and [ImageService]
 /// without running afoul of Rust's rules on foreign types / traits.
-pub struct ActioCriService(pub WorkRuntime);
+pub struct ActioCriService(pub Arc<WorkRuntime>);
 
 /// Type boilerplate for a typical Tonic response result.
 type TonicResult<T> = Result<Response<T>, Status>;
 
+// Actio's CRI does not support some functionality.
+const COMMANDS_NOT_SUPPORTED_MSG: &str = "Actio containers cannot execute commands.";
+const ATTACH_NOT_SUPPORTED_MSG: &str = "Actio containers do not support attaching.";
+const PORT_FORWARD_NOT_SUPPORTED_MSG: &str = "Actio containers cannot do port-forwarding.";
+
 #[tonic::async_trait]
 impl RuntimeService for ActioCriService {
-
     async fn version(&self, _r: Request<v1::VersionRequest>) -> TonicResult<v1::VersionResponse> {
         Ok(Response::new(v1::VersionResponse {
             // Version of the kubelet runtime API.
@@ -37,117 +43,169 @@ impl RuntimeService for ActioCriService {
         }))
     }
 
-    async fn run_pod_sandbox(&self, _r: Request<v1::RunPodSandboxRequest>) -> TonicResult<v1::RunPodSandboxResponse> {
+    async fn run_pod_sandbox(
+        &self,
+        _r: Request<v1::RunPodSandboxRequest>,
+    ) -> TonicResult<v1::RunPodSandboxResponse> {
         // Sandboxing occurs at the container level, not pod. Nothing to do.
         Ok(Response::new(v1::RunPodSandboxResponse::default()))
     }
 
-    async fn stop_pod_sandbox(&self, _r: Request<v1::StopPodSandboxRequest>) -> TonicResult<v1::StopPodSandboxResponse> {
+    async fn stop_pod_sandbox(
+        &self,
+        _r: Request<v1::StopPodSandboxRequest>,
+    ) -> TonicResult<v1::StopPodSandboxResponse> {
         // Sandboxing occurs at the container level, not pod. Nothing to do.
         Ok(Response::new(v1::StopPodSandboxResponse::default()))
     }
 
-    async fn remove_pod_sandbox(&self, _r: Request<v1::RemovePodSandboxRequest>) -> TonicResult<v1::RemovePodSandboxResponse> {
+    async fn remove_pod_sandbox(
+        &self,
+        _r: Request<v1::RemovePodSandboxRequest>,
+    ) -> TonicResult<v1::RemovePodSandboxResponse> {
         // Sandboxing occurs at the container level, not pod. Nothing to do.
         Ok(Response::new(v1::RemovePodSandboxResponse::default()))
     }
 
-    async fn pod_sandbox_status(&self, _r: Request<v1::PodSandboxStatusRequest>) -> TonicResult<v1::PodSandboxStatusResponse> {
+    async fn pod_sandbox_status(
+        &self,
+        _r: Request<v1::PodSandboxStatusRequest>,
+    ) -> TonicResult<v1::PodSandboxStatusResponse> {
         todo!()
     }
 
-    async fn list_pod_sandbox(&self, _r: Request<v1::ListPodSandboxRequest>) -> TonicResult<v1::ListPodSandboxResponse> {
+    async fn list_pod_sandbox(
+        &self,
+        _r: Request<v1::ListPodSandboxRequest>,
+    ) -> TonicResult<v1::ListPodSandboxResponse> {
         todo!()
     }
 
-    async fn create_container(&self, r: Request<v1::CreateContainerRequest>) -> TonicResult<v1::CreateContainerResponse> {
+    async fn create_container(
+        &self,
+        r: Request<v1::CreateContainerRequest>,
+    ) -> TonicResult<v1::CreateContainerResponse> {
         let request = r.into_inner();
         let config = request.config.unwrap_or_default();
         let image_id = config.image.unwrap_or_default().image;
 
-        let name = ServiceName::parse(&image_id);
-        match name.version.and(name.domain) {
-            Some(domain) => {
-                match self.0.get_instance_pool(domain, name.without_domain).await {
-                    Ok(_pool) => {
-                        // TODO: Add another thing to the pool.
-                        Ok(Response::new(v1::CreateContainerResponse {
-                            container_id: "TODO".to_string(),
-                        }))
-                    },
-                    // TODO: Better error handling.
-                    Err(msg) => Err(Status::new(Code::Internal, msg)),
-                }
-            },
-            // Must have both an explicit domain and version to be valid.
-            None => Err(Status::new(Code::InvalidArgument, format!("Invalid image ID: {image_id}"))),
-        }
-    }
-
-    async fn start_container(&self, _r: Request<v1::StartContainerRequest>) -> TonicResult<v1::StartContainerResponse> {
-        todo!()
-    }
-
-    async fn stop_container(&self, _r: Request<v1::StopContainerRequest>) -> TonicResult<v1::StopContainerResponse> {
-        todo!()
-    }
-
-    async fn remove_container(&self, _r: Request<v1::RemoveContainerRequest>) -> TonicResult<v1::RemoveContainerResponse> {
-        todo!()
-    }
-
-    async fn list_containers(&self, _r: Request<v1::ListContainersRequest>) -> TonicResult<v1::ListContainersResponse> {
-        todo!()
-    }
-
-    async fn container_status(&self, _r: Request<v1::ContainerStatusRequest>) -> TonicResult<v1::ContainerStatusResponse> {
-        todo!()
-    }
-
-    async fn update_container_resources(&self, _r: Request<v1::UpdateContainerResourcesRequest>) -> TonicResult<v1::UpdateContainerResourcesResponse> {
-        todo!()
-    }
-
-    async fn reopen_container_log(&self, _r: Request<v1::ReopenContainerLogRequest>) -> TonicResult<v1::ReopenContainerLogResponse> {
-        todo!()
-    }
-
-    async fn exec_sync(&self, _r: Request<v1::ExecSyncRequest>) -> TonicResult<v1::ExecSyncResponse> {
-        todo!()
-    }
-
-    async fn exec(&self, _r: Request<v1::ExecRequest>) -> TonicResult<v1::ExecResponse> {
-        todo!()
-    }
-
-    async fn attach(&self, _r: Request<v1::AttachRequest>) -> TonicResult<v1::AttachResponse> {
-        todo!()
-    }
-
-    async fn port_forward(&self, _r: Request<v1::PortForwardRequest>) -> TonicResult<v1::PortForwardResponse> {
-        Ok(Response::new(v1::PortForwardResponse {
-            // Never forward ports. Always use port 443 for data-plane traffic.
-            url: "https://TODO:443".into(),
+        // Must have both an explicit domain and version.
+        let name = Name::parse(&image_id)
+            .to_full_version()
+            .map_err(|e| e.to_status(Code::InvalidArgument))?;
+        let id = self
+            .0
+            .create_container(name)
+            .await
+            .map_err(|e| e.to_status(Code::Internal))?;
+        Ok(Response::new(v1::CreateContainerResponse {
+            container_id: format!("{}", id),
         }))
     }
 
-    async fn container_stats(&self, _r: Request<v1::ContainerStatsRequest>) -> TonicResult<v1::ContainerStatsResponse> {
+    async fn start_container(
+        &self,
+        _r: Request<v1::StartContainerRequest>,
+    ) -> TonicResult<v1::StartContainerResponse> {
         todo!()
     }
 
-    async fn list_container_stats(&self, _r: Request<v1::ListContainerStatsRequest>) -> TonicResult<v1::ListContainerStatsResponse> {
+    async fn stop_container(
+        &self,
+        _r: Request<v1::StopContainerRequest>,
+    ) -> TonicResult<v1::StopContainerResponse> {
         todo!()
     }
 
-    async fn pod_sandbox_stats(&self, _r: Request<v1::PodSandboxStatsRequest>) -> TonicResult<v1::PodSandboxStatsResponse> {
+    async fn remove_container(
+        &self,
+        _r: Request<v1::RemoveContainerRequest>,
+    ) -> TonicResult<v1::RemoveContainerResponse> {
         todo!()
     }
 
-    async fn list_pod_sandbox_stats(&self, _r: Request<v1::ListPodSandboxStatsRequest>) -> TonicResult<v1::ListPodSandboxStatsResponse> {
+    async fn list_containers(
+        &self,
+        _r: Request<v1::ListContainersRequest>,
+    ) -> TonicResult<v1::ListContainersResponse> {
         todo!()
     }
 
-    async fn update_runtime_config(&self, _r: Request<v1::UpdateRuntimeConfigRequest>) -> TonicResult<v1::UpdateRuntimeConfigResponse> {
+    async fn container_status(
+        &self,
+        _r: Request<v1::ContainerStatusRequest>,
+    ) -> TonicResult<v1::ContainerStatusResponse> {
+        todo!()
+    }
+
+    async fn update_container_resources(
+        &self,
+        _r: Request<v1::UpdateContainerResourcesRequest>,
+    ) -> TonicResult<v1::UpdateContainerResourcesResponse> {
+        todo!()
+    }
+
+    async fn reopen_container_log(
+        &self,
+        _r: Request<v1::ReopenContainerLogRequest>,
+    ) -> TonicResult<v1::ReopenContainerLogResponse> {
+        todo!()
+    }
+
+    async fn exec_sync(
+        &self,
+        _r: Request<v1::ExecSyncRequest>,
+    ) -> TonicResult<v1::ExecSyncResponse> {
+        Err(Status::unimplemented(COMMANDS_NOT_SUPPORTED_MSG))
+    }
+
+    async fn exec(&self, _r: Request<v1::ExecRequest>) -> TonicResult<v1::ExecResponse> {
+        Err(Status::unimplemented(COMMANDS_NOT_SUPPORTED_MSG))
+    }
+
+    async fn attach(&self, _r: Request<v1::AttachRequest>) -> TonicResult<v1::AttachResponse> {
+        Err(Status::unimplemented(ATTACH_NOT_SUPPORTED_MSG))
+    }
+
+    async fn port_forward(
+        &self,
+        _r: Request<v1::PortForwardRequest>,
+    ) -> TonicResult<v1::PortForwardResponse> {
+        Err(Status::unimplemented(PORT_FORWARD_NOT_SUPPORTED_MSG))
+    }
+
+    async fn container_stats(
+        &self,
+        _r: Request<v1::ContainerStatsRequest>,
+    ) -> TonicResult<v1::ContainerStatsResponse> {
+        todo!()
+    }
+
+    async fn list_container_stats(
+        &self,
+        _r: Request<v1::ListContainerStatsRequest>,
+    ) -> TonicResult<v1::ListContainerStatsResponse> {
+        todo!()
+    }
+
+    async fn pod_sandbox_stats(
+        &self,
+        _r: Request<v1::PodSandboxStatsRequest>,
+    ) -> TonicResult<v1::PodSandboxStatsResponse> {
+        todo!()
+    }
+
+    async fn list_pod_sandbox_stats(
+        &self,
+        _r: Request<v1::ListPodSandboxStatsRequest>,
+    ) -> TonicResult<v1::ListPodSandboxStatsResponse> {
+        todo!()
+    }
+
+    async fn update_runtime_config(
+        &self,
+        _r: Request<v1::UpdateRuntimeConfigRequest>,
+    ) -> TonicResult<v1::UpdateRuntimeConfigResponse> {
         todo!()
     }
 
@@ -155,49 +213,78 @@ impl RuntimeService for ActioCriService {
         todo!()
     }
 
-    async fn checkpoint_container(&self, _r: Request<v1::CheckpointContainerRequest>) -> TonicResult<v1::CheckpointContainerResponse> {
+    async fn checkpoint_container(
+        &self,
+        _r: Request<v1::CheckpointContainerRequest>,
+    ) -> TonicResult<v1::CheckpointContainerResponse> {
         todo!()
     }
 
     type GetContainerEventsStream = ReceiverStream<Result<v1::ContainerEventResponse, Status>>;
 
-    async fn get_container_events(&self, _r: Request<v1::GetEventsRequest>) -> TonicResult<Self::GetContainerEventsStream> {
+    async fn get_container_events(
+        &self,
+        _r: Request<v1::GetEventsRequest>,
+    ) -> TonicResult<Self::GetContainerEventsStream> {
         todo!()
     }
 
-    async fn list_metric_descriptors(&self, _r: Request<v1::ListMetricDescriptorsRequest>) -> TonicResult<v1::ListMetricDescriptorsResponse> {
+    async fn list_metric_descriptors(
+        &self,
+        _r: Request<v1::ListMetricDescriptorsRequest>,
+    ) -> TonicResult<v1::ListMetricDescriptorsResponse> {
         todo!()
     }
 
-    async fn list_pod_sandbox_metrics(&self, _r: Request<v1::ListPodSandboxMetricsRequest>) -> TonicResult<v1::ListPodSandboxMetricsResponse> {
+    async fn list_pod_sandbox_metrics(
+        &self,
+        _r: Request<v1::ListPodSandboxMetricsRequest>,
+    ) -> TonicResult<v1::ListPodSandboxMetricsResponse> {
         todo!()
     }
 
-    async fn runtime_config(&self, _r: Request<v1::RuntimeConfigRequest>) -> TonicResult<v1::RuntimeConfigResponse> {
+    async fn runtime_config(
+        &self,
+        _r: Request<v1::RuntimeConfigRequest>,
+    ) -> TonicResult<v1::RuntimeConfigResponse> {
         todo!()
     }
 }
 
 #[tonic::async_trait]
 impl ImageService for ActioCriService {
-
-    async fn list_images(&self, _r: Request<v1::ListImagesRequest>) -> TonicResult<v1::ListImagesResponse> {
+    async fn list_images(
+        &self,
+        _r: Request<v1::ListImagesRequest>,
+    ) -> TonicResult<v1::ListImagesResponse> {
         todo!()
     }
 
-    async fn image_status(&self, _r: Request<v1::ImageStatusRequest>) -> TonicResult<v1::ImageStatusResponse> {
+    async fn image_status(
+        &self,
+        _r: Request<v1::ImageStatusRequest>,
+    ) -> TonicResult<v1::ImageStatusResponse> {
         todo!()
     }
 
-    async fn pull_image(&self, _r: Request<v1::PullImageRequest>) -> TonicResult<v1::PullImageResponse> {
+    async fn pull_image(
+        &self,
+        _r: Request<v1::PullImageRequest>,
+    ) -> TonicResult<v1::PullImageResponse> {
         todo!()
     }
 
-    async fn remove_image(&self, _r: Request<v1::RemoveImageRequest>) -> TonicResult<v1::RemoveImageResponse> {
+    async fn remove_image(
+        &self,
+        _r: Request<v1::RemoveImageRequest>,
+    ) -> TonicResult<v1::RemoveImageResponse> {
         todo!()
     }
 
-    async fn image_fs_info(&self, _r: Request<v1::ImageFsInfoRequest>) -> TonicResult<v1::ImageFsInfoResponse> {
+    async fn image_fs_info(
+        &self,
+        _r: Request<v1::ImageFsInfoRequest>,
+    ) -> TonicResult<v1::ImageFsInfoResponse> {
         todo!()
     }
 }
