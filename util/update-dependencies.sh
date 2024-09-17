@@ -42,7 +42,7 @@ fi
 pushd "$BUILD_WORKSPACE_DIRECTORY" > /dev/null
 
 # `$1` is relative to `bazel-bin`. Use `bazel info` to make an absolute path.
-buildozer="$(bazel info bazel-bin)/$1" 
+buildozer="$(bazel info bazel-bin)/$1"
 
 # The following creates a Buildozer command file to run a batch of commands together,
 # storing the contents in a variable.
@@ -102,7 +102,7 @@ rust_updates="$("$buildozer" "print startline package version" "//MODULE.bazel:%
       line_number="${BASH_REMATCH[1]}"
       name="${BASH_REMATCH[2]}"
       current_version="${BASH_REMATCH[3]}"
-      
+
       # URL of metadata JSON for this crate on crates.io.
       index_url="https://index.crates.io/$(crate-index-folder "$name")/$name"
       # Get the latest version from the index.

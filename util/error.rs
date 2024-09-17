@@ -1,13 +1,18 @@
 use std::error::Error as StdError;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::result::Result as StdResult;
+use tonic::{Code, Status};
 
 /// The [error](StdError) type.
 pub struct Error {
     /// Developer-facing message.
-    msg: String,
+    pub msg: String,
 
+    /// Developer-facing Parent cause of this error.
     source: Option<Box<dyn StdError>>,
+
+    /// User-facing gRPC status code associated with this error.
+    code: Code,
 }
 
 /// A [result](StdResult) that fails with [`Error`](Error).
@@ -19,6 +24,7 @@ impl Error {
         Self {
             msg: msg.into(),
             source: None,
+            code: Code::Internal,
         }
     }
 
@@ -27,7 +33,13 @@ impl Error {
         Self {
             msg: msg.into(),
             source: Some(source),
+            code: Code::Internal,
         }
+    }
+
+    /// Consume self and return a gRPC status with the same message and given status code.
+    pub fn to_status(self, code: Code) -> Status {
+        Status::new(code, self.msg)
     }
 }
 

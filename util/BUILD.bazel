@@ -5,6 +5,7 @@ load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 rust_library(
     name = "error",
     srcs = ["error.rs"],
+    deps = ["@crates//:tonic"],
 )
 
 rust_test(
