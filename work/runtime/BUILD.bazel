@@ -41,3 +41,14 @@ rust_prost_library(
     name = "runtime-api-prost",
     proto = "@cri-api//pkg/apis/runtime/v1:api-proto",
 )
+
+proto_library(
+    name = "coding-proto",
+    srcs = ["coding.proto"],
+)
+
+# K8s Container Runtime Interface "Runtime API".
+rust_prost_library(
+    name = "coding-prost",
+    proto = ":coding-proto",
+)
