@@ -1,10 +1,13 @@
 {
-	"version": "2.0.0",
-	"tasks": [
-		{
-			"label": "Generate rust-project.json",
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Generate rust-project.json",
             "command": "bazel",
-            "args": ["run", "@rules_rust//tools/rust_analyzer:gen_rust_project"],
+            "args": [
+                "run",
+                "@rules_rust//tools/rust_analyzer:gen_rust_project"
+            ],
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -12,11 +15,26 @@
             "problemMatcher": [],
             "presentation": {
                 "reveal": "never",
-                "panel": "dedicated",
+                "panel": "dedicated"
             },
             "runOptions": {
                 "runOn": "folderOpen"
             }
-		}
-	]
+        },
+        {
+            "label": "bazel: Build Current File",
+            "type": "shell",
+            "command": "./.vscode/build-current-file.sh",
+            "args": [
+                "${relativeFile}"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "clear": true
+            }
+        }
+    ]
 }
