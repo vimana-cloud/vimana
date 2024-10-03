@@ -2,25 +2,24 @@
 
 module(name = "actio")
 
-bazel_dep(name = "buildifier_prebuilt", version = "7.1.2", dev_dependency = True, repo_name = "buildtools")
+bazel_dep(name = "buildifier_prebuilt", version = "7.3.1", dev_dependency = True, repo_name = "buildtools")
 
-bazel_dep(name = "rules_nodejs", version = "6.2.0")
-bazel_dep(name = "rules_rust", version = "0.50.0")
-bazel_dep(name = "toolchains_protoc", version = "0.3.1")
-
+bazel_dep(name = "rules_nodejs", version = "6.3.0")
+bazel_dep(name = "rules_rust", version = "0.50.1")
+bazel_dep(name = "toolchains_protoc", version = "0.3.3")
 bazel_dep(name = "cri-api")
 git_override(
     module_name = "cri-api",
-    remote = "git@github.com:kubernetes/cri-api.git",
     commit = "010fdf8d785a7f35fa5a1cc80c40bde0c13e1dfd",
     patches = [":patches/cri-api.patch"],
+    remote = "git@github.com:kubernetes/cri-api.git",
 )
 
 bazel_dep(name = "rules_wasm")
 git_override(
     module_name = "rules_wasm",
+    commit = "a96e53c4df96fc4228679381714d0b7d6c716073",
     remote = "git@github.com:actio-cloud/rules_wasm.git",
-    commit = "a17471201305568015426400fe81b5e9c6b0e900",
 )
 
 # Access protobuf well-known types proto rules in the `@protobuf` repo.
@@ -32,7 +31,15 @@ use_repo(protoc, protobuf = "com_google_protobuf")
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 crate.spec(
     package = "bytes",
-    version = "1.7.1",
+    version = "1.7.2",
+)
+crate.spec(
+    package = "http",
+    version = "1.1.0",
+)
+crate.spec(
+    package = "http-body",
+    version = "1.0.1",
 )
 crate.spec(
     package = "http-body-util",
@@ -49,15 +56,19 @@ crate.spec(
 crate.spec(
     features = ["tokio"],
     package = "hyper-util",
-    version = "0.1.7",
+    version = "0.1.8",
+)
+crate.spec(
+    package = "lazy_static",
+    version = "1.5.0",
 )
 crate.spec(
     package = "prost",
-    version = "0.13.1",
+    version = "0.13.2",
 )
 crate.spec(
     package = "prost-types",
-    version = "0.13.1",
+    version = "0.13.2",
 )
 crate.spec(
     package = "protoc-gen-prost",
@@ -65,7 +76,11 @@ crate.spec(
 )
 crate.spec(
     package = "protoc-gen-tonic",
-    version = "0.4.0",
+    version = "0.4.1",
+)
+crate.spec(
+    package = "regex",
+    version = "1.10.6",
 )
 crate.spec(
     features = [
@@ -74,20 +89,24 @@ crate.spec(
         "sync",
     ],
     package = "tokio",
-    version = "1.39.3",
+    version = "1.40.0",
 )
 crate.spec(
     features = ["net"],
     package = "tokio-stream",
-    version = "0.1.15",
+    version = "0.1.16",
 )
 crate.spec(
     package = "tonic",
-    version = "0.12.1",
+    version = "0.12.2",
+)
+crate.spec(
+    package = "tower-service",
+    version = "0.3.3",
 )
 crate.spec(
     package = "wasmtime",
-    version = "23.0.2",
+    version = "24.0.0",
 )
 
 # Generate certain binaries needed for building.
