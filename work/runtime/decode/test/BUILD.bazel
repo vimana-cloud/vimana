@@ -1,4 +1,5 @@
 load("@rules_python//python:proto.bzl", "py_proto_library")
+load("@rules_python//python:py_test.bzl", "py_test")
 
 proto_library(
     name = "messages-proto",
@@ -9,4 +10,10 @@ proto_library(
 py_proto_library(
     name = "messages-py-pb2",
     deps = [":messages-proto"],
+)
+
+py_test(
+    name = "decode-test",
+    srcs = ["decode-test.py"],
+    deps = [":messages-py-pb2"],
 )
