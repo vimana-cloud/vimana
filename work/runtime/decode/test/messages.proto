@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package work.runtime.decode.test.messages;
+
+// Contains one of each possible scalar type.
+message ScalarTypes {
+
+  bytes bytes_implicit = 1;
+  repeated bytes bytes_packed = 2;
+  optional bytes bytes_explicit = 3;
+  repeated bytes bytes_expanded = 4 [ packed = false ];
+
+  string string_utf8_implicit = 5;
+  repeated string string_utf8_packed = 6;
+  optional string string_utf8_explicit = 7;
+  repeated string string_utf8_expanded = 8 [ packed = false ];
+
+  string string_permissive_implicit = 9;
+  repeated string string_permissive_packed = 10;
+  optional string string_permissive_explicit = 11;
+  repeated string string_permissive_expanded = 12 [ packed = false ];
+
+  bool bool_implicit = 13;
+  repeated bool bool_packed = 14;
+  optional bool bool_explicit = 15;
+  repeated bool bool_expanded = 16 [ packed = false ];
+
+  int32 int32_implicit = 17;
+  repeated int32 int32_packed = 18;
+  optional int32 int32_explicit = 19;
+  repeated int32 int32_expanded = 20 [ packed = false ];
+
+  sint32 sint32_implicit = 21;
+  repeated sint32 sint32_packed = 22;
+  optional sint32 sint32_explicit = 23;
+  repeated sint32 sint32_expanded = 24 [ packed = false ];
+
+  sfixed32 sfixed32_implicit = 25;
+  repeated sfixed32 sfixed32_packed = 26;
+  optional sfixed32 sfixed32_explicit = 27;
+  repeated sfixed32 sfixed32_expanded = 28 [ packed = false ];
+
+  uint32 uint32_implicit = 29;
+  repeated uint32 uint32_packed = 30;
+  optional uint32 uint32_explicit = 31;
+  repeated uint32 uint32_expanded = 32 [ packed = false ];
+
+  fixed32 fixed32_implicit = 33;
+  repeated fixed32 fixed32_packed = 34;
+  optional fixed32 fixed32_explicit = 35;
+  repeated fixed32 fixed32_expanded = 36 [ packed = false ];
+
+  int64 int64_implicit = 37;
+  repeated int64 int64_packed = 38;
+  optional int64 int64_explicit = 39;
+  repeated int64 int64_expanded = 40 [ packed = false ];
+
+  sint64 sint64_implicit = 41;
+  repeated sint64 sint64_packed = 42;
+  optional sint64 sint64_explicit = 43;
+  repeated sint64 sint64_expanded = 44 [ packed = false ];
+
+  sfixed64 sfixed64_implicit = 45;
+  repeated sfixed64 sfixed64_packed = 46;
+  optional sfixed64 sfixed64_explicit = 47;
+  repeated sfixed64 sfixed64_expanded = 48 [ packed = false ];
+
+  uint64 uint64_implicit = 49;
+  repeated uint64 uint64_packed = 50;
+  optional uint64 uint64_explicit = 51;
+  repeated uint64 uint64_expanded = 52 [ packed = false ];
+
+  fixed64 fixed64_implicit = 53;
+  repeated fixed64 fixed64_packed = 54;
+  optional fixed64 fixed64_explicit = 55;
+  repeated fixed64 fixed64_expanded = 56 [ packed = false ];
+
+  float float_implicit = 57;
+  repeated float float_packed = 58;
+  optional float float_explicit = 59;
+  repeated float float_expanded = 60 [ packed = false ];
+
+  double double_implicit = 61;
+  repeated double double_packed = 62;
+  optional double double_explicit = 63;
+  repeated double double_expanded = 64 [ packed = false ];
+}
