@@ -1,3 +1,4 @@
+load("@rules_proto//proto:defs.bzl", "proto_lang_toolchain")
 load("@rules_rust//proto/prost:defs.bzl", "rust_prost_toolchain")
 load("@rules_rust//rust:defs.bzl", "rust_library_group")
 
@@ -12,7 +13,10 @@ rust_library_group(
 
 rust_library_group(
     name = "tonic-runtime",
-    deps = [":prost-runtime", "@crates//:tonic"],
+    deps = [
+        ":prost-runtime",
+        "@crates//:tonic",
+    ],
 )
 
 rust_prost_toolchain(
@@ -28,4 +32,19 @@ toolchain(
     name = "prost-toolchain",
     toolchain = "prost-toolchain-impl",
     toolchain_type = "@rules_rust//proto/prost:toolchain_type",
+)
+
+# Set up the Python Protobuf toolchain for use in tests.
+
+proto_lang_toolchain(
+    name = "protoc-python",
+    command_line = "--python_out=%s",
+    progress_message = "Generating Python Protobuf library %{label}",
+    runtime = "@pypi//protobuf",
+)
+
+toolchain(
+    name = "protoc-python-toolchain",
+    toolchain = "protoc-python",
+    toolchain_type = "@rules_python//python/proto:toolchain_type",
 )

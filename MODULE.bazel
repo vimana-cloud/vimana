@@ -3,6 +3,7 @@
 module(name = "actio")
 
 bazel_dep(name = "buildifier_prebuilt", version = "7.3.1", dev_dependency = True, repo_name = "buildtools")
+bazel_dep(name = "rules_python", version = "0.36.0", dev_dependency = True)
 
 bazel_dep(name = "rules_nodejs", version = "6.3.0")
 bazel_dep(name = "rules_rust", version = "0.50.1")
@@ -122,6 +123,28 @@ crate.from_specs()
 use_repo(crate, "crates")
 
 register_toolchains("//:prost-toolchain")
+
+# Python setup (for testing):
+
+python_version = "3.12"
+python = use_extension(
+    "@rules_python//python/extensions:python.bzl",
+    "python",
+    dev_dependency = True,
+)
+python.toolchain(python_version = python_version, is_default = True)
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "pypi",
+    python_version = python_version,
+    # TODO: See if we can eliminate the requirements.txt file
+    #   https://github.com/bazelbuild/rules_python/issues/2271
+    requirements_lock = "//util:requirements.txt",
+)
+use_repo(pip, "pypi")
+
+register_toolchains("//:protoc-python-toolchain")
 
 # NodeJS setup (for serving documentation with VitePress):
 
