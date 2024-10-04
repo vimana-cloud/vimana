@@ -74,20 +74,18 @@ impl WorkRuntime {
                 .wasm_tail_call(true)
                 .wasm_function_references(true),
         )
-        .map_err(|err| Error::wrap(ENGINE_ALLOCATION_ERROR, err.into()))
+        .map_err(|err| Error::wrap(ENGINE_ALLOCATION_ERROR, err))
     }
 
-    /// Add a new pod to the pool.
-    pub async fn create_container(&self, name: FullVersionName<'_>) -> Result<Key> {
-        let (config, pod) = self.containers.new_container(&name)?;
-
+    /// Add a new, empty pod to the pool, in a reserved state.
+    ///
+    /// Reserved pods are unusable
+    /// until a container is [created](Self::create_container) within them.
+    pub async fn add_pod(&self, name: FullVersionName) -> Result<Key> {
         // Optimistically try read-locking first.
         let domain_map = self.pods.read().await;
-        match domain_map.get(name.domain) {
-            Some(component_map) => {
-                self.add_pod_for_domain(component_map, name, config, pod)
-                    .await
-            }
+        match domain_map.get(&name.domain) {
+            Some(component_map) => self.add_pod_for_domain(component_map, name).await,
             None => {
                 // No existing pods for the domain.
                 // Drop the read-lock then get a write-lock for the whole pool.
@@ -97,20 +95,17 @@ impl WorkRuntime {
                 // There may have been a concurrent insertion
                 // in between the first check and acquiring the write-lock.
                 if let Some(concurrent_insertion) =
-                    domain_map_mut.insert(String::from(name.domain), RwLock::new(HashMap::new()))
+                    domain_map_mut.insert(name.domain.clone(), RwLock::new(HashMap::new()))
                 {
                     // Defer to the prior insertion (insert it back).
-                    domain_map_mut.insert(String::from(name.domain), concurrent_insertion);
+                    domain_map_mut.insert(name.domain.clone(), concurrent_insertion);
                 }
                 drop(domain_map_mut); // Drop the write-lock.
 
                 // Try again with a read-lock,
                 // now that we're *pretty* sure the lookup will work.
-                match self.pods.read().await.get(name.domain) {
-                    Some(component_map) => {
-                        self.add_pod_for_domain(component_map, name, config, pod)
-                            .await
-                    }
+                match self.pods.read().await.get(&name.domain) {
+                    Some(component_map) => self.add_pod_for_domain(component_map, name).await,
                     None => Err(Error::leaf("Memory error while inserting pod into pool")),
                 }
             }
@@ -120,20 +115,34 @@ impl WorkRuntime {
     async fn add_pod_for_domain(
         &self,
         component_map: &ComponentMap,
-        name: FullVersionName<'_>,
-        config: PodConfig,
-        pod: Pod,
+        name: FullVersionName,
     ) -> Result<Key> {
+        let component_name = name.without_domain();
         let mut component_map = component_map.write().await;
-        match component_map.get_mut(name.without_domain) {
-            Some(pool) => pool.add(pod),
+        match component_map.get_mut(&component_name) {
+            Some(pool) => pool.add_pod(),
             None => {
+                // TODO: Figure out how to get a real PodConfig in here.
+                let config = PodConfig::default();
                 let mut pool = KeyedPodPool::new(config);
-                let key = pool.add(pod);
-                component_map.insert(String::from(name.without_domain), pool);
+                let key = pool.add_pod();
+                component_map.insert(component_name, pool);
                 key
             }
         }
+    }
+
+    /// Create a container in a reserved pod.
+    pub async fn create_container(&self, key: Key, name: FullVersionName) -> Result<()> {
+        let (config, pod) = self.containers.new_container(&name)?;
+        let component_name = name.without_domain();
+
+        if let Some(component_map) = self.pods.read().await.get(&name.domain) {
+            if let Some(pool) = component_map.write().await.get_mut(&component_name) {
+                return pool.create_container(key, pod);
+            }
+        }
+        Err(Error::leaf(format!("Wrong pod for container: {key}")))
     }
 }
 

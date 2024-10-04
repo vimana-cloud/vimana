@@ -1,6 +1,6 @@
-package(default_visibility = ["//visibility:public"])
-
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
 
 rust_library(
     name = "error",
@@ -8,15 +8,14 @@ rust_library(
     deps = ["@crates//:tonic"],
 )
 
-rust_test(
-    name = "error-test",
-    crate = ":error",
-)
-
 rust_library(
     name = "names",
     srcs = ["names.rs"],
-    deps = [":error"],
+    deps = [
+        ":error",
+        "@crates//:lazy_static",
+        "@crates//:regex",
+    ],
 )
 
 rust_test(

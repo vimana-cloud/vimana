@@ -34,6 +34,7 @@ rust_library(
     name = "cri",
     srcs = ["cri.rs"],
     deps = [
+        ":pool",
         ":runtime-api-prost",
         ":state",
         "//util:error",
@@ -46,10 +47,10 @@ rust_library(
     name = "containers",
     srcs = ["containers.rs"],
     deps = [
-        ":pods-prost",
-        ":pool",
-        "//util:error",
-        "//util:names",
+        #":pods-prost",
+        #":pool",
+        #"//util:error",
+        #"//util:names",
     ],
 )
 
@@ -74,7 +75,7 @@ rust_test(
     name = "pool-test",
     crate = ":pool",
     deps = [
-        ":state",
+        #":state",
     ],
 )
 
@@ -93,14 +94,20 @@ rust_prost_library(
 
 rust_library(
     name = "grpc",
-    srcs = ["grpc.rs"],
+    srcs = ["data-plane.rs"],
     deps = [
         ":state",
+        "//util:error",
+        "//util:names",
         "@crates//:bytes",
+        "@crates//:http",
+        "@crates//:http-body",
         "@crates//:http-body-util",
         "@crates//:hyper",
         "@crates//:hyper-util",
         "@crates//:tokio",
+        "@crates//:tonic",
+        "@crates//:tower-service",
     ],
 )
 
@@ -113,4 +120,5 @@ proto_library(
 rust_prost_library(
     name = "coding-prost",
     proto = ":coding-proto",
+    visibility = ["//visibility:public"],
 )

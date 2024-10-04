@@ -1,0 +1,23 @@
+load("@rules_rust//proto/prost:defs.bzl", "rust_prost_library")
+load("@rules_rust//rust:defs.bzl", "rust_test")
+
+proto_library(
+    name = "messages-proto",
+    srcs = ["messages.proto"],
+)
+
+# K8s Container Runtime Interface "Runtime API".
+rust_prost_library(
+    name = "messages-prost",
+    proto = ":messages-proto",
+)
+
+rust_test(
+    name = "decode-test",
+    srcs = ["decode-test.rs"],
+    deps = [
+        ":messages-prost",
+        "@crates//:bytes",
+        "@crates//:prost",
+    ],
+)

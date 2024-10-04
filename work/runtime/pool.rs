@@ -2,7 +2,7 @@
 #![feature(async_closure)] // test only
 #![feature(noop_waker)] // test only
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::{AsyncFnOnce, DerefMut};
 use std::sync::{Arc, Mutex as SyncMutex};
 
@@ -47,7 +47,6 @@ pub struct Pod {
     linker: Linker<HostState>,
 }
 
-// TODO: Just use a string instead, since that's what K8s expects.
 /// A numeric key type.
 pub type Key = usize;
 
@@ -75,9 +74,14 @@ pub struct KeyedPodPool {
 /// A cross between a stack and a hash map
 /// with auto-generated numeric [keys](Key).
 struct StackMap {
-    /// The next available key that has never been used.
-    /// Starts at one and increases monotonically.
+    // TODO: Use a single key generator for the whole runtime, rather than per-stackmap (otherwise you'll re-use "unique" keys).
+    /// The next available key that has never been reserved or used.
+    /// Starts at 1 and increases monotonically.
     next_key: Key,
+
+    /// Keys must be reserved before they can be used.
+    /// Each key can only be reserved once, then used once.
+    reserved: HashSet<Key>,
 
     /// Each value is owned by a shared mutex.
     /// Each key is cloned in the stack.
@@ -105,20 +109,23 @@ impl KeyedPodPool {
         &self.config
     }
 
-    /// Add a new pod to the pool.
+    /// Add a new, empty pod to the pool.
     /// Return the auto-generated key.
-    pub fn add(&mut self, pod: Pod) -> Result<Key> {
-        let key = self
+    pub fn add_pod(&mut self) -> Result<Key> {
+        Ok(self
             .objects
             .lock()
             .map_err(|source| Error::leaf(String::from(PANICKED_HOLDING_GUARD_MSG)))?
             .deref_mut()
-            .push(pod)?;
+            .reserve()?)
+    }
 
+    /// Add a new, empty pod to the pool.
+    /// Return the auto-generated key.
+    pub fn create_container(&mut self, key: Key, pod: Pod) -> Result<()> {
         // Add the permit last, to protect the stack in StackMap::acquire_some.
         self.run_queue.add_permits(1);
-
-        Ok(key)
+        todo!()
     }
 
     /// Run the provided job (async function),
@@ -131,12 +138,11 @@ impl KeyedPodPool {
         // Acquire a "run permit" to ensure fair access to the overall pool.
         // This permit must be held until running is complete.
         // Would only fail if the semaphore has been closed.
-        let _run_permit = self.run_queue.acquire().await.map_err(|source| {
-            Error::wrap(
-                String::from(RUN_QUEUE_SEMAPHORE_CLOSED_MSG),
-                Box::new(source),
-            )
-        })?;
+        let _run_permit = self
+            .run_queue
+            .acquire()
+            .await
+            .map_err(|source| Error::wrap(RUN_QUEUE_SEMAPHORE_CLOSED_MSG, source))?;
 
         // Should only fail if another thread panicked while holding the `objects` guard.
         let (key, pod): (Key, Arc<AsyncMutex<Pod>>) = self
@@ -164,7 +170,7 @@ impl KeyedPodPool {
         self.run_queue
             .acquire()
             .await
-            .map_err(|source| Error::wrap(RUN_QUEUE_SEMAPHORE_CLOSED_MSG, Box::new(source)))?
+            .map_err(|source| Error::wrap(RUN_QUEUE_SEMAPHORE_CLOSED_MSG, source))?
             .forget();
 
         let result = self
@@ -188,6 +194,7 @@ impl StackMap {
     pub(crate) fn new() -> Self {
         StackMap {
             stack: Vec::new(),
+            reserved: HashSet::new(),
             map: HashMap::new(),
             next_key: 1,
         }
@@ -195,8 +202,8 @@ impl StackMap {
 
     /// Add a new pod to the stack-map.
     /// Return the auto-generated key.
-    pub(crate) fn push(&mut self, pod: Pod) -> Result<Key> {
-        if self.map.len() >= Semaphore::MAX_PERMITS {
+    pub(crate) fn reserve(&mut self) -> Result<Key> {
+        if self.map.len() + self.reserved.len() >= Semaphore::MAX_PERMITS {
             return Err(Error::leaf(format!(
                 "Maximum pool size exceeded: {}",
                 Semaphore::MAX_PERMITS
@@ -206,11 +213,11 @@ impl StackMap {
         let key: Key = self.next_key;
         self.next_key += 1;
 
-        let already_present: Option<Arc<AsyncMutex<Pod>>> =
-            self.map.insert(key, Arc::new(AsyncMutex::new(pod)));
-        debug_assert!(already_present.is_none());
-
-        self.stack.push(key);
+        let already_present: bool = self.reserved.insert(key);
+        // Since the keys are being auto-generated,
+        // we're *pretty* sure collisions are impossible,
+        // but can't hurt to double-check in testing environments.
+        debug_assert!(!already_present);
 
         Ok(key)
     }

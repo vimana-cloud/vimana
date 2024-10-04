@@ -1,0 +1,16 @@
+load("@rules_rust//proto/prost:defs.bzl", "rust_prost_library")
+
+proto_library(
+    name = "service-proto",
+    srcs = ["service.proto"],
+    deps = [
+        "@protobuf//:empty_proto",
+        "@protobuf//:type_proto",
+    ],
+)
+
+# K8s Container Runtime Interface "Runtime API".
+rust_prost_library(
+    name = "service-prost",
+    proto = ":service-proto",
+)

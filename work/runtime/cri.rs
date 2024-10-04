@@ -11,10 +11,14 @@ use api_proto::runtime::v1::image_service_server::ImageService;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
 
 use error::Error;
-use names::Name;
+use names::{FullVersionName, Name};
+use pool::Key;
 use state::WorkRuntime;
 
 const CONTAINER_RUNTIME_NAME: &str = "actio-work";
+const LABEL_DOMAIN_KEY: &str = "actio.host/domain";
+const LABEL_SERVICE_KEY: &str = "actio.host/service";
+const LABEL_VERSION_KEY: &str = "actio.host/version";
 
 /// Wrapper around [ActioRuntime] that can implement [RuntimeService] and [ImageService]
 /// without running afoul of Rust's rules on foreign types / traits.
@@ -45,10 +49,30 @@ impl RuntimeService for ActioCriService {
 
     async fn run_pod_sandbox(
         &self,
-        _r: Request<v1::RunPodSandboxRequest>,
+        r: Request<v1::RunPodSandboxRequest>,
     ) -> TonicResult<v1::RunPodSandboxResponse> {
-        // Sandboxing occurs at the container level, not pod. Nothing to do.
-        Ok(Response::new(v1::RunPodSandboxResponse::default()))
+        let request = r.into_inner();
+        let config = request.config.unwrap_or_default();
+        let labels = config.labels;
+
+        let name = FullVersionName::new(
+            labels
+                .get(LABEL_DOMAIN_KEY)
+                .map(String::from)
+                .unwrap_or_else(String::new),
+            labels
+                .get(LABEL_SERVICE_KEY)
+                .map(String::from)
+                .unwrap_or_else(String::new),
+            labels
+                .get(LABEL_VERSION_KEY)
+                .map(String::from)
+                .unwrap_or_else(String::new),
+        )?;
+
+        Ok(Response::new(v1::RunPodSandboxResponse {
+            pod_sandbox_id: self.0.add_pod(name).await?.to_pod_sandbox_id(),
+        }))
     }
 
     async fn stop_pod_sandbox(
@@ -86,20 +110,24 @@ impl RuntimeService for ActioCriService {
         r: Request<v1::CreateContainerRequest>,
     ) -> TonicResult<v1::CreateContainerResponse> {
         let request = r.into_inner();
+        let pod_key = Key::from_pod_sandbox_id(&request.pod_sandbox_id)?;
         let config = request.config.unwrap_or_default();
+        let labels = config.labels;
+        let domain = labels.get(LABEL_DOMAIN_KEY);
+        let service = labels.get(LABEL_SERVICE_KEY);
+        let version = labels.get(LABEL_VERSION_KEY);
         let image_id = config.image.unwrap_or_default().image;
 
         // Must have both an explicit domain and version.
-        let name = Name::parse(&image_id)
-            .to_full_version()
-            .map_err(|e| e.to_status(Code::InvalidArgument))?;
-        let id = self
-            .0
-            .create_container(name)
-            .await
-            .map_err(|e| e.to_status(Code::Internal))?;
+        let name = Name::parse(&image_id).as_full_version()?;
+
+        // The CRI API has separate steps for creating pods and creating containers,
+        // but a component pod is inseparable from its single container,
+        // so "pods" and containers are created simultaneously.
+        self.0.create_container(pod_key, name).await?;
+
         Ok(Response::new(v1::CreateContainerResponse {
-            container_id: format!("{}", id),
+            container_id: pod_key.to_container_id(),
         }))
     }
 
@@ -286,5 +314,45 @@ impl ImageService for ActioCriService {
         _r: Request<v1::ImageFsInfoRequest>,
     ) -> TonicResult<v1::ImageFsInfoResponse> {
         todo!()
+    }
+}
+
+/// Standard methods to convert between a pod pool key
+/// and it's pod sandbox ID / container ID.
+trait ClusterIds {
+    fn to_pod_sandbox_id(self) -> String;
+    fn to_container_id(self) -> String;
+    fn from_pod_sandbox_id(id: &str) -> Result<Key, Error>;
+    fn from_container_id(id: &str) -> Result<Key, Error>;
+}
+
+const POD_SANDBOX_ID_PREFIX: &str = "P:";
+const CONTAINER_ID_PREFIX: &str = "C:";
+
+impl ClusterIds for Key {
+    fn to_pod_sandbox_id(self) -> String {
+        format!("{POD_SANDBOX_ID_PREFIX}{self:X}")
+    }
+
+    fn to_container_id(self) -> String {
+        format!("{CONTAINER_ID_PREFIX}{self:X}")
+    }
+
+    fn from_pod_sandbox_id(id: &str) -> Result<Key, Error> {
+        if id.starts_with(POD_SANDBOX_ID_PREFIX) {
+            Key::from_str_radix(&id[POD_SANDBOX_ID_PREFIX.len()..], 16)
+                .map_err(|e| Error::wrap(format!("Invalid pod sandbox ID: {id}"), e))
+        } else {
+            Err(Error::leaf(format!("Invalid pod sandbox ID prefix: {id}")))
+        }
+    }
+
+    fn from_container_id(id: &str) -> Result<Key, Error> {
+        if id.starts_with(CONTAINER_ID_PREFIX) {
+            Key::from_str_radix(&id[CONTAINER_ID_PREFIX.len()..], 16)
+                .map_err(|e| Error::wrap(format!("Invalid container ID: {id}"), e))
+        } else {
+            Err(Error::leaf(format!("Invalid container ID prefix: {id}")))
+        }
     }
 }

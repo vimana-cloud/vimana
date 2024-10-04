@@ -1,0 +1,133 @@
+// Information about a service.
+// Each service may have multiple [implementations](implementation.proto)
+// a.k.a. versions.
+
+syntax = "proto3";
+
+package actio.service;
+
+import "google/protobuf/type.proto";
+import "google/protobuf/empty.proto";
+
+// Domains are the basic unit of organization.
+message Domain {
+
+  // A TLS certificate for this domain.
+  Certificate certificate = 1;
+
+  // A matching set of public / private TLS certificates.
+  message Certificate {
+
+    // The complete public certificate chain in PEM format.
+    bytes public = 1;
+
+    // The private certificate in PEM format.
+    bytes private = 2;
+  }
+}
+
+// Ingress keeps track of routing information for each service.
+message Service {
+
+  // Domain name, e.g. `api.example.com`.
+  string domain = 1;
+
+  // Fully-qualified service name, e.g. `com.example.api.HelloWorld`
+  string name = 2;
+
+  // Mapping from version strings to implementation information.
+  map<string, Version> versions = 3;
+
+  // Information about how to handle RPCs or transcoded requests to a service.
+  // This gets loaded by front-end servers to configure traffic handling.
+  message Version {
+
+    // List of all methods in this service.
+    repeated Method methods = 1;
+
+    // Represents a method signature.
+    message Method {
+
+      // The name of the function in the implementation module to invoke for
+      // this RPC. This is not necessarily the same as the RPC method name.
+      string function_name = 1;
+
+      // Type definition of request messages.
+      google.protobuf.Type request_type = 2;
+
+      // Type definition of response messages.
+      google.protobuf.Type response_type = 3;
+
+      // True iff the method uses client-side streaming.
+      bool client_streaming = 4;
+
+      // True iff the method uses server-side streaming.
+      bool server_streaming = 5;
+    }
+
+    // Mapping from all method names (e.g. `SayHello`) to indices of
+    // definitions in `methods`. Used for basic gRPC routing.
+    map<string, uint32> rpc_routes = 2;
+
+    // Each of the following contain HTTP routing information for a particular
+    // HTTP verb. HTTP routes are only configured for methods with JSON
+    // transcoding enabled.
+
+    repeated HttpRoute http_get_routes = 21;
+    repeated HttpRoute http_head_routes = 22;
+    repeated HttpRoute http_post_routes = 23;
+    repeated HttpRoute http_put_routes = 24;
+    repeated HttpRoute http_delete_routes = 25;
+    repeated HttpRoute http_connect_routes = 26;
+    repeated HttpRoute http_options_routes = 27;
+    repeated HttpRoute http_trace_routes = 28;
+    repeated HttpRoute http_patch_routes = 29;
+
+    // For routes that apply to all HTTP verbs.
+    // These are always checked after the specific verb's routes are checked.
+    repeated HttpRoute http_any_routes = 20;
+
+    // HTTP routes are associated with methods.
+    // Multiple routes can match the same method.
+    message HttpRoute {
+
+      // A path template compatible with [google.api.HttpRule].
+      repeated PathSegment path_template = 1;
+
+      // Path segments are separated by `/`.
+      message PathSegment {
+
+        // The only member of this message. It's effectively a parameterized
+        // enum.
+        oneof segment {
+
+          // Literal match, like `widgets` in `widgets/{id}`.
+          string literal = 1;
+
+          // Single-segment wildcard, like `*` in `widgets/{id=*}/shipit`.
+          google.protobuf.Empty wildcard = 2;
+
+          // Multi-segment wildcard, like `**` in `widgets/{id=**}`.
+          // Must occur at the end of the whole path template.
+          google.protobuf.Empty multi_wildcard = 3;
+
+          // The variable-matching parts, like `{id}` in `widgets/{id}`.
+          Variable variable = 4;
+        }
+
+        message Variable {
+          // Dot-delimited field path:
+          // `{outer.inner=foo/*}` -> `["outer", "inner"]`.
+          repeated string field_path = 1;
+
+          // Optional path template sub-expression:
+          // `{outer.inner=foo/*}` -> `[{literal: "foo"}, {wildcard}]`.
+          repeated PathSegment segments = 2;
+        }
+      }
+
+      // Index of method in `RouteConfiguration.methods` to invoke on match.
+      uint32 method_index = 2;
+    }
+  }
+}

@@ -5,28 +5,28 @@ package work.runtime.coding;
 // Information necessary to encode / decode any supported Protobuf message.
 message Field {
 
-  // Protobuf field tag (a.k.a. field number) and
+  // Protobuf field tag, which consists of both the field number and
   // [wire type](https://protobuf.dev/programming-guides/encoding/#structure).
-  uint32 tag_and_wire_type = 1;
+  uint64 tag = 1;
 
   // Wasm record field name
   // (most likely different from the protobuf field name).
   string name = 2;
 
   // Subfields for compound types (message, enumeration, or one-of).
-  // Ignored for atomic types (all others).
+  // Ignored for scalar types (all others).
   repeated Field subfields = 3;
 
   // Roughly corresponds to field type.
   // Ignored if this is a subfield of an enumeration.
   oneof coding {
-    AtomicCoding atomic_coding = 4;
+    ScalarCoding scalar_coding = 4;
     CompoundCoding compound_coding = 5;
   }
 
-  // Atomic fields have no constituent components.
+  // Scalar fields have no constituent components.
   // They include all Protobuf types except messages, enumerations, and one-ofs.
-  enum AtomicCoding {
+  enum ScalarCoding {
 
     // A non-repeated byte array field
     // with implicit presence (proto3 behavior).
@@ -77,16 +77,16 @@ message Field {
 
     // A non-repeated boolean field
     // with implicit presence (proto3 behavior).
-    BOOLEAN_IMPLICIT = 12;
+    BOOL_IMPLICIT = 12;
     // A repeated boolean field
     // with packed repetition (proto3 behavior).
-    BOOLEAN_PACKED = 13;
+    BOOL_PACKED = 13;
     // A non-repeated boolean field
     // with explicit presence (proto2 behavior).
-    BOOLEAN_EXPLICIT = 14;
+    BOOL_EXPLICIT = 14;
     // A repeated boolean field
     // with expanded repetition (proto2 behavior).
-    BOOLEAN_EXPANDED = 15;
+    BOOL_EXPANDED = 15;
 
     // A non-repeated 32-bit variable-length-encoded signed integer field
     // with implicit presence (proto3 behavior).

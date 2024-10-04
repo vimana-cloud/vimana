@@ -29,10 +29,10 @@ impl Error {
     }
 
     /// Return a new error with the given message and source (cause), but no or irritants.
-    pub fn wrap<S: Into<String>>(msg: S, source: Box<dyn StdError>) -> Self {
+    pub fn wrap<S: Into<String>, E: StdError + 'static>(msg: S, source: E) -> Self {
         Self {
             msg: msg.into(),
-            source: Some(source),
+            source: Some(Box::new(source)),
             code: Code::Internal,
         }
     }
@@ -58,5 +58,11 @@ impl Debug for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{}", self.msg)
+    }
+}
+
+impl From<Error> for Status {
+    fn from(e: Error) -> Status {
+        Status::new(e.code, e.msg)
     }
 }
