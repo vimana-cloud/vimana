@@ -2,7 +2,7 @@
 
 ## Internal
 
-The mono-repo hosts internal documentation at [`docs.corp.actio.co`](https://TODO).
+The mono-repo hosts internal documentation at [`docs.corp.vimana.co`](https://TODO).
 You can preview it locally by running `bazel run //docs:dev`.
 
 ### How to Write Docs

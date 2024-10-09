@@ -1,6 +1,6 @@
 # Overview
 
-Actio is organized into isolated zones,
+Vimana is organized into isolated zones,
 each corresponding to a single Kubernetes cluster.
 For example, `aws/us-east-1-bos-1a`
 would run exclusively in AWS' `us-east-1-bos-1a` zone,
@@ -40,9 +40,9 @@ Each cluster (zone) comprises 4 components:
 Each region assigns traffic to its various clusters
 according to a bias.
 The default bias is compute cost.
-`eu.multi.actio.host` would have bias against compute cost,
-while `prox.eu.multi.actio.host` would have proximity bias,
-and `mem.eu.multi.actio.host` would have bias against memory cost,
+`eu.multi.vimana.host` would have bias against compute cost,
+while `prox.eu.multi.vimana.host` would have proximity bias,
+and `mem.eu.multi.vimana.host` would have bias against memory cost,
 all in the EU multi-cloud region.
 
 Regions are configured entirely via [DNS](#dns).
@@ -53,7 +53,7 @@ A centralized DNS system underpins the whol
 
 # Deployment Walk-Through
 
-Understand how services in Actio are deployed
+Understand how services in Vimana are deployed
 with a detailed walk-through.
 
 ## Initial Deployment
@@ -88,7 +88,7 @@ and pushes the implementation.
 Now, it's time to deploy:
 
 ```bash
-actio deploy com.example.HelloWorld@1.0 100%
+vimana deploy com.example.HelloWorld@1.0 100%
 ```
 
 This invokes [`Domains/Deploy`][TODO], which does:

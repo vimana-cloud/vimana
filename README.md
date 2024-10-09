@@ -1,15 +1,15 @@
-# Actio Mono-repo
+# Vimana Mono-repo
 
-For an introduction to how Actio works,
+For an introduction to how Vimana works,
 see the [internal overview](docs/internal-overview.md).
 
 For general information about documentation, see [`docs`](docs/).
 
 ## Developer Setup
 
-1. Clone the [repository](https://github.com/actio-cloud/actio) *with submodules*:
+1. Clone the [repository](https://github.com/vimana-cloud/vimana):
    ```bash
-   git clone --recurse-submodules git@github.com:actio-cloud/actio.git
+   git clone git@github.com:vimana-cloud/vimana.git
    ```
 2. Install [Bazel](https://bazel.build/).
 

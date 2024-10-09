@@ -14,22 +14,25 @@ use error::Error;
 use names::Name;
 use state::WorkRuntime;
 
-const CONTAINER_RUNTIME_NAME: &str = "actio-work";
+const CONTAINER_RUNTIME_NAME: &str = "vimana-work";
+const LABEL_DOMAIN_KEY: &str = "vimana.host/domain";
+const LABEL_SERVICE_KEY: &str = "vimana.host/service";
+const LABEL_VERSION_KEY: &str = "vimana.host/version";
 
 /// Wrapper around [ActioRuntime] that can implement [RuntimeService] and [ImageService]
 /// without running afoul of Rust's rules on foreign types / traits.
-pub struct ActioCriService(pub Arc<WorkRuntime>);
+pub struct VimanaCriService(pub Arc<WorkRuntime>);
 
 /// Type boilerplate for a typical Tonic response result.
 type TonicResult<T> = Result<Response<T>, Status>;
 
-// Actio's CRI does not support some functionality.
-const COMMANDS_NOT_SUPPORTED_MSG: &str = "Actio containers cannot execute commands.";
-const ATTACH_NOT_SUPPORTED_MSG: &str = "Actio containers do not support attaching.";
-const PORT_FORWARD_NOT_SUPPORTED_MSG: &str = "Actio containers cannot do port-forwarding.";
+// Vimana's CRI does not support some functionality.
+const COMMANDS_NOT_SUPPORTED_MSG: &str = "Vimana containers cannot execute commands.";
+const ATTACH_NOT_SUPPORTED_MSG: &str = "Vimana containers do not support attaching.";
+const PORT_FORWARD_NOT_SUPPORTED_MSG: &str = "Vimana containers cannot do port-forwarding.";
 
 #[tonic::async_trait]
-impl RuntimeService for ActioCriService {
+impl RuntimeService for VimanaCriService {
     async fn version(&self, _r: Request<v1::VersionRequest>) -> TonicResult<v1::VersionResponse> {
         Ok(Response::new(v1::VersionResponse {
             // Version of the kubelet runtime API.
@@ -252,7 +255,7 @@ impl RuntimeService for ActioCriService {
 }
 
 #[tonic::async_trait]
-impl ImageService for ActioCriService {
+impl ImageService for VimanaCriService {
     async fn list_images(
         &self,
         _r: Request<v1::ListImagesRequest>,

@@ -1,4 +1,4 @@
-/// Caching OCI client for Actio containers
+/// Caching OCI client for Vimana containers
 /// [Container Runtime Interface](https://kubernetes.io/docs/concepts/architecture/cri/)
 /// for the Work Node runtime.
 use error::{Error, Result};

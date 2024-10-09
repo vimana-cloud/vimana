@@ -108,7 +108,7 @@ function generateSubSidebar(dirPrefix: string, mdFiles: string[], i: number) {
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
     title: "Doctio",
-    description: "Actio internal docs",
+    description: "Vimana internal docs",
     srcDir: SRC_DIR,
 
     // https://vitepress.dev/reference/default-theme-config
@@ -118,7 +118,7 @@ export default defineConfig({
             //{ text: 'Examples', link: '/markdown-examples' }
         ],
         sidebar: generateSidebar(SRC_DIR),
-        socialLinks: [{ icon: "github", link: "https://github.com/actio-cloud/actio" }],
+        socialLinks: [{ icon: "github", link: "https://github.com/vimana-cloud/vimana" }],
     },
 
     // Treat README.md like index.md in every folder.

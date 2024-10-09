@@ -9,7 +9,7 @@ The following words have precise meaning(s):
    capable of serving a particular [service version](#version).
    A single work node may be able to serve many versions of many services,
    and so can be included in many different such clusters.
-2. A [K8s cluster] orchestrating an Actio [zone](#zone).
+2. A [K8s cluster] orchestrating a Vimana [zone](#zone).
 
 ##### Control plane
 1. All HTTP / gRPC traffic that is *not* [data plane](#data-plane).
@@ -69,7 +69,7 @@ The following words have precise meaning(s):
    at the finest grain of geographic specificity.
    Corresponds to a [provider's](#provider) "zone"
    (i.e. an AWS *zone* or GCP *zone*),
-   or some complete datacenter in which Actio runs.
+   or some complete datacenter in which Vimana runs.
    Corresponds to the `zone` of an [Envoy `Locality`]
 
 [best practices]: https://protobuf.dev/programming-guides/dos-donts/

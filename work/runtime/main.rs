@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use api_proto::runtime::v1::image_service_server::ImageServiceServer;
 use api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
-use cri::ActioCriService;
+use cri::VimanaCriService;
 use state::WorkRuntime;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
@@ -30,8 +30,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         // Serve both the Runtime Service and the Image Service
         // from the UDS at ${CRI_SOCKET}.
         Server::builder()
-            .add_service(RuntimeServiceServer::new(ActioCriService(runtime.clone())))
-            .add_service(ImageServiceServer::new(ActioCriService(runtime)))
+            .add_service(RuntimeServiceServer::new(VimanaCriService(runtime.clone())))
+            .add_service(ImageServiceServer::new(VimanaCriService(runtime)))
             .serve_with_incoming(UnixListenerStream::new(cri_listener)),
     )?;
 
