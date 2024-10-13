@@ -1,6 +1,11 @@
+//! A generic error type for use throughout the work runtime
+//! with conversion logic to / from various other error types.
+
 use std::error::Error as StdError;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::result::Result as StdResult;
+
+use http::header::ToStrError;
 use tonic::{Code, Status};
 
 /// The [error](StdError) type.
@@ -29,10 +34,13 @@ impl Error {
     }
 
     /// Return a new error with the given message and source (cause), but no or irritants.
-    pub fn wrap<S: Into<String>>(msg: S, source: Box<dyn StdError>) -> Self {
+    pub fn wrap<S: Into<String>, E: Into<Box<(dyn StdError + 'static)>>>(
+        msg: S,
+        source: E,
+    ) -> Self {
         Self {
             msg: msg.into(),
-            source: Some(source),
+            source: Some(source.into()),
             code: Code::Internal,
         }
     }
@@ -58,5 +66,11 @@ impl Debug for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{}", self.msg)
+    }
+}
+
+impl Into<Status> for Error {
+    fn into(self) -> Status {
+        Status::new(self.code, self.msg)
     }
 }

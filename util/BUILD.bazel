@@ -1,33 +1,3 @@
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
-
-package(default_visibility = ["//visibility:public"])
-
-rust_library(
-    name = "error",
-    srcs = ["error.rs"],
-    deps = ["@crates//:tonic"],
-)
-
-rust_test(
-    name = "error-test",
-    crate = ":error",
-)
-
-rust_library(
-    name = "names",
-    srcs = ["names.rs"],
-    deps = [
-        ":error",
-        "@crates//:lazy_static",
-        "@crates//:regex",
-    ],
-)
-
-rust_test(
-    name = "names-test",
-    crate = ":names",
-)
-
 sh_binary(
     name = "update-dependencies",
     srcs = ["update-dependencies.sh"],

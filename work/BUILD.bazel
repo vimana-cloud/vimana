@@ -1,0 +1,25 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "error",
+    srcs = ["error.rs"],
+    deps = [
+        "@crates//:http",
+        "@crates//:tonic",
+    ],
+)
+
+rust_library(
+    name = "names",
+    srcs = ["names.rs"],
+    deps = [
+        ":error",
+        "@crates//:lazy_static",
+        "@crates//:regex",
+    ],
+)
+
+rust_test(
+    name = "names-test",
+    crate = ":names",
+)
