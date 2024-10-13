@@ -24,7 +24,7 @@
         {
             "label": "bazel: Build Current File",
             "type": "shell",
-            "command": "./.vscode/build-current-file.sh",
+            "command": "./util/build-current-file.sh",
             "args": [
                 "${relativeFile}"
             ],
