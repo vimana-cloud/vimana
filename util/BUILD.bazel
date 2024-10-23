@@ -1,6 +1,0 @@
-sh_binary(
-    name = "update-dependencies",
-    srcs = ["update-dependencies.sh"],
-    args = ["$(rootpath @buildtools//:buildozer)"],
-    data = ["@buildtools//:buildozer"],
-)

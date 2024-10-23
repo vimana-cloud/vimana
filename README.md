@@ -25,5 +25,5 @@ Check for updates to any Bazel or Rust dependency in `MODULE.bazel`,
 and apply them in place:
 
 ```bash
-bazel run //util:update-dependencies
+bazel run //dev:update-dependencies
 ```

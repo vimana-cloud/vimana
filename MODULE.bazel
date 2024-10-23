@@ -5,19 +5,13 @@ bazel_dep(name = "buildifier_prebuilt", version = "7.3.1", dev_dependency = True
 bazel_dep(name = "rules_nodejs", version = "6.3.0")
 bazel_dep(name = "rules_rust", version = "0.50.1")
 bazel_dep(name = "toolchains_protoc", version = "0.3.3")
+bazel_dep(name = "rules_wasm", version = "1.0.16")
 bazel_dep(name = "cri-api")
 git_override(
     module_name = "cri-api",
     commit = "010fdf8d785a7f35fa5a1cc80c40bde0c13e1dfd",
-    patches = [":patches/cri-api.patch"],
+    patches = ["dev/patches/cri-api.patch"],
     remote = "git@github.com:kubernetes/cri-api.git",
-)
-
-bazel_dep(name = "rules_wasm")
-git_override(
-    module_name = "rules_wasm",
-    commit = "a96e53c4df96fc4228679381714d0b7d6c716073",
-    remote = "git@github.com:vimana-cloud/rules_wasm.git",
 )
 
 # Access protobuf well-known types proto rules in the `@protobuf` repo.

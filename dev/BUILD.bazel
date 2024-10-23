@@ -1,0 +1,19 @@
+load("@buildtools//:rules.bzl", "buildifier")
+
+# Update Bzlmod and Rust dependencies in `MODULE.bazel`:
+sh_binary(
+    name = "update-dependencies",
+    srcs = ["update-dependencies.sh"],
+    args = ["$(rootpath @buildtools//:buildozer)"],
+    data = ["@buildtools//:buildozer"],
+)
+
+# Format all Bazel files.
+buildifier(
+    name = "buildifier",
+    exclude_patterns = [
+        "./.git/*",
+    ],
+    lint_mode = "fix",
+    mode = "fix",
+)
