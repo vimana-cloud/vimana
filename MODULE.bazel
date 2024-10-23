@@ -32,8 +32,17 @@ crate.spec(
     version = "1.7.2",
 )
 crate.spec(
+    package = "clap",
+    version = "4.5.19",
+    features = ["derive"],
+)
+crate.spec(
     package = "http",
     version = "1.1.0",
+)
+crate.spec(
+    package = "httpdate",
+    version = "1.0.3",
 )
 crate.spec(
     package = "http-body",
@@ -79,6 +88,11 @@ crate.spec(
 crate.spec(
     package = "regex",
     version = "1.10.6",
+)
+crate.spec(
+    package = "reqwest",
+    version = "0.12.8",
+    features = ["blocking", "json"],
 )
 crate.spec(
     features = [

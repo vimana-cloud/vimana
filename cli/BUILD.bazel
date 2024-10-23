@@ -1,0 +1,21 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+rust_binary(
+    name = "cli",
+    srcs = ["main.rs"],
+    version = "0.1.0",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":user",
+        "@crates//:clap",
+    ],
+)
+
+rust_library(
+    name = "user",
+    srcs = ["user.rs"],
+    deps = [
+        "@crates//:httpdate",
+        "@crates//:reqwest",
+    ],
+)
