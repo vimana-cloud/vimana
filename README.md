@@ -1,4 +1,4 @@
-# Vimana Mono-repo
+# Vimana Monorepo
 
 For an introduction to how Vimana works,
 see the [internal overview](docs/internal-overview.md).

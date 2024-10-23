@@ -11,6 +11,15 @@ The following words have precise meaning(s):
    and so can be included in many different such clusters.
 2. A [K8s cluster] orchestrating a Vimana [zone](#zone).
 
+##### Component <a id="version"></a><a id="implementation"></a>
+1. A concrete version of a [service](#service),
+   defined by an exact service Proto definition
+   and a Wasm component that implements it.
+   Identified by a [service name](#service) plus a version string.
+   Corresponds to an [Envoy `Cluster`].
+   - *aka* **version**, **implementation**
+   - *eg* `example.com:foo.Bar@1.2.3`
+
 ##### Control plane
 1. All HTTP / gRPC traffic that is *not* [data plane](#data-plane).
    Generally, anything serving a K8s or Envoy API.
@@ -52,14 +61,6 @@ The following words have precise meaning(s):
    May have an arbitrary number of [versions](#version).
    - *eg* `example.com:foo.Bar`,
      `com.example.Bar` (domain assumed to be reversed package name)
-
-##### Version
-1. A concrete version of a [service](#service),
-   defined by an exact service Proto definition
-   and a Wasm component that implements it.
-   Corresponds to an [Envoy `Cluster`].
-   - *aka* **component**, **implementation**
-   - *eg* `example.com:foo.Bar@1.2.3`
 
 ##### Work node
 1. A [K8s node] responsible for running service [implementations](#version).

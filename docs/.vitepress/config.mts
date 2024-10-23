@@ -1,7 +1,4 @@
 import { execSync } from "node:child_process";
-import { readdirSync, existsSync } from "node:fs";
-import { join as joinPath } from "node:path";
-
 import { defineConfig } from "vitepress";
 
 // Use the repository root (parent folder) as the Markdown source root.
@@ -40,7 +37,7 @@ const README_NAME = "README" + MD_FILEXT;
 //          link: '/included',
 //       },
 //     ]
-function generateSidebar(rootDir: string): any[] {
+function generateSidebar(): any[] {
     // List all the Markdown files in this repo locally, including untracked files,
     // but not including stuff in Git submodules and `.gitignore` files.
     const mdFiles = execSync(
@@ -107,18 +104,23 @@ function generateSubSidebar(dirPrefix: string, mdFiles: string[], i: number) {
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
-    title: "Doctio",
+    title: "Vimana Monorepo",
     description: "Vimana internal docs",
     srcDir: SRC_DIR,
 
     // https://vitepress.dev/reference/default-theme-config
     themeConfig: {
+        // Nav bar on top.
         nav: [
             //{ text: 'Home', link: '/' },
             //{ text: 'Examples', link: '/markdown-examples' }
         ],
-        sidebar: generateSidebar(SRC_DIR),
+        // Social links in the nav bar.
         socialLinks: [{ icon: "github", link: "https://github.com/vimana-cloud/vimana" }],
+        // Sidebar on the left.
+        sidebar: generateSidebar(),
+        // Outline on the right.
+        outline: { level: "deep" },
     },
 
     // Treat README.md like index.md in every folder.
