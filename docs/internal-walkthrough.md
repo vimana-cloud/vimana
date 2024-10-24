@@ -1,7 +1,9 @@
 # Walkthrough
 
-This walkthrough illustrates how Vimana works,
-both from a UX and behind-the-scenes perspective.
+This narrative walkthrough illustrates how Vimana works,
+both from an internal and external perspective.
+For an encyclopedic overview,
+see the [internal overview](internal-overview.md).
 
 ## Signing In
 
@@ -13,37 +15,32 @@ Get an ID token with:
 vimana user login
 ```
 
-The CLI first tries to bind to port
-[61803](https://en.wikipedia.org/wiki/Golden_ratio).
-If successful,
-it then opens `vimana.host/login?cli=auto` in a browser.
-That's because Vimana's CLI-specific OAuth apps
-redirect to `http://127.0.0.1:61803` for the OIDC callback.
-If the CLI cannot bind to that port,
-it instead opens `vimana.host/login?cli=manual`,
-which re-uses Vimana's web-specific OAuth apps
-to redirect to `https://api.vimana.host/callback/cli`,
-which simply prints the ID token
-so the user can manually copy and paste it into the CLI.
-
-Either way, the user chooses their ID provider on the login page &mdash;
-e.g. GitHub &mdash;
-and the CLI eventually ends up getting a signed ID token that looks like this:
+Choose your ID provider on the login page &mdash;
+e.g. Google &mdash;
+and the CLI eventually ends up getting a signed
+[ID token](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)
+who's JWT payload looks like this:
 
 ```json
 {
-  "iss": "https://github.com",
-  "sub": "24400320",
-  "aud": "Ov23lijpkaQ4ChTLTfAU",
-  "exp": 1729586748,
-  "iat": 1729583148,
-  "nonce": "n-0S6_WzA2Mj",
+  "iss": "https://accounts.google.com",
+  "azp": "32555940559.apps.googleusercontent.com",
+  "aud": "32555940559.apps.googleusercontent.com",
+  "sub": "106778792747893319492",
+  "email": "user@example.com",
+  "email_verified": true,
+  "at_hash": "6iURwmFg8OolEu7-6yrG6w",
+  "iat": 1729713046,
+  "exp": 1729716646,
 }
 ```
 
 This token is cached locally
 and sent in the `Authorization` request header
 for subsequent API calls.
+
+Vimana maintains
+it looks up the 
 
 ## Domain Configuration 
 

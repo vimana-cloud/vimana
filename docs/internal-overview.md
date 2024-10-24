@@ -1,5 +1,37 @@
 # Overview
 
+This document uses an encyclopedic format
+to describe how Vimana works at a high level.
+For a narrative overview,
+see the [internal walkthrough](internal-walkthrough.md).
+
+## Resources
+
+Users interact with Vimana by manipulating resources.
+Each resource is identified both by an immutable unique ID
+and a mutable display name.
+Vimana's resources are conceptualized in a hierarchy:
+
+- **_Domains_** isolate user organizations from one another.
+  - **_Services_** continuously serve the APIs within a domain.
+    - **_Components_** represent the immutable versions of a service.
+- **_Users_** are authenticated user accounts.
+
+### Domains
+
+Each domain corresponds to both a DNS domain
+(*e.g.* `example.com`, which also also functions as the display name)
+and a K8s [namespace](https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/)
+(*e.g.*  
+
+### Services
+
+### Components
+
+### Users
+
+## Zones
+
 Vimana is organized into isolated zones,
 each corresponding to a single Kubernetes cluster.
 For example, `aws/us-east-1-bos-1a`
@@ -7,22 +39,14 @@ would run exclusively in AWS' `us-east-1-bos-1a` zone,
 while `gcp/us-east1-a`
 would run exclusively in GCP's `us-east1-a` zone.
 
-W
-
 Zones are grouped into regions.
-For instance, `all/us-east`
+For instance, `/us-east`
 may include clusters in any of AWS, GCP, or Azure's zones in the eastern US.
 Most regions are multi-cloud.
-
-Domains organize services into groups.
-Each user account can belong to zero or more domains.
-These groups are meant to be small.
 
 A customer could deploy to a region,
 but may deploy to a specific cluster,
 such as to optimize latency to a database in a known location.
-
-## Zones
 
 Each cluster (zone) comprises 4 components:
 
@@ -48,48 +72,6 @@ all in the EU multi-cloud region.
 Regions are configured entirely via [DNS](#dns).
 
 ## DNS
-
-A centralized DNS system underpins the whol
-
-# Deployment Walk-Through
-
-Understand how services in Vimana are deployed
-with a detailed walk-through.
-
-## Initial Deployment
-
-Alice wants to deploy the following service for the first time:
-
-```proto
-// api.proto
-
-syntax = "proto3";
-
-// Domain: "example.com"
-package com.example;
-
-service HelloWorld {
-  rpc SayHello(HelloRequest) returns (HelloResponse) {}
-}
-
-message HelloRequest {
-  string name = 1;
-}
-
-message HelloResponse {
-  bool talk_to_me = 1;
-}
-```
-
-Alice generates the bindings,
-implements version `1.0`,
-and pushes the implementation.
-
-Now, it's time to deploy:
-
-```bash
-vimana deploy com.example.HelloWorld@1.0 100%
-```
 
 This invokes [`Domains/Deploy`][TODO], which does:
 

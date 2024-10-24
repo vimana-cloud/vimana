@@ -7,11 +7,8 @@ For general information about documentation, see [`docs`](docs/).
 
 ## Developer Setup
 
-1. Clone the [repository](https://github.com/vimana-cloud/vimana):
-   ```bash
-   git clone git@github.com:vimana-cloud/vimana.git
-   ```
-2. Install [Bazel](https://bazel.build/).
+1. Clone this repository.
+2. Install [Bazelisk](https://github.com/bazelbuild/bazelisk).
 
 ## Commands To Know
 
