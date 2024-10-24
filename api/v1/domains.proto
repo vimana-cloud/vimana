@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package host.vimana.api.v1.domains;
+
+import "google/api/annotations.proto";
+
+option go_package = "domains.api.vimana.host/v1";
+
+// Domains are at the top-most level in the resource hierarchy.
+// They can contain any number of services.
+//
+// Each domain can have one or more owners.
+// Ownership of a domain confers complete authority over all the resources
+// within that domain, so it's strongly recommended to keep ownership as tight
+// as possible.
+service Domains {
+
+  // List the current owners of a domain.
+  // The calling user must be an owner themself.
+  //
+  // The returned list may not be up to date with the DNS configuration.
+  // Use [`UpdateOwners`] to refresh.
+  rpc ListOwners(ListOwnersRequest) returns (ListOwnersResponse) {
+    option (google.api.http) = {
+      get : "/owners"
+    };
+  }
+
+  // Update the ownership status of a domain.
+  // The calling user must be an owner themself.
+  //
+  // Checks for DNS entries matching ownership claims for each of the given
+  // users and, if found, adds them as owners. Also checks the entries
+  // associated with pre-existing owners, pruning any that are no longer
+  // present.
+  //
+  // Pre-existing owners are also checked at regular intervals, automatically
+  // pruning those no longer present.
+  rpc UpdateOwners(UpdateOwnersRequest) returns (UpdateOwnersResponse) {
+    option (google.api.http) = {
+      patch : "/owners"
+    };
+  }
+
+  // Get a unique ownership claim for the given domain and user.
+  rpc GetClaim(GetClaimRequest) returns (GetClaimResponse) {
+    option (google.api.http) = {
+      get : "/claim"
+    };
+  }
+
+  // TODO: Move all resources within this domain to a new domain.
+  rpc Move(MoveRequest) returns (MoveResponse) {}
+}
+
+message ListOwnersRequest {
+  // Domain name for which to list current owners.
+  string domain = 1;
+}
+
+message ListOwnersResponse {
+  // Current domain owners.
+  repeated string owners = 1;
+}
+
+message UpdateOwnersRequest {
+  // Domain name for which to update the ownership status.
+  string domain = 1;
+
+  // Possible new owners to check for claims in the DNS.
+  // If no users are specified, the calling user is checked.
+  repeated string users = 2;
+}
+
+message UpdateOwnersResponse {
+  // Owners that were newly added due to this request.
+  repeated string added = 1;
+
+  // Owners that were newly removed due to this request.
+  repeated string removed = 2;
+}
+
+message GetClaimRequest {
+  // Domain name for which to request the ownership claim.
+  string domain = 1;
+}
+
+message GetClaimResponse {
+  // Name for the DNS TXT record to claim ownership of the domain for the
+  // calling user.
+  string name = 1;
+
+  // Value for the record named by `name`.
+  string value = 2;
+}
+
+// TODO
+message MoveRequest {}
+
+// TODO
+message MoveResponse {}

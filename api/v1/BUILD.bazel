@@ -1,0 +1,17 @@
+load("@rules_go//proto:def.bzl", "go_proto_library")
+
+proto_library(
+    name = "domains-proto",
+    srcs = ["domains.proto"],
+    deps = [
+        "@googleapis//google/api:annotations_proto",
+    ],
+)
+
+go_proto_library(
+    name = "domains-proto-go",
+    protos = [":domains-proto"],
+    deps = [
+        "@googleapis//google/api:annotations_go_proto",
+    ],
+)

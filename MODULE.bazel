@@ -2,10 +2,12 @@ module(name = "vimana")
 
 bazel_dep(name = "buildifier_prebuilt", version = "7.3.1", dev_dependency = True, repo_name = "buildtools")
 
+bazel_dep(name = "googleapis", version = "0.0.0-20240326-1c8d509c5")
 bazel_dep(name = "rules_nodejs", version = "6.3.0")
-bazel_dep(name = "rules_rust", version = "0.50.1")
-bazel_dep(name = "toolchains_protoc", version = "0.3.3")
+bazel_dep(name = "rules_go", version = "0.50.1")
+bazel_dep(name = "rules_rust", version = "0.53.0")
 bazel_dep(name = "rules_wasm", version = "1.0.16")
+bazel_dep(name = "toolchains_protoc", version = "0.3.3")
 bazel_dep(name = "cri-api")
 git_override(
     module_name = "cri-api",
@@ -17,6 +19,11 @@ git_override(
 # Access protobuf well-known types proto rules in the `@protobuf` repo.
 protoc = use_extension("@toolchains_protoc//protoc:extensions.bzl", "protoc")
 use_repo(protoc, protobuf = "com_google_protobuf")
+
+# Build Google API interfaces for Go.
+switched_rules = use_extension("@googleapis//:extensions.bzl", "switched_rules")
+switched_rules.use_languages(go = True)
+use_repo(switched_rules, "com_google_googleapis_imports")
 
 # Rust setup:
 
