@@ -4,98 +4,171 @@ package host.vimana.api.v1.domains;
 
 import "google/api/annotations.proto";
 
-option go_package = "domains.api.vimana.host/v1";
+option go_package = "api.vimana.host/v1/domains";
 
 // Domains are at the top-most level in the resource hierarchy.
-// They can contain any number of services.
-//
-// Each domain can have one or more owners.
-// Ownership of a domain confers complete authority over all the resources
-// within that domain, so it's strongly recommended to keep ownership as tight
-// as possible.
+// Each domain must belong to one or more owners,
+// may be associated with zero or more aliases,
+// and may contain zero or more services.
 service Domains {
 
-  // List the current owners of a domain.
-  // The calling user must be an owner themself.
-  //
-  // The returned list may not be up to date with the DNS configuration.
-  // Use [`UpdateOwners`] to refresh.
-  rpc ListOwners(ListOwnersRequest) returns (ListOwnersResponse) {
+  // Create a new canonical domain owned by the caller.
+  rpc Create(CreateRequest) returns (CreateResponse) {
     option (google.api.http) = {
-      get : "/owners"
+      post : "/v1/domains"
+      body : "*"
     };
   }
 
-  // Update the ownership status of a domain.
-  // The calling user must be an owner themself.
-  //
-  // Checks for DNS entries matching ownership claims for each of the given
-  // users and, if found, adds them as owners. Also checks the entries
-  // associated with pre-existing owners, pruning any that are no longer
-  // present.
-  //
-  // Pre-existing owners are also checked at regular intervals, automatically
-  // pruning those no longer present.
-  rpc UpdateOwners(UpdateOwnersRequest) returns (UpdateOwnersResponse) {
+  // List canonical domains owned by the caller.
+  rpc List(ListRequest) returns (ListResponse) {
     option (google.api.http) = {
-      patch : "/owners"
+      get : "/v1/domains"
     };
   }
 
-  // Get a unique ownership claim for the given domain and user.
-  rpc GetClaim(GetClaimRequest) returns (GetClaimResponse) {
+  // Get details about a domain.
+  //
+  // The caller must be an owner.
+  rpc Get(GetRequest) returns (Domain) {
     option (google.api.http) = {
-      get : "/claim"
+      get : "/v1/domains/{name}"
     };
   }
 
-  // TODO: Move all resources within this domain to a new domain.
-  rpc Move(MoveRequest) returns (MoveResponse) {}
+  // Add or remove aliases for a domain.
+  //
+  // The caller must be an owner.
+  rpc UpdateAliases(UpdateAliasesRequest) returns (Domain) {
+    option (google.api.http) = {
+      patch : "/v1/domains/{name}/aliases"
+      body : "*"
+    };
+  }
+
+  // Add or remove owners for a domain.
+  //
+  // The caller must be an owner.
+  // Fails if the update would remove all confirmed owners.
+  // Instead, use [Delete] to remove all owners
+  // and permanently shut down a domain.
+  //
+  // Adding a new owner sends an invitation that must be confirmed.
+  //
+  // Ownership of a domain confers complete authority over all the resources
+  // within that domain, so it's strongly encouraged to keep ownership as tight
+  // as possible.
+  rpc UpdateOwners(UpdateOwnersRequest) returns (Domain) {
+    option (google.api.http) = {
+      patch : "/v1/domains/{name}/owners"
+      body : "*"
+    };
+  }
+
+  // Delete a domain.
+  // Any services running under this domain will stop working!
+  //
+  // The caller must be an owner.
+  rpc Delete(DeleteRequest) returns (DeleteResponse) {
+    option (google.api.http) = {
+      delete : "/v1/domains/{name}"
+    };
+  }
 }
 
-message ListOwnersRequest {
-  // Domain name for which to list current owners.
-  string domain = 1;
+message CreateRequest {}
+
+message CreateResponse {
+  // Canonical name of the new domain.
+  repeated string name = 1;
 }
 
-message ListOwnersResponse {
-  // Current domain owners.
-  repeated string owners = 1;
+message ListRequest {
+  // The maximum number of domains to list in a single response.
+  // If unspecified, defaults to 64.
+  // Values greater than 64 are ignored.
+  uint32 page_size = 1;
+
+  // Optional page token from a previous call to [List].
+  // Use this to retrieve the subsequent page.
+  //
+  // If provided, all other fields are ignored.
+  string page_token = 2;
+}
+
+message ListResponse {
+  // Canonical names of domains owned by the caller.
+  repeated string domains = 1;
+
+  // If there are more results than would fit on one page,
+  // use this in a subsequent call to retrieve the next page.
+  // The absence of this field indicates no further results.
+  string next_page_token = 2;
+}
+
+message GetRequest {
+  // Either a canonical domain name or a registered alias domain name.
+  string name = 1;
+}
+
+message UpdateAliasesRequest {
+  // Either a canonical domain name or a registered alias domain name.
+  string name = 1;
+
+  // Email addresses to send invitations to own the domain.
+  repeated string additions = 2;
+
+  // Email addresses of pending or confirmed owners to remove from the domain.
+  repeated string removals = 3;
 }
 
 message UpdateOwnersRequest {
-  // Domain name for which to update the ownership status.
-  string domain = 1;
-
-  // Possible new owners to check for claims in the DNS.
-  // If no users are specified, the calling user is checked.
-  repeated string users = 2;
-}
-
-message UpdateOwnersResponse {
-  // Owners that were newly added due to this request.
-  repeated string added = 1;
-
-  // Owners that were newly removed due to this request.
-  repeated string removed = 2;
-}
-
-message GetClaimRequest {
-  // Domain name for which to request the ownership claim.
-  string domain = 1;
-}
-
-message GetClaimResponse {
-  // Name for the DNS TXT record to claim ownership of the domain for the
-  // calling user.
+  // Either a canonical domain name or a registered alias domain name.
   string name = 1;
 
-  // Value for the record named by `name`.
-  string value = 2;
+  // Email addresses to send invitations to own the domain.
+  repeated string additions = 2;
+
+  // Email addresses of pending or confirmed owners to remove from the domain.
+  repeated string removals = 3;
 }
 
-// TODO
-message MoveRequest {}
+message DeleteRequest {
+  // Either a canonical domain name or a registered alias domain name.
+  string name = 1;
+}
 
-// TODO
-message MoveResponse {}
+message DeleteResponse {}
+
+message Domain {
+  // Canonical name of the domain.
+  string name = 1;
+
+  // Registered aliases for the domain.
+  // A domain can have at most 32 aliases.
+  repeated string aliases = 2;
+
+  // Confirmed and pending owners for the domain.
+  // A domain must have at least 1 confirmed owner,
+  // and can have at most 32 owners total.
+  repeated Owner owners = 3;
+
+  message Owner {
+    // For pending owners,
+    // the email address to which the invitation was sent.
+    // For confirmed owners,
+    // the email address currently associated with the user's account.
+    string email = 1;
+
+    // Pending / confirmation status.
+    Status status = 2;
+
+    enum Status {
+      // The prospective owner has been invited but has not yet accepted.
+      PENDING = 0;
+
+      // The owner has accepted their invitation.
+      CONFIRMED = 1;
+    }
+  }
+}
