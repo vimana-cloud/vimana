@@ -2,6 +2,7 @@
 
 # Take a source file path relative to the workspace directory,
 # search for targets that build that file, and build them.
+# Intended for use in IDE's, e.g. `.vscode/tasks.json`.
 
 # Format output only if stderr (2) is a terminal (-t).
 if [ -t 2 ]

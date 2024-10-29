@@ -3,6 +3,17 @@
 Naming is one of the only hard problems in computer science.
 The following words have precise meaning(s):
 
+#### Alias Domain
+1. Any externally-controlled DNS domain
+   with either an alias-mode `HTTPS` or `SVCB` record, or `CNAME` record,
+   that points to a [canonical domain](#canonical-domain).
+   The platform does not control these domains,
+   but can provision TLS certificates for them.
+
+##### Canonical Domain
+1. A platform-controlled DNS domain
+   of the form `<uuid>.app.vimana.host`.
+
 ##### Cluster
 1. An [Envoy `Cluster`] comprising
    a set of [work nodes](#work-node)
