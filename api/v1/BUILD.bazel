@@ -1,17 +1,66 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
 load("@rules_go//proto:def.bzl", "go_proto_library")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+
+oci_image(
+    name = "image",
+    base = "@distroless-base",
+    entrypoint = ["/server"],
+    tars = [":server-tar"],
+)
+
+oci_load(
+    name = "load-image",
+    image = ":image",
+    repo_tags = ["vimana-api-v1:latest"],
+)
+
+pkg_tar(
+    name = "server-tar",
+    srcs = [":server"],
+)
+
+go_binary(
+    name = "server",
+    srcs = ["server.go"],
+    deps = [
+        ":domains-proto-go",
+        ":service",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials",
+        "@org_golang_google_grpc//reflection",
+    ],
+)
+
+go_library(
+    name = "service",
+    srcs = [
+        "domains.go",
+        "service.go",
+    ],
+    importpath = "api.vimana.host/v1",
+    deps = [
+        ":domains-proto-go",
+    ],
+)
+
+go_proto_library(
+    name = "domains-proto-go",
+    compilers = [
+        "@rules_go//proto:go_grpc",
+    ],
+    importpath = "api.vimana.host/v1/domains",
+    protos = [":domains-proto"],
+    deps = [
+        "@googleapis//google/api:annotations_go_proto",
+    ],
+)
 
 proto_library(
     name = "domains-proto",
     srcs = ["domains.proto"],
     deps = [
         "@googleapis//google/api:annotations_proto",
-    ],
-)
-
-go_proto_library(
-    name = "domains-proto-go",
-    protos = [":domains-proto"],
-    deps = [
-        "@googleapis//google/api:annotations_go_proto",
     ],
 )

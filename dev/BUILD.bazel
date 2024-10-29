@@ -1,13 +1,5 @@
 load("@buildtools//:rules.bzl", "buildifier")
 
-# Update Bzlmod and Rust dependencies in `MODULE.bazel`:
-sh_binary(
-    name = "update-dependencies",
-    srcs = ["update-dependencies.sh"],
-    args = ["$(rootpath @buildtools//:buildozer)"],
-    data = ["@buildtools//:buildozer"],
-)
-
 # Format all Bazel files.
 buildifier(
     name = "buildifier",
@@ -16,4 +8,17 @@ buildifier(
     ],
     lint_mode = "fix",
     mode = "fix",
+)
+
+# Update Bzlmod and Rust dependencies in `MODULE.bazel`:
+sh_binary(
+    name = "update-dependencies",
+    srcs = ["update-dependencies.sh"],
+    args = ["$(rootpath @buildtools//:buildozer)"],
+    data = ["@buildtools//:buildozer"],
+)
+
+sh_binary(
+    name = "generate-tls-credentials",
+    srcs = ["generate-tls-credentials.sh"],
 )

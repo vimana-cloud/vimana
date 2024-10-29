@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package host.vimana.api.v1.domains;
+package vimana.api.v1;
 
 import "google/api/annotations.proto";
 

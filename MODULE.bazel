@@ -2,9 +2,12 @@ module(name = "vimana")
 
 bazel_dep(name = "buildifier_prebuilt", version = "7.3.1", dev_dependency = True, repo_name = "buildtools")
 
+bazel_dep(name = "gazelle", version = "0.39.1")
 bazel_dep(name = "googleapis", version = "0.0.0-20240326-1c8d509c5")
-bazel_dep(name = "rules_nodejs", version = "6.3.0")
 bazel_dep(name = "rules_go", version = "0.50.1")
+bazel_dep(name = "rules_nodejs", version = "6.3.0")
+bazel_dep(name = "rules_oci", version = "2.0.1")
+bazel_dep(name = "rules_pkg", version = "1.0.1")
 bazel_dep(name = "rules_rust", version = "0.53.0")
 bazel_dep(name = "rules_wasm", version = "1.0.16")
 bazel_dep(name = "toolchains_protoc", version = "0.3.3")
@@ -135,6 +138,50 @@ crate.from_specs()
 use_repo(crate, "crates")
 
 register_toolchains("//:prost-toolchain")
+
+# Go setup:
+
+go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
+
+# Direct dependencies:
+go_deps.module(
+    path = "google.golang.org/grpc",
+    sum = "h1:zWnc1Vrcno+lHZCOofnIMvycFcc0QRGIzm9dhnDX68E=",
+    version = "v1.67.1",
+)
+go_deps.module(
+    path = "google.golang.org/protobuf",
+    sum = "h1:m3LfL6/Ca+fqnjnlqQXNpFPABW1UD7mjh8KO2mKFytA=",
+    version = "v1.35.1",
+)
+
+# Indirect dependencies:
+go_deps.module(
+    indirect = True,
+    path = "google.golang.org/genproto/googleapis/rpc",
+    sum = "h1:zciRKQ4kBpFgpfC5QQCVtnnNAcLIqweL7plyZRQHVpI=",
+    version = "v0.0.0-20241021214115-324edc3d5d38",
+)
+use_repo(
+    go_deps,
+    "org_golang_google_grpc",
+    "org_golang_google_protobuf",
+)
+
+# Docker setup:
+
+oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
+oci.pull(
+    name = "distroless-base",
+    image = "gcr.io/distroless/base",
+    digest = "sha256:8fe31fb9d159141d9c3ff99f1fd287239d89d97ea95fea1f08f82ea5f2b544da",
+    platforms = ["linux/amd64"],
+)
+use_repo(
+    oci,
+    "distroless-base",
+    "distroless-base_linux_amd64",
+)
 
 # NodeJS setup (for serving documentation with VitePress):
 

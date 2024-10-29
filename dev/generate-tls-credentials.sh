@@ -1,4 +1,5 @@
-# Generate an RSA private key and self-signed TLS certificate.
+# Generate an environment file
+# with an RSA private key and TLS certificate for `localhost`.
 
 # Format output only if stderr (2) is a terminal (-t).
 if [ -t 2 ]
@@ -27,19 +28,30 @@ then
 fi
 pushd "$BUILD_WORKSPACE_DIRECTORY" > /dev/null
 
-key_path="dev/self-signed.key"
-cert_path="dev/self-signed.key"
+# Path to the generated file and environment variable names.
+env_path='dev/self-signed.env'
+key_name='TLS_KEY'
+cert_name='TLS_CERT'
 
 # Generate a private key.
-openssl genrsa -out "$key_path" && {
-  echo >&2 -e "${green}Generated$reset ${bold}${key_path}$reset"
+key="$(openssl genrsa)"
+[ $? -eq 0 ] && {
   # Generate the certificate signing request
-  # and use it to generate the self-signed certificate.
-  openssl req -new -key "$key_path" \
-      -subj '/C=US/ST=Alaska/L=Talkeetna/O=Fake Corp/CN=Self-Signed Certificate' \
-      | openssl x509 -req -signkey "$key_path" -out "$cert_path" && {
-    echo >&2 -e "${green}Generated$reset ${bold}${cert_path}$reset"
-  }
-}
+  # and use it to generate a self-signed certificate,
+  # which is saved as an environment variable.
+  cert="$(openssl req -new -key <(echo "$key") \
+            -subj '/CN=localhost' \
+            -addext 'subjectAltName = DNS:localhost' \
+            | openssl x509 -req -key <(echo "$key") -copy_extensions copy)"
+  [ $? -eq 0 ] && {
+    # Finally, combine both into an environment file
+    # that can be loaded by a local API server.
+    # Note that `docker run --env-file` cannot handle PEM-encoded variables,
+    # so they must be sourced natively in Bash (thus `export` is necessary):
+    # https://github.com/moby/moby/issues/12997
+    printf "export ${key_name}=%q\nexport ${cert_name}=%q\n" "$key" "$cert" > "$env_path"
+    echo >&2 -e "${green}Generated$reset ${bold}${env_path}$reset"
+  } || echo >&2 -e "${red}Failed$reset to generate certificate."
+} || echo >&2 -e "${red}Failed$reset to generate private key."
 
 popd > /dev/null
