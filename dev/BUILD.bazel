@@ -18,7 +18,3 @@ sh_binary(
     data = ["@buildtools//:buildozer"],
 )
 
-sh_binary(
-    name = "generate-tls-credentials",
-    srcs = ["generate-tls-credentials.sh"],
-)
