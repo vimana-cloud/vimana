@@ -1,8 +1,20 @@
-load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
-load(":cluster.bzl", "cluster_test", "k8s_secret_tls")
+load("@rules_k8s//:resource.bzl", "k8s_secret_tls")
+load("@rules_k8s//:test.bzl", "k8s_cluster_test")
 
-cluster_test(
+# Make sure to run //api/v1:push-image-local before this test!
+k8s_cluster_test(
     name = "placeholder-test",
+    hosts = {
+        "api.vimana.host": "127.0.0.1",
+    },
+    objects = [
+        "//gateway:deploy.yaml",
+        "//api/v1:deploy.yaml",
+        ":tls-api-vimana-host",
+    ],
+    port_forward = {
+        "svc/vimana-gateway-istio": ["61803:443"],
+    },
     test = ":placeholder",
 )
 
@@ -15,10 +27,4 @@ k8s_secret_tls(
     name = "tls-api-vimana-host",
     cert = "//dev/tls:api.vimana.host.cert",
     key = "//dev/tls:api.vimana.host.key",
-)
-
-# Used in `runner.sh` to populate initial objects.
-native_binary(
-    name = "kubectl",
-    src = "@kubectl//file",
 )

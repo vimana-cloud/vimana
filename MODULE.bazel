@@ -18,6 +18,12 @@ git_override(
     patches = ["dev/patches/cri-api.patch"],
     remote = "git@github.com:kubernetes/cri-api.git",
 )
+bazel_dep(name = "rules_k8s")
+git_override(
+    module_name = "rules_k8s",
+    commit = "d74bdd966dbea2fde33c3f373e9cff6802b151a7",
+    remote = "git@github.com:vimana-cloud/rules_k8s.git",
+)
 
 # Access protobuf well-known types proto rules in the `@protobuf` repo.
 protoc = use_extension("@toolchains_protoc//protoc:extensions.bzl", "protoc")
@@ -169,21 +175,6 @@ use_repo(
     go_deps,
     "org_golang_google_grpc",
     "org_golang_google_protobuf",
-)
-
-# Kubectl setup (for e2e tests):
-
-http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
-
-# https://github.com/kubernetes/kubernetes/releases
-kubernetes_version = "v1.31.2"
-
-http_file(
-    name = "kubectl",
-    url = "https://dl.k8s.io/release/{version}/bin/linux/amd64/kubectl".format(
-        version = kubernetes_version,
-    ),
-    executable = True,
 )
 
 # Docker setup (for build and running the API server):
