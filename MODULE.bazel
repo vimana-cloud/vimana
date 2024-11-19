@@ -171,7 +171,22 @@ use_repo(
     "org_golang_google_protobuf",
 )
 
-# Docker setup:
+# Kubectl setup (for e2e tests):
+
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+# https://github.com/kubernetes/kubernetes/releases
+kubernetes_version = "v1.31.2"
+
+http_file(
+    name = "kubectl",
+    url = "https://dl.k8s.io/release/{version}/bin/linux/amd64/kubectl".format(
+        version = kubernetes_version,
+    ),
+    executable = True,
+)
+
+# Docker setup (for build and running the API server):
 
 oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 oci.pull(

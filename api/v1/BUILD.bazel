@@ -3,6 +3,11 @@ load("@rules_go//proto:def.bzl", "go_proto_library")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 
+exports_files(
+    ["deploy.yaml"],
+    visibility = ["//visibility:public"],
+)
+
 go_binary(
     name = "server",
     srcs = ["server.go"],
@@ -10,7 +15,6 @@ go_binary(
         ":domains-proto-go",
         ":service",
         "@org_golang_google_grpc//:grpc",
-        "@org_golang_google_grpc//credentials",
         "@org_golang_google_grpc//reflection",
     ],
 )
@@ -42,6 +46,7 @@ go_proto_library(
 proto_library(
     name = "domains-proto",
     srcs = ["domains.proto"],
+    visibility = ["//visibility:public"],
     deps = [
         "@googleapis//google/api:annotations_proto",
     ],

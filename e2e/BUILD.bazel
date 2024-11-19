@@ -1,0 +1,24 @@
+load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
+load(":cluster.bzl", "cluster_test", "k8s_secret_tls")
+
+cluster_test(
+    name = "placeholder-test",
+    test = ":placeholder",
+)
+
+sh_binary(
+    name = "placeholder",
+    srcs = ["placeholder.sh"],
+)
+
+k8s_secret_tls(
+    name = "tls-api-vimana-host",
+    cert = "//dev/tls:api.vimana.host.cert",
+    key = "//dev/tls:api.vimana.host.key",
+)
+
+# Used in `runner.sh` to populate initial objects.
+native_binary(
+    name = "kubectl",
+    src = "@kubectl//file",
+)

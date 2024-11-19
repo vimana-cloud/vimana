@@ -1,0 +1,95 @@
+# One GRPCRoute per domain.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  # Normally, this would be the canonical domain ID.
+  name: vimana-api-v1
+  labels:
+    # Normally, this would also be the canonical domain ID.
+    vimana.host/domain: 'api.vimana.host'
+spec:
+  # All routes are parented by the single gateway.
+  parentRefs:
+    - name: vimana-gateway
+  # One hostname for the canonical domain and one for each alias.
+  hostnames:
+    - 'api.vimana.host'
+  # Generally, one rule per service (excluding reflection) within the domain.
+  # The Vimana API is a bit different though since one pod serves multiple services;
+  # it has multiple services per rule.
+  rules:
+    - matches:
+        - method:
+            type: Exact
+            service: 'vimana.api.v1.Domains'
+        - method:
+            type: Exact
+            service: 'vimana.api.v1.Users'
+        # All services can also enable reflection.
+        - method:
+            type: Exact
+            service: 'helloworld.Greeter'
+        - method:
+            type: Exact
+            service: 'grpc.reflection.v1.ServerReflection'
+      # One backend `Service` per component within the service.
+      backendRefs:
+        - name: vimana-api-1-0-0
+          port: 80
+          weight: 100
+---
+# Even though it's called 'Service', it represents a component.
+apiVersion: v1
+kind: Service
+metadata:
+  name: 'vimana-api-1-0-0'
+  labels:
+    # Normally, this would be the canonical domain ID.
+    vimana.host/domain: 'api.vimana.host'
+    # Normally, this would be the fully-qualified service name.
+    # The bootstrapping API serves multiple services together, though.
+    vimana.host/service: 'vimana-api-v1'
+    vimana.host/version: '1.0.0'
+spec:
+  # Every component serves cleartext HTTP/2 (gRPC) traffic.
+  # Public TLS termination and JSON transcoding happens at the Gateway,
+  # and mTLS for mesh traffic is provided transparently by Ztunnel.
+  ports:
+    - name: fersher
+      port: 80
+      appProtocol: kubernetes.io/h2c
+  selector:
+    vimana.host/domain: 'api.vimana.host'
+    vimana.host/service: vimana-api-v1
+    vimana.host/version: '1.0.0'
+---
+# One deployment per component.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: 'vimana-api-1-0-0'
+  # Same labels as the `Service` object.
+  labels:
+    vimana.host/domain: 'api.vimana.host'
+    vimana.host/service: vimana-api-v1
+    vimana.host/version: '1.0.0'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      vimana.host/domain: 'api.vimana.host'
+      vimana.host/service: vimana-api-v1
+      vimana.host/version: '1.0.0'
+  template:
+    metadata:
+      labels:
+        vimana.host/domain: 'api.vimana.host'
+        vimana.host/service: vimana-api-v1
+        vimana.host/version: '1.0.0'
+    spec:
+      containers:
+        - name: app  # All pods have a single container, called 'app'.
+          image: 'host.minikube.internal:5000/vimana-api-v1:latest'
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80

@@ -1,0 +1,24 @@
+# One global gateway for the whole cluster.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: vimana-gateway
+spec:
+  gatewayClassName: istio
+  # In order to support SNI-based dynamic TLS,
+  # we need one listener per canonical service name
+  # plus one listener per alias.
+  listeners:
+    - name: vimana-api-v1
+      protocol: HTTPS
+      port: 443
+      hostname: 'api.vimana.host'
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: tls-api-vimana-host
+      # All internal routing occurs with gRPC.
+      # JSON transcoding can be achieved by EnvoyFilter objects.
+      allowedRoutes:
+        kinds:
+          - kind: GRPCRoute

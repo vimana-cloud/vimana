@@ -94,7 +94,8 @@ function generate-tls-creds {
   } || failure-message "$key_path"
 }
 
-generate-ca-creds 'ROOT' && \
-  generate-tls-creds 'ROOT' 'localhost'
+generate-ca-creds 'ROOT' \
+  && generate-tls-creds 'ROOT' 'localhost' \
+  && generate-tls-creds 'ROOT' 'api.vimana.host'
 
 popd > /dev/null

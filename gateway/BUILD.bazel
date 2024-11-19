@@ -1,0 +1,4 @@
+exports_files(
+    ["deploy.yaml"],
+    visibility = ["//visibility:public"],
+)
