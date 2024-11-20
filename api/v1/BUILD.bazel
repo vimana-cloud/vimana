@@ -14,6 +14,8 @@ go_binary(
     deps = [
         ":domains-proto-go",
         ":service",
+        "@io_k8s_client_go//kubernetes",
+        "@io_k8s_client_go//rest",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//reflection",
     ],
@@ -28,6 +30,7 @@ go_library(
     importpath = "api.vimana.host/v1",
     deps = [
         ":domains-proto-go",
+        "@io_k8s_client_go//kubernetes",
     ],
 )
 

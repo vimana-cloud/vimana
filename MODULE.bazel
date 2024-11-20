@@ -150,31 +150,18 @@ register_toolchains("//:prost-toolchain")
 
 # Go setup:
 
+# k8s.io/client-go requires go version >= 1.22.0.
+# Since rules_go v0.50.1 is behind, specify it manually.
+# The following 2 lines can probably be removed once a new rules_go module is released.
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(version = "1.23.1")
+
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
-
-# Direct dependencies:
-go_deps.module(
-    path = "google.golang.org/grpc",
-    sum = "h1:zWnc1Vrcno+lHZCOofnIMvycFcc0QRGIzm9dhnDX68E=",
-    version = "v1.67.1",
-)
-go_deps.module(
-    path = "google.golang.org/protobuf",
-    sum = "h1:m3LfL6/Ca+fqnjnlqQXNpFPABW1UD7mjh8KO2mKFytA=",
-    version = "v1.35.1",
-)
-
-# Indirect dependencies:
-go_deps.module(
-    indirect = True,
-    path = "google.golang.org/genproto/googleapis/rpc",
-    sum = "h1:zciRKQ4kBpFgpfC5QQCVtnnNAcLIqweL7plyZRQHVpI=",
-    version = "v0.0.0-20241021214115-324edc3d5d38",
-)
+go_deps.from_file(go_mod = "//:go.mod")
 use_repo(
     go_deps,
+    "io_k8s_client_go",
     "org_golang_google_grpc",
-    "org_golang_google_protobuf",
 )
 
 # Docker setup (for build and running the API server):

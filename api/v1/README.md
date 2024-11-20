@@ -13,9 +13,10 @@ This requires *a bit* of extra setup in testing environments.
    ```bash
    bazel run //dev/tls:generate
    ```
-2. **Optional:** import the generated root CA
+2. **Optional:** Import the generated root CA
    if you want to avoid dealing with untrusted certificates.
-   For example, to install it dynamically (so it's automatically updated on regeneration)
+   For example, to install it symbolically
+   (so it always points to the up-to-date files)
    system-wide (for most Linux systems), run:
    ```bash
    sudo ln -s "${PWD}/dev/tls/ROOT.cert" /etc/ssl/certs/vimana-test.pem
