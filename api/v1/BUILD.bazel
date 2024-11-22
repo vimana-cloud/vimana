@@ -18,6 +18,7 @@ go_binary(
         "@io_k8s_client_go//rest",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//reflection",
+        "@org_uber_go_zap//:zap",
     ],
 )
 
@@ -36,9 +37,7 @@ go_library(
 
 go_proto_library(
     name = "domains-proto-go",
-    compilers = [
-        "@rules_go//proto:go_grpc",
-    ],
+    compilers = ["@rules_go//proto:go_grpc"],
     importpath = "api.vimana.host/v1/domains",
     protos = [":domains-proto"],
     deps = [
@@ -78,4 +77,5 @@ oci_push(
     image = ":image",
     remote_tags = ["latest"],
     repository = "localhost:5000/vimana-api-v1",
+    visibility = ["//e2e:__pkg__"],
 )

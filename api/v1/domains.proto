@@ -13,7 +13,7 @@ option go_package = "api.vimana.host/v1/domains";
 service Domains {
 
   // Create a new canonical domain owned by the caller.
-  rpc Create(CreateRequest) returns (CreateResponse) {
+  rpc Create(CreateDomainRequest) returns (CreateDomainResponse) {
     option (google.api.http) = {
       post : "/v1/domains"
       body : "*"
@@ -21,7 +21,7 @@ service Domains {
   }
 
   // List canonical domains owned by the caller.
-  rpc List(ListRequest) returns (ListResponse) {
+  rpc List(ListDomainsRequest) returns (ListDomainsResponse) {
     option (google.api.http) = {
       get : "/v1/domains"
     };
@@ -30,7 +30,7 @@ service Domains {
   // Get details about a domain.
   //
   // The caller must be an owner.
-  rpc Get(GetRequest) returns (Domain) {
+  rpc Get(GetDomainRequest) returns (Domain) {
     option (google.api.http) = {
       get : "/v1/domains/{name}"
     };
@@ -39,7 +39,7 @@ service Domains {
   // Add or remove aliases for a domain.
   //
   // The caller must be an owner.
-  rpc UpdateAliases(UpdateAliasesRequest) returns (Domain) {
+  rpc UpdateAliases(UpdateDomainAliasesRequest) returns (Domain) {
     option (google.api.http) = {
       patch : "/v1/domains/{name}/aliases"
       body : "*"
@@ -58,7 +58,7 @@ service Domains {
   // Ownership of a domain confers complete authority over all the resources
   // within that domain, so it's strongly encouraged to keep ownership as tight
   // as possible.
-  rpc UpdateOwners(UpdateOwnersRequest) returns (Domain) {
+  rpc UpdateOwners(UpdateDomainOwnersRequest) returns (Domain) {
     option (google.api.http) = {
       patch : "/v1/domains/{name}/owners"
       body : "*"
@@ -69,34 +69,34 @@ service Domains {
   // Any services running under this domain will stop working!
   //
   // The caller must be an owner.
-  rpc Delete(DeleteRequest) returns (DeleteResponse) {
+  rpc Delete(DeleteDomainRequest) returns (DeleteDomainResponse) {
     option (google.api.http) = {
       delete : "/v1/domains/{name}"
     };
   }
 }
 
-message CreateRequest {}
+message CreateDomainRequest {}
 
-message CreateResponse {
+message CreateDomainResponse {
   // Canonical name of the new domain.
   repeated string name = 1;
 }
 
-message ListRequest {
+message ListDomainsRequest {
   // The maximum number of domains to list in a single response.
   // If unspecified, defaults to 64.
   // Values greater than 64 are ignored.
   uint32 page_size = 1;
 
-  // Optional page token from a previous call to [List].
+  // Optional page token from a previous call to [Domains.List].
   // Use this to retrieve the subsequent page.
   //
   // If provided, all other fields are ignored.
   string page_token = 2;
 }
 
-message ListResponse {
+message ListDomainsResponse {
   // Canonical names of domains owned by the caller.
   repeated string domains = 1;
 
@@ -106,12 +106,25 @@ message ListResponse {
   string next_page_token = 2;
 }
 
-message GetRequest {
+message GetDomainRequest {
   // Either a canonical domain name or a registered alias domain name.
   string name = 1;
 }
 
-message UpdateAliasesRequest {
+message UpdateDomainAliasesRequest {
+  // Either a canonical domain name or a registered alias domain name.
+  string name = 1;
+
+  // New aliases to add to the domain.
+  // At most 4 aliases may be added per request.
+  repeated string additions = 2;
+
+  // Existing aliases to remove from the domain.
+  // At most 4 aliases may be removed per request.
+  repeated string removals = 3;
+}
+
+message UpdateDomainOwnersRequest {
   // Either a canonical domain name or a registered alias domain name.
   string name = 1;
 
@@ -122,23 +135,12 @@ message UpdateAliasesRequest {
   repeated string removals = 3;
 }
 
-message UpdateOwnersRequest {
-  // Either a canonical domain name or a registered alias domain name.
-  string name = 1;
-
-  // Email addresses to send invitations to own the domain.
-  repeated string additions = 2;
-
-  // Email addresses of pending or confirmed owners to remove from the domain.
-  repeated string removals = 3;
-}
-
-message DeleteRequest {
+message DeleteDomainRequest {
   // Either a canonical domain name or a registered alias domain name.
   string name = 1;
 }
 
-message DeleteResponse {}
+message DeleteDomainResponse {}
 
 message Domain {
   // Canonical name of the domain.

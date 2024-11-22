@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
+	"os"
+
+	"go.uber.org/zap"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -11,11 +15,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"api.vimana.host/v1/domains"
 	v1 "api.vimana.host/v1"
+	"api.vimana.host/v1/domains"
 )
 
-// Always listen on TCP port 443.
+// Always listen on TCP port 80.
 const network = "tcp"
 const port = 80
 
@@ -37,9 +41,39 @@ func main() {
 		log.Fatalf("Failed to create K8s client set: %v\n", err)
 	}
 
-	service := v1.NewApiService(client)
-	server := grpc.NewServer()
+	// Structured logger used in actions.
+	logger, err := zap.NewProduction()
+	if err != nil {
+		log.Fatalf("Failed to create structured logger: %v\n", err)
+	}
+
+	// All K8s API calls are scoped to an explicit namespace.
+	namespace := os.Getenv("VIMANA_NAMESPACE")
+	if namespace == "" {
+		log.Fatalf("Expected the K8s namespace to be explicitly provided.", err)
+	}
+
+	service := v1.NewApiService(client, namespace, logger)
+	server := grpc.NewServer(grpc.UnaryInterceptor(loggingInterceptor))
 	domains.RegisterDomainsServer(server, service)
 	reflection.Register(server)
 	server.Serve(listener)
+}
+
+func loggingInterceptor(
+	ctx context.Context,
+	request any,
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler,
+) (any, error) {
+	service, ok := info.Server.(*v1.ApiService)
+	if ok {
+		service.Logger.Info(
+			"Action",
+			zap.String("method", info.FullMethod),
+		)
+	} else {
+		log.Printf("Unexpected service type! Got %T\n", info.Server)
+	}
+	return handler(ctx, request)
 }

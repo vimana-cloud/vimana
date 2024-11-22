@@ -87,9 +87,35 @@ spec:
         vimana.host/service: vimana-api-v1
         vimana.host/version: '1.0.0'
     spec:
+      serviceAccountName: vimana-api-account
       containers:
         - name: app  # All pods have a single container, called 'app'.
           image: 'host.minikube.internal:5000/vimana-api-v1:latest'
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
+          env:
+            - name: VIMANA_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+---
+# The Vimana API's service account
+# is the only thing that can access the K8s API.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vimana-api-account
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vimana-api-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: vimana-api-account
+roleRef:
+  kind: ClusterRole
+  # TODO: Stop using built-in super-admin role.
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
