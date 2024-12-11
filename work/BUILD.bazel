@@ -3,6 +3,7 @@ load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 rust_library(
     name = "error",
     srcs = ["error.rs"],
+    visibility = [":__subpackages__"],
     deps = [
         "@crates//:http",
         "@crates//:tonic",
@@ -12,6 +13,7 @@ rust_library(
 rust_library(
     name = "names",
     srcs = ["names.rs"],
+    visibility = [":__subpackages__"],
     deps = [
         ":error",
         "@crates//:lazy_static",

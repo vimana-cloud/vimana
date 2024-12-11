@@ -1,39 +1,29 @@
-/// Work node runtime state and documentation.
-///
-/// Each work node runs a single instance of the runtime,
-/// which governs the node by serving gRPC services on two ports:
-///
-/// - UDP 443 (HTTPS/3)
-///   fields requests from Ingress to all hosted services.
-/// - Unix `/run/actio/container-runtime-interface.sock`
-///   handles orchestration requests from Kubelet.
-use std::collections::HashMap;
-use std::mem::drop;
-use std::sync::Arc;
+//! Data structures to manage work runtime pods.
+//!
+//! Each work node runs a single instance of the runtime,
+//! which governs the node by serving gRPC services on two ports:
+//!
+//! - UDP 443 (HTTPS/3)
+//!   fields requests from Ingress to all hosted services.
+//! - Unix `/run/vimana/workd.sock`
+//!   handles orchestration requests from Kubelet.
+#![feature(async_closure)]
 
-use tokio::sync::{Mutex, RwLock};
+use std::collections::HashMap;
+use std::error::Error as StdError;
+
+use papaya::HashMap as LockFreeConcurrentHashMap;
+use tokio::sync::Mutex as AsyncMutex;
+use tonic::transport::channel::Channel;
 use wasmtime::component::{InstancePre, Linker};
 use wasmtime::{Config as WasmConfig, Engine as WasmEngine, Store};
 
+use api_proto::runtime::v1::image_service_client::ImageServiceClient;
+use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
+use container_proto::work::runtime::container::Container;
 use containers::ContainerStore;
 use error::{Error, Result};
-use names::FullVersionName;
-use pods_proto::pods::PodConfig;
-use pool::{Key, KeyedPodPool, Pod};
-
-// TODO: There may be a better data structure for pod pools.
-/// Use a two-level map structure to look up pods,
-/// providing some degree of contention isolation between domains.
-/// The top level keys are domains.
-/// The lower level is [ComponentMap],
-/// with keys composed of the service name and version.
-/// Together, they are effectively a single key-value store
-/// mapping (domain, service-name, version) keys to [Pod] values.
-type DomainMap = RwLock<HashMap<String, ComponentMap>>;
-
-/// The lower level of [DomainMap].
-/// Keys are of the form: <service-name> "@" <version>
-type ComponentMap = RwLock<HashMap<String, KeyedPodPool>>;
+use names::{ComponentName, PodId, PodName};
 
 /// Global runtime state for a work node.
 pub struct WorkRuntime {
@@ -41,28 +31,73 @@ pub struct WorkRuntime {
     /// This is a cheap, thread-safe handle to the "real" engine.
     wasmtime: WasmEngine,
 
-    /// Local cache of [Pod] information.
-    pods: DomainMap,
+    /// Map of locally running components,
+    /// each representing a K8s pod with a single container.
+    /// Lock-freedom is important to help isolate tenants from one another.
+    pods: LockFreeConcurrentHashMap<ComponentName, PodPool>,
 
-    /// Store from which to retrieve container images by ID.
+    /// Remote store from which to retrieve container images by ID,
+    /// which can then be loaded into pods.
     containers: ContainerStore,
+
+    /// Client to a downstream OCI container runtime (e.g. containerd or cri-o)
+    /// so work nodes can run traditional OCI containers as well.
+    pub oci_runtime: AsyncMutex<RuntimeServiceClient<Channel>>,
+
+    /// Client to the downstream OCI CRI image service.
+    pub oci_image: AsyncMutex<ImageServiceClient<Channel>>,
 }
 
+/// A group of pods which are all running the same container (*a.k.a.* component).
+struct PodPool {
+    // TODO: This is a very naive implementation for initial POC. Make it better.
+    /// Map from pod ID to pod instance.
+    pods: AsyncMutex<HashMap<String, Pod>>,
+}
+
+/// A pod *roughly* corresponds to a component "instance".
+///
+/// Technically, rather than an instance,
+/// it corresponds to an [`InstancePre`],
+/// which can be used to efficiently instantiate new instances on the fly.
+///
+/// A new instance is created to handle each request.
+/// This is the only means of multi-threaded execution in wasmtime until
+/// [shared-everything threads](https://github.com/WebAssembly/shared-everything-threads/)
+/// (or something similar) becomes available.
+/// [See here](https://bytecodealliance.zulipchat.com/#narrow/stream/217126-wasmtime/topic/Concurrent.20execution).
+///
+/// Currently, each pod can have
+/// [shared memories](https://docs.rs/wasmtime/latest/wasmtime/struct.SharedMemory.html)
+/// which are shared among all instances.
+pub struct Pod {
+    // An efficient means of instantiating new instances.
+    instantiator: InstancePre<HostState>,
+}
+
+/// State available to host-defined functions.
+type HostState = ();
+
 impl WorkRuntime {
-    /// Return a new, empty [WorkRuntime].
-    pub fn new() -> Result<Self> {
-        Ok(WorkRuntime {
+    /// Return a new runtime with no running pods.
+    pub async fn new(
+        oci_runtime: RuntimeServiceClient<Channel>,
+        oci_image: ImageServiceClient<Channel>,
+    ) -> Result<Self> {
+        Ok(Self {
             wasmtime: Self::default_engine()?,
-            pods: RwLock::new(HashMap::new()),
+            pods: LockFreeConcurrentHashMap::new(),
             containers: ContainerStore::new(),
+            oci_runtime: AsyncMutex::new(oci_runtime),
+            oci_image: AsyncMutex::new(oci_image),
         })
     }
 
     // A new instance of the default engine for this runtime.
-    pub fn default_engine() -> Result<WasmEngine> {
+    fn default_engine() -> Result<WasmEngine> {
         WasmEngine::new(
             WasmConfig::new()
-                // Allows host functions to be `async` Rust.
+                // Allow host functions to be `async` Rust.
                 // Means you have to use `Func::call_async` instead of `Func::call`.
                 .async_support(true)
                 // Epoch interruption for preemptive multithreading.
@@ -74,67 +109,67 @@ impl WorkRuntime {
                 .wasm_tail_call(true)
                 .wasm_function_references(true),
         )
-        .map_err(|err| Error::wrap(ENGINE_ALLOCATION_ERROR, err.into()))
+        .map_err(|err| Error::wrap(ENGINE_ALLOCATION_ERROR, err))
     }
 
-    /// Add a new pod to the pool.
-    pub async fn create_container(&self, name: FullVersionName<'_>) -> Result<Key> {
-        let (config, pod) = self.containers.new_container(&name)?;
+    /// Add a new, empty pod to the pool, in a reserved state.
+    ///
+    /// Reserved pods are unusable
+    /// until a container is [created](Self::create_container) within them.
+    pub async fn add_pod(&self, name: ComponentName) -> PodId {
+        let pods = self.pods.pin();
+        pods.get_or_insert_with(name, PodPool::new).add_pod()
+    }
 
-        // Optimistically try read-locking first.
-        let domain_map = self.pods.read().await;
-        match domain_map.get(name.domain) {
-            Some(component_map) => {
-                self.add_pod_for_domain(component_map, name, config, pod)
-                    .await
-            }
-            None => {
-                // No existing pods for the domain.
-                // Drop the read-lock then get a write-lock for the whole pool.
-                drop(domain_map);
-                let mut domain_map_mut = self.pods.write().await;
+    /// Create a container in a reserved pod.
+    pub async fn create_container(&self, pod: &PodName) -> Result<()> {
+        let container = self.containers.get_container(&pod.component)?;
 
-                // There may have been a concurrent insertion
-                // in between the first check and acquiring the write-lock.
-                if let Some(concurrent_insertion) =
-                    domain_map_mut.insert(String::from(name.domain), RwLock::new(HashMap::new()))
-                {
-                    // Defer to the prior insertion (insert it back).
-                    domain_map_mut.insert(String::from(name.domain), concurrent_insertion);
-                }
-                drop(domain_map_mut); // Drop the write-lock.
-
-                // Try again with a read-lock,
-                // now that we're *pretty* sure the lookup will work.
-                match self.pods.read().await.get(name.domain) {
-                    Some(component_map) => {
-                        self.add_pod_for_domain(component_map, name, config, pod)
-                            .await
-                    }
-                    None => Err(Error::leaf("Memory error while inserting pod into pool")),
-                }
-            }
+        let pods = self.pods.pin();
+        match pods.get(&pod.component) {
+            Some(pool) => pool.create_container(pod.pod, container),
+            None => Err(Error::leaf(format!(
+                "Cannot create a container without an existing pod: {pod}"
+            ))),
         }
     }
 
-    async fn add_pod_for_domain(
+    pub async fn invoke_rpc(
         &self,
-        component_map: &ComponentMap,
-        name: FullVersionName<'_>,
-        config: PodConfig,
-        pod: Pod,
-    ) -> Result<Key> {
-        let mut component_map = component_map.write().await;
-        match component_map.get_mut(name.without_domain) {
-            Some(pool) => pool.add(pod),
-            None => {
-                let mut pool = KeyedPodPool::new(config);
-                let key = pool.add(pod);
-                component_map.insert(String::from(name.without_domain), pool);
-                key
+        component: &ComponentName,
+        rpc: &str,
+        request: i32,  // TODO: This should be the request buffer.
+        response: i32, // TODO: This should be the response buffer.
+    ) -> Result<()> {
+        let pods = self.pods.pin();
+        match pods.get(component) {
+            Some(pod) => {
+                todo!()
             }
+            None => Err(Error::leaf(format!(
+                "No running pods for component: {}",
+                component
+            ))),
         }
     }
 }
 
 const ENGINE_ALLOCATION_ERROR: &str = "Error allocating engine";
+
+impl PodPool {
+    fn new() -> Self {
+        Self {
+            pods: AsyncMutex::new(HashMap::new()),
+        }
+    }
+
+    fn add_pod(&self) -> PodId {
+        // TODO: Something real.
+        0usize
+    }
+
+    fn create_container(&self, pod_id: PodId, container: Container) -> Result<()> {
+        // TODO: Something real.
+        Ok(())
+    }
+}

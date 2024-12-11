@@ -9,10 +9,13 @@
 //! - [`ServiceName`]
 //! - [`ComponentName`]
 //! - [`PodName`]
+#![feature(portable_simd)]
 #![feature(core_intrinsics)]
 
 use std::fmt::{Display, Formatter, Result as FmtResult, Write};
 use std::intrinsics::likely;
+use std::simd::cmp::SimdPartialOrd;
+use std::simd::{simd_swizzle, u8x16, u8x32};
 
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -22,6 +25,14 @@ use error::{Error, Result};
 const DOMAIN_SEPARATOR: char = ':';
 const VERSION_SEPARATOR: char = '@';
 const POD_ID_SEPARATOR: char = '#';
+
+pub(crate) const FULL_SERVICE_ERROR_MSG: &str = "Expected fully-qualified service name.";
+pub(crate) const SERVICE_ERROR_MSG: &str = "Expected service name.";
+pub(crate) const FULL_COMPONENT_ERROR_MSG: &str = "Expected fully-qualified component name.";
+pub(crate) const COMPONENT_ERROR_MSG: &str = "Expected component name.";
+pub(crate) const POD_ERROR_MSG: &str = "Expected pod ID.";
+
+pub type PodId = usize;
 
 /// Permissively [parses](Self::parse) a service / version name:
 ///     [ domain ':' ] service-name [ '@' version [ '#' pod-id ] ]
@@ -147,7 +158,7 @@ impl<'a> Name<'a> {
         if let Some(domain) = self.domain {
             if let Some(version) = self.version {
                 if let Some(pod) = self.pod {
-                    return PodName::new(domain, self.service, version, pod);
+                    return PodName::from_strings(domain, self.service, version, pod);
                 }
             }
         }
@@ -166,15 +177,43 @@ fn parse_version<'a>(version: &'a str) -> (Option<&'a str>, Option<&'a str>) {
     (Some(version), pod)
 }
 
-pub(crate) const FULL_SERVICE_ERROR_MSG: &str = "Expected fully-qualified service name.";
-pub(crate) const SERVICE_ERROR_MSG: &str = "Expected service name.";
-pub(crate) const FULL_COMPONENT_ERROR_MSG: &str = "Expected fully-qualified component name.";
-pub(crate) const COMPONENT_ERROR_MSG: &str = "Expected component name.";
-pub(crate) const POD_ERROR_MSG: &str = "Expected pod ID.";
+pub struct CanonicalDomainUuid {
+    /// The UUID part of a canonical domain represents 128 bits.
+    /// Here they are as a little-endian SIMD vector of bytes.
+    uuid: u8x16,
+}
+
+impl CanonicalDomainUuid {
+    pub fn parse(uuid: &str) -> Self {
+        // The hex-encoded UUID string must be 32 bytes long
+        // (1 logical nibble per hex-encoded byte).
+        let hex_bytes = u8x32::from_slice(uuid.as_bytes());
+        // Convert to logical nibbles
+        // by subtracting ASCII 'a' from each byte that's greater than ASCII '9',
+        // and subtracting ASCII '0' from all other bytes.
+        let nibbles = hex_bytes
+            - hex_bytes
+                .simd_gt(u8x32::splat(b'9'))
+                .select(u8x32::splat(b'a'), u8x32::splat(b'0'));
+        // Deinterleave the nibbles of each logical byte.
+        let lower_nibbles = simd_swizzle!(
+            nibbles,
+            [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
+        );
+        let upper_nibbles = simd_swizzle!(
+            nibbles,
+            [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
+        );
+        // Recombine the nibbles of each logical byte.
+        Self {
+            uuid: lower_nibbles + (upper_nibbles * u8x16::splat(16)),
+        }
+    }
+}
 
 /// A service name:
 ///     domain ':' service-name
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ServiceName {
     pub domain: String,
     pub service: String,
@@ -210,7 +249,7 @@ impl Display for ServiceName {
 
 /// A component name (versioned service):
 ///     domain ':' service-name '@' version
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ComponentName {
     pub service: ServiceName,
     pub version: String,
@@ -245,24 +284,31 @@ impl Display for ComponentName {
 
 /// A pod / container name:
 ///     domain ':' service-name '@' version '#' pod-id
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PodName {
     pub component: ComponentName,
-    pub pod: usize,
+    pub pod: PodId,
 }
 
 impl PodName {
-    pub fn new<'a, D, S, V>(domain: D, service: S, version: V, pod: &'a str) -> Result<Self>
+    pub fn new(component: ComponentName, pod_id: PodId) -> Self {
+        Self {
+            component: component,
+            pod: pod_id,
+        }
+    }
+
+    fn from_strings<'a, D, S, V>(domain: D, service: S, version: V, pod: &'a str) -> Result<Self>
     where
         D: Into<String>,
         S: Into<String>,
         V: Into<String>,
     {
-        Ok(Self {
-            component: ComponentName::new(domain, service, version)?,
-            pod: usize::from_str_radix(pod, 16)
+        Ok(Self::new(
+            ComponentName::new(domain, service, version)?,
+            usize::from_str_radix(pod, 16)
                 .map_err(|_e| Error::leaf(format!("Invalid pod ID: {pod}")))?,
-        })
+        ))
     }
 }
 

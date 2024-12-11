@@ -69,8 +69,8 @@ impl Display for Error {
     }
 }
 
-impl Into<Status> for Error {
-    fn into(self) -> Status {
-        Status::new(self.code, self.msg)
+impl From<Error> for Status {
+    fn from(error: Error) -> Self {
+        Self::new(error.code, error.msg)
     }
 }

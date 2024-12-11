@@ -1,5 +1,5 @@
 load("@rules_rust//proto/prost:defs.bzl", "rust_prost_library")
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
 
 # Top-level target: the runtime executable.
 rust_binary(
@@ -10,9 +10,11 @@ rust_binary(
         ":cri",
         ":runtime-api-prost",
         ":state",
+        "@crates//:hyper-util",
         "@crates//:tokio",
         "@crates//:tokio-stream",
         "@crates//:tonic",
+        "@crates//:tower",
     ],
 )
 
@@ -20,12 +22,14 @@ rust_library(
     name = "state",
     srcs = ["state.rs"],
     deps = [
+        ":container-prost",
         ":containers",
-        ":pods-prost",
-        ":pool",
-        "//util:error",
-        "//util:names",
+        ":runtime-api-prost",
+        "//work:error",
+        "//work:names",
+        "@crates//:papaya",
         "@crates//:tokio",
+        "@crates//:tonic",
         "@crates//:wasmtime",
     ],
 )
@@ -36,9 +40,10 @@ rust_library(
     deps = [
         ":runtime-api-prost",
         ":state",
-        "//util:error",
-        "//util:names",
+        "//work:error",
+        "//work:names",
         "@crates//:tokio-stream",
+        "@crates//:tonic",
     ],
 )
 
@@ -46,10 +51,9 @@ rust_library(
     name = "containers",
     srcs = ["containers.rs"],
     deps = [
-        ":pods-prost",
-        ":pool",
-        "//util:error",
-        "//util:names",
+        ":container-prost",
+        "//work:error",
+        "//work:names",
     ],
 )
 
@@ -59,48 +63,35 @@ rust_prost_library(
     proto = "@cri-api//pkg/apis/runtime/v1:api-proto",
 )
 
-rust_library(
-    name = "pool",
-    srcs = ["pool.rs"],
-    deps = [
-        ":pods-prost",
-        "//util:error",
-        "@crates//:tokio",
-        "@crates//:wasmtime",
-    ],
-)
-
-rust_test(
-    name = "pool-test",
-    crate = ":pool",
-    deps = [
-        ":state",
-    ],
-)
-
 proto_library(
-    name = "pods-proto",
-    srcs = ["pods.proto"],
+    name = "container-proto",
+    srcs = ["container.proto"],
     deps = [
         ":coding-proto",
     ],
 )
 
 rust_prost_library(
-    name = "pods-prost",
-    proto = "pods-proto",
+    name = "container-prost",
+    proto = "container-proto",
 )
 
 rust_library(
     name = "grpc",
-    srcs = ["grpc.rs"],
+    srcs = ["data-plane.rs"],
     deps = [
         ":state",
+        "//work:error",
+        "//work:names",
         "@crates//:bytes",
+        "@crates//:http",
+        "@crates//:http-body",
         "@crates//:http-body-util",
         "@crates//:hyper",
         "@crates//:hyper-util",
         "@crates//:tokio",
+        "@crates//:tonic",
+        "@crates//:tower-service",
     ],
 )
 

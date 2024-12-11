@@ -80,6 +80,10 @@ crate.spec(
     version = "1.5.0",
 )
 crate.spec(
+    package = "papaya",
+    version = "0.1.3",
+)
+crate.spec(
     package = "prost",
     version = "0.13.2",
 )
@@ -111,6 +115,7 @@ crate.spec(
     features = [
         "macros",
         "rt-multi-thread",
+        "signal",
         "sync",
     ],
     package = "tokio",
@@ -124,6 +129,10 @@ crate.spec(
 crate.spec(
     package = "tonic",
     version = "0.12.2",
+)
+crate.spec(
+    package = "tower",
+    version = "0.5.1",
 )
 crate.spec(
     package = "tower-service",
