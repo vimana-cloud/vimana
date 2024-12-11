@@ -8,9 +8,9 @@ k8s_cluster_test(
         "api.vimana.host": "127.0.0.1",
     },
     objects = [
-        "//gateway:deploy.yaml",
-        "//api/v1:deploy.yaml",
         ":tls-api-vimana-host",
+        "//api/v1:deploy.yaml",
+        "//cluster:deploy.yaml",
     ],
     port_forward = {
         "svc/vimana-gateway-istio": ["61803:443"],
