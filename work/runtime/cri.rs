@@ -1,6 +1,19 @@
 //! Implementation of the
 //! [Container Runtime Interface](https://kubernetes.io/docs/concepts/architecture/cri/)
 //! for the Work Node runtime.
+//!
+//! K8s control plane pods expect an OCI-compatible runtime.
+//! Since Vimana's Wasm component runtime is not OCI-compatible,
+//! this implementation relies on a downstream OCI runtime to run control plane pods,
+//! enabling colocation of pods using diverse runtimes on a single node.
+//!
+//! Business logic does not belong in this file.
+//! Its purpose is to accept incoming CRI API requests from clients,
+//! and either proxy them to the downstream runtime
+//! and/or access the Wasm component map.
+//! It also transparently inserts and removes prefixes
+//! to each container and pod sandbox ID in responses and requests, respectively,
+//! to distinguish which runtime each belongs to.
 
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
@@ -13,19 +26,27 @@ use tonic::{Code, Request, Response, Status};
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_server::ImageService;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
+use api_proto::runtime::v1::Protocol;
 
 use error::{Error, Result};
-use names::{ComponentName, Name, PodName};
+use names::{CanonicalComponentName, CanonicalDomainUuid, Name, PodName};
 use state::WorkRuntime;
 
 /// "For now it expects 0.1.0." - https://github.com/cri-o/cri-o/blob/v1.31.3/server/version.go.
 const KUBELET_API_VERSION: &str = "0.1.0";
 /// Name of the Vimana container runtime.
-const CONTAINER_RUNTIME_NAME: &str = "workd";
+pub const CONTAINER_RUNTIME_NAME: &str = "workd";
 /// Version of the Vimana container runtime.
 pub const CONTAINER_RUNTIME_VERSION: &str = "0.0.0";
 /// Version of the CRI API supported by the runtime.
 const CONTAINER_RUNTIME_API_VERSION: &str = "v1";
+
+/// Prefix used to differentiate OCI pods / containers.
+const OCI_PREFIX: &str = "O:";
+/// Prefix used to differentiate Vimana pods / containers.
+const WORKD_PREFIX: &str = "W:";
+
+const HTTPS_DEFAULT_PORT: i32 = 443;
 
 /// Wrapper around [WorkRuntime] that can implement [RuntimeService] and [ImageService]
 /// without running afoul of Rust's rules on foreign types / traits.
@@ -33,9 +54,6 @@ pub struct VimanaCriService(pub Arc<WorkRuntime>);
 
 /// Type boilerplate for a typical Tonic response result.
 type TonicResult<T> = StdResult<Response<T>, Status>;
-
-const OCI_PREFIX: &str = "O:";
-const WORKD_PREFIX: &str = "W:";
 
 /// Return early with the result of the given block
 /// if the given ID (mutable `String`) starts with the OCI prefix.
@@ -126,10 +144,38 @@ impl RuntimeService for VimanaCriService {
                 .map(map_oci_prefix!(pod_sandbox_id));
         }
 
-        let config = request.config.unwrap_or_default();
+        let mut config = request.config.unwrap_or_default();
         let component = component_name_from_labels(config.labels)?;
 
-        let pod_id = self.0.add_pod(component.clone()).await;
+        // Check that the request fits into Vimana's narrow vision of validity
+        // for the sake of preventing unexpected behavior.
+        if config.port_mappings.len() != 1 {
+            return Err(Error::leaf("gRPC pods must have a single port mapping.").into());
+        }
+        let port_mapping = config.port_mappings.pop().unwrap();
+        if port_mapping.protocol != Protocol::Tcp as i32 {
+            return Err(Error::leaf("gRPC pods must use TCP.").into());
+        }
+        if port_mapping.container_port != HTTPS_DEFAULT_PORT {
+            return Err(Error::leaf(format!(
+                "gRPC pods must use internal port {}.",
+                HTTPS_DEFAULT_PORT
+            ))
+            .into());
+        }
+        if port_mapping.host_port <= 0 || port_mapping.host_port > u16::MAX as i32 {
+            return Err(Error::leaf(format!(
+                "Invalid external port '{}'.",
+                port_mapping.host_port
+            ))
+            .into());
+        }
+
+        let pod_id = self.0.init_pod(
+            config.metadata.unwrap_or_default(),
+            component.clone(),
+            port_mapping.host_port as u16,
+        )?;
 
         Ok(Response::new(v1::RunPodSandboxResponse {
             // Prefix the ID so we can distinguish it from downstream OCI pod IDs.
@@ -258,15 +304,21 @@ impl RuntimeService for VimanaCriService {
             return Err(Error::leaf("Container labels must match pod sandbox ID.").into());
         }
         let image_id = config.image.unwrap_or_default().image;
-        let image_component = Name::parse(&image_id).component()?;
+        let image_component = Name::parse(&image_id).canonical_component()?;
         if component != image_component {
             return Err(Error::leaf("Container labels must match image ID.").into());
+        }
+
+        let mut environment = HashMap::with_capacity(config.envs.len());
+        for key_value in config.envs.iter() {
+            let pre_existing = environment.insert(key_value.key.clone(), key_value.value.clone());
+            debug_assert!(pre_existing.is_none());
         }
 
         // The CRI API has separate steps for creating pods and creating containers,
         // but a component pod is inseparable from its single container,
         // so "pods" and containers are created simultaneously.
-        self.0.create_container(&pod_name).await?;
+        self.0.create_container(pod_name.pod, environment)?;
 
         Ok(Response::new(v1::CreateContainerResponse {
             // Containers and their pod sandboxes share IDs.
@@ -690,13 +742,15 @@ impl ImageService for VimanaCriService {
         // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
         // This supports running K8s control plane pods like `kube-controller-manager` etc.
         if handler != "TODO-this-should-be-something-else-but-what?" {
-            return self
+            let r = self
                 .0
                 .oci_image
                 .lock()
                 .await
                 .list_images(Request::new(request))
                 .await;
+            log_object("ListImages-response", &r);
+            return r;
         }
 
         todo!()
@@ -785,12 +839,15 @@ impl ImageService for VimanaCriService {
         log_object("ImageFsInfo", &request);
 
         // TODO: Also merge in stats about the upstream system!
-        self.0
+        let r = self
+            .0
             .oci_image
             .lock()
             .await
             .image_fs_info(Request::new(request))
-            .await
+            .await;
+        log_object("ImageFsInfo-response", &r);
+        r
     }
 }
 
@@ -800,7 +857,8 @@ impl VimanaCriService {
         &self,
         _r: v1::ListPodSandboxRequest,
     ) -> TonicResult<v1::ListPodSandboxResponse> {
-        todo!()
+        // TODO: Something real.
+        Ok(Response::new(v1::ListPodSandboxResponse::default()))
     }
 
     /// Perform sandbox listing in the workd runtime.
@@ -808,7 +866,8 @@ impl VimanaCriService {
         &self,
         _r: v1::ListContainersRequest,
     ) -> TonicResult<v1::ListContainersResponse> {
-        todo!()
+        // TODO: Something real.
+        Ok(Response::new(v1::ListContainersResponse::default()))
     }
 
     /// Invoke the downstream OCI runtime with the given request as-is.
@@ -852,19 +911,22 @@ const LABEL_DOMAIN_KEY: &str = "vimana.host/domain";
 const LABEL_SERVICE_KEY: &str = "vimana.host/service";
 const LABEL_VERSION_KEY: &str = "vimana.host/version";
 
-fn component_name_from_labels(labels: HashMap<String, String>) -> Result<ComponentName> {
-    ComponentName::new(
-        labels
-            .get(LABEL_DOMAIN_KEY)
-            .map(String::from)
-            .ok_or_else(|| Error::leaf(format!("Expected label for '{LABEL_DOMAIN_KEY}'")))?,
-        labels
-            .get(LABEL_SERVICE_KEY)
-            .map(String::from)
-            .ok_or_else(|| Error::leaf(format!("Expected label for '{LABEL_SERVICE_KEY}'")))?,
-        labels
-            .get(LABEL_VERSION_KEY)
-            .map(String::from)
-            .ok_or_else(|| Error::leaf(format!("Expected label for '{LABEL_VERSION_KEY}'")))?,
+fn component_name_from_labels(labels: HashMap<String, String>) -> Result<CanonicalComponentName> {
+    CanonicalComponentName::new(
+        CanonicalDomainUuid::parse(
+            labels
+                .get(LABEL_DOMAIN_KEY)
+                .ok_or_else(|| Error::leaf(format!("Expected label for '{LABEL_DOMAIN_KEY}'")))?,
+        )?,
+        String::from(
+            labels
+                .get(LABEL_SERVICE_KEY)
+                .ok_or_else(|| Error::leaf(format!("Expected label for '{LABEL_SERVICE_KEY}'")))?,
+        ),
+        String::from(
+            labels
+                .get(LABEL_VERSION_KEY)
+                .ok_or_else(|| Error::leaf(format!("Expected label for '{LABEL_VERSION_KEY}'")))?,
+        ),
     )
 }

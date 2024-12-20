@@ -1,29 +1,29 @@
-//! Data structures to manage work runtime pods.
-//!
-//! Each work node runs a single instance of the runtime,
-//! which governs the node by serving gRPC services on two ports:
-//!
-//! - UDP 443 (HTTPS/3)
-//!   fields requests from Ingress to all hosted services.
-//! - Unix `/run/vimana/workd.sock`
-//!   handles orchestration requests from Kubelet.
+//! State machine used by the CRI service to manage pods.
 #![feature(async_closure)]
 
 use std::collections::HashMap;
 use std::error::Error as StdError;
+use std::mem::drop;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex as SyncMutex;
 
-use papaya::HashMap as LockFreeConcurrentHashMap;
+use papaya::{Compute, HashMap as LockFreeConcurrentHashMap, Operation};
+use tokio::sync::oneshot;
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::task::{spawn, AbortHandle};
+use tonic::service::Routes;
 use tonic::transport::channel::Channel;
-use wasmtime::component::{InstancePre, Linker};
-use wasmtime::{Config as WasmConfig, Engine as WasmEngine, Store};
+use tonic::transport::server::TcpIncoming;
+use tonic::transport::Server;
+use wasmtime::{Config as WasmConfig, Engine as WasmEngine};
 
 use api_proto::runtime::v1::image_service_client::ImageServiceClient;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
-use container_proto::work::runtime::container::Container;
-use containers::ContainerStore;
+use api_proto::runtime::v1::PodSandboxMetadata;
 use error::{Error, Result};
-use names::{ComponentName, PodId, PodName};
+use grpc_pod::{PodFuture, PodInitializer};
+use names::{CanonicalComponentName, PodId};
 
 /// Global runtime state for a work node.
 pub struct WorkRuntime {
@@ -31,14 +31,16 @@ pub struct WorkRuntime {
     /// This is a cheap, thread-safe handle to the "real" engine.
     wasmtime: WasmEngine,
 
-    /// Map of locally running components,
-    /// each representing a K8s pod with a single container.
+    /// Map of locally running pod IDs to pod controllers.
     /// Lock-freedom is important to help isolate tenants from one another.
-    pods: LockFreeConcurrentHashMap<ComponentName, PodPool>,
+    pods: LockFreeConcurrentHashMap<PodId, PodController>,
+
+    /// To generate unique pod IDs.
+    next_pod_id: AtomicUsize,
 
     /// Remote store from which to retrieve container images by ID,
     /// which can then be loaded into pods.
-    containers: ContainerStore,
+    pod_store: PodInitializer,
 
     /// Client to a downstream OCI container runtime (e.g. containerd or cri-o)
     /// so work nodes can run traditional OCI containers as well.
@@ -48,46 +50,77 @@ pub struct WorkRuntime {
     pub oci_image: AsyncMutex<ImageServiceClient<Channel>>,
 }
 
-/// A group of pods which are all running the same container (*a.k.a.* component).
-struct PodPool {
-    // TODO: This is a very naive implementation for initial POC. Make it better.
-    /// Map from pod ID to pod instance.
-    pods: AsyncMutex<HashMap<String, Pod>>,
+/// Pod lifecycle states.
+enum PodController {
+    /// A pod after initialization with `RunPodSandbox` but before `CreateContainer`.
+    Initiated(InitiatedPodInfo),
+
+    /// A pod after creating the container with `CreateContainer` but before `StartContainer`.
+    Created(CreatedPodInfo),
+
+    /// A pod after starting the container with `StartContainer`.
+    Running(RunningPodInfo),
+
+    /// After calling `StopContainer` but before removal.
+    Stopped,
+
+    /// After calling `RemoveContainer` but before `RemovePodSandbox`.
+    Removed,
 }
 
-/// A pod *roughly* corresponds to a component "instance".
-///
-/// Technically, rather than an instance,
-/// it corresponds to an [`InstancePre`],
-/// which can be used to efficiently instantiate new instances on the fly.
-///
-/// A new instance is created to handle each request.
-/// This is the only means of multi-threaded execution in wasmtime until
-/// [shared-everything threads](https://github.com/WebAssembly/shared-everything-threads/)
-/// (or something similar) becomes available.
-/// [See here](https://bytecodealliance.zulipchat.com/#narrow/stream/217126-wasmtime/topic/Concurrent.20execution).
-///
-/// Currently, each pod can have
-/// [shared memories](https://docs.rs/wasmtime/latest/wasmtime/struct.SharedMemory.html)
-/// which are shared among all instances.
-pub struct Pod {
-    // An efficient means of instantiating new instances.
-    instantiator: InstancePre<HostState>,
+/// Info configured by `RunPodSandbox`.
+#[derive(Clone)]
+struct InitiatedPodInfo {
+    /// K8s metadata. Must be returned as-is for status requests.
+    metadata: PodSandboxMetadata,
+
+    /// Canonical name of the component that will run in this pod.
+    component_name: CanonicalComponentName,
+
+    /// Port that the pod should listen on for the gRPC server.
+    grpc_port: u16,
+
+    /// Compile component and metadata (future).
+    /// Starts initializing as soon as possible.
+    pod: PodFuture,
 }
 
-/// State available to host-defined functions.
-type HostState = ();
+/// Info configured by `CreateContainer`.
+#[derive(Clone)]
+struct CreatedPodInfo {
+    /// Info configured by `RunPodSandbox`.
+    initial: InitiatedPodInfo,
+
+    /// Environment variable keys and values.
+    environment: HashMap<String, String>,
+}
+
+/// Info configured by `StartContainer`.
+struct RunningPodInfo {
+    /// Info configured by `CreateContainer`.
+    created: CreatedPodInfo,
+
+    /// Send to this channel to shut down the server gracefully.
+    shutdown: SyncMutex<Option<oneshot::Sender<()>>>,
+
+    // Use this to shut down the server forcibly.
+    abort: AbortHandle,
+}
 
 impl WorkRuntime {
     /// Return a new runtime with no running pods.
     pub async fn new(
+        registry: String,
         oci_runtime: RuntimeServiceClient<Channel>,
         oci_image: ImageServiceClient<Channel>,
     ) -> Result<Self> {
+        let wasmtime = Self::default_engine()?;
+        let pod_store = PodInitializer::new(registry, &wasmtime);
         Ok(Self {
-            wasmtime: Self::default_engine()?,
+            wasmtime,
             pods: LockFreeConcurrentHashMap::new(),
-            containers: ContainerStore::new(),
+            next_pod_id: AtomicUsize::new(0),
+            pod_store,
             oci_runtime: AsyncMutex::new(oci_runtime),
             oci_image: AsyncMutex::new(oci_image),
         })
@@ -109,67 +142,201 @@ impl WorkRuntime {
                 .wasm_tail_call(true)
                 .wasm_function_references(true),
         )
-        .map_err(|err| Error::wrap(ENGINE_ALLOCATION_ERROR, err))
+        .map_err(|err| Error::wrap("Error allocating engine", err))
     }
 
-    /// Add a new, empty pod to the pool, in a reserved state.
+    /// Create a new [pod controller](PodController)
+    /// in the [initiated](PodController::Initiated) state.
+    /// Return a newly generated ID.
     ///
-    /// Reserved pods are unusable
-    /// until a container is [created](Self::create_container) within them.
-    pub async fn add_pod(&self, name: ComponentName) -> PodId {
-        let pods = self.pods.pin();
-        pods.get_or_insert_with(name, PodPool::new).add_pod()
-    }
+    /// A pod does not serve traffic until the container is [created](Self::create_container)
+    /// and then [started](Self::start_container) therein.
+    pub fn init_pod(
+        &self,
+        metadata: PodSandboxMetadata,
+        component_name: CanonicalComponentName,
+        grpc_port: u16,
+    ) -> Result<PodId> {
+        let pod = self.pod_store.initialize(&self.wasmtime, &component_name);
+        let controller = PodController::Initiated(InitiatedPodInfo {
+            metadata,
+            component_name,
+            grpc_port,
+            pod,
+        });
 
-    /// Create a container in a reserved pod.
-    pub async fn create_container(&self, pod: &PodName) -> Result<()> {
-        let container = self.containers.get_container(&pod.component)?;
-
+        let pod_id = self.next_pod_id.fetch_add(1, Ordering::Relaxed);
         let pods = self.pods.pin();
-        match pods.get(&pod.component) {
-            Some(pool) => pool.create_container(pod.pod, container),
-            None => Err(Error::leaf(format!(
-                "Cannot create a container without an existing pod: {pod}"
-            ))),
+        match pods.try_insert(pod_id, controller) {
+            Ok(_) => Ok(pod_id),
+            Err(_) => Err(Error::leaf(format!("Pod ID '{pod_id}' already in use."))),
         }
     }
 
-    pub async fn invoke_rpc(
+    /// Set the environment variables in an [initiated](PodController::Initiated) pod controller,
+    /// converting it to a [created](PodController::Created) controller.
+    pub fn create_container(
         &self,
-        component: &ComponentName,
-        rpc: &str,
-        request: i32,  // TODO: This should be the request buffer.
-        response: i32, // TODO: This should be the response buffer.
+        pod_id: PodId,
+        environment: HashMap<String, String>,
     ) -> Result<()> {
         let pods = self.pods.pin();
-        match pods.get(component) {
-            Some(pod) => {
-                todo!()
+        match pods.compute(pod_id, |entry| match entry {
+            Some((_, value)) => match value {
+                PodController::Initiated(initial) => {
+                    Operation::Insert(PodController::Created(CreatedPodInfo {
+                        initial: initial.clone(),
+                        environment: environment.clone(),
+                    }))
+                }
+                PodController::Created(created) => {
+                    // Support idempotency if the parameters are exactly the same.
+                    if created.environment == environment {
+                        Operation::Abort(None)
+                    } else {
+                        Operation::Abort(Some(Error::leaf(format!(
+                            "Cannot re-create container '{pod_id}' with different environment",
+                        ))))
+                    }
+                }
+                state => Operation::Abort(Some(Error::leaf(format!(
+                    "Cannot create container in {} pod '{pod_id}'",
+                    state.adjective(),
+                )))),
+            },
+            None => Operation::Abort(Some(Error::leaf(format!("Pod '{pod_id}' not found")))),
+        }) {
+            Compute::Updated { old: _, new: _ } | Compute::Aborted(None) => Ok(()),
+            Compute::Aborted(Some(error)) => Err(error),
+            _ => Err(Error::impossible()),
+        }
+    }
+
+    /// Start up a server for a [created](PodController::Created) pod controller
+    /// on its configured gRPC port,
+    /// converting it to a [running](PodController::Running) controller.
+    pub async fn start_container(&self, pod_id: PodId) -> Result<()> {
+        let pods = self.pods.pin();
+        // Optimistically try to update the state assuming the pod is finished initializing.
+        match pods.compute(pod_id, |entry| match entry {
+            Some((_, value)) => match value {
+                PodController::Created(created) => match created.initial.pod.peek() {
+                    Some(Ok(pod)) => {
+                        // It's ready! proceed on the happy path.
+                        start_available_pod(pod, &created)
+                    }
+                    Some(Err(init_error)) => {
+                        Operation::Abort(StartContainerAbort::Error(Error::leaf(format!(
+                            "Error while initializing pod for '{}': {:?}",
+                            created.initial.component_name, init_error,
+                        ))))
+                    }
+                    None => {
+                        // Still waiting, so we'll have to await async then try again.
+                        Operation::Abort(StartContainerAbort::Waiting(created.initial.pod.clone()))
+                    }
+                },
+                PodController::Running(running) => {
+                    // Support idempotency if the parameters are exactly the same.
+                    Operation::Abort(StartContainerAbort::Done)
+                }
+                state => Operation::Abort(StartContainerAbort::Error(Error::leaf(format!(
+                    "Cannot start container in {} pod '{pod_id}'",
+                    state.adjective(),
+                )))),
+            },
+            None => Operation::Abort(StartContainerAbort::Error(Error::leaf(format!(
+                "Pod '{pod_id}' not found"
+            )))),
+        }) {
+            Compute::Updated { old: _, new: _ } | Compute::Aborted(StartContainerAbort::Done) => {
+                Ok(())
             }
-            None => Err(Error::leaf(format!(
-                "No running pods for component: {}",
-                component
-            ))),
+            Compute::Aborted(StartContainerAbort::Waiting(future)) => {
+                // Drop the pin on the pods hashmap, await the future, then try again.
+                drop(pods);
+                // TODO: Throwing away this result then recursing means cloning the `Routes`
+                //       implementing the pod unnecessarily. Try to avoid that.
+                let _ = future.await;
+                Box::pin(self.start_container(pod_id)).await
+            }
+            Compute::Aborted(StartContainerAbort::Error(error)) => Err(error),
+            _ => Err(Error::impossible()),
         }
     }
 }
 
-const ENGINE_ALLOCATION_ERROR: &str = "Error allocating engine";
+/// Possible reasons why starting a container might be aborted.
+/// See [`start_container`](WorkRuntime::start_container).
+enum StartContainerAbort {
+    /// Pod is still initializing asynchronously.
+    Waiting(PodFuture),
+    /// There was a problem.
+    Error(Error),
+    /// Support idempotency if the pod is already started.
+    Done,
+}
 
-impl PodPool {
-    fn new() -> Self {
-        Self {
-            pods: AsyncMutex::new(HashMap::new()),
+/// Helper function to simplify [`start_container`](WorkRuntime::start_container).
+fn start_available_pod(
+    pod: &Routes,
+    created: &CreatedPodInfo,
+) -> Operation<PodController, StartContainerAbort> {
+    let addr = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        created.initial.grpc_port,
+    );
+    // TODO: Revisit implications of nodelay.
+    let nodelay = true;
+    // TODO: Revisit implications of keepalive.
+    let keepalive = None;
+    // Synchronously bind to the port so errors can be handled immediately.
+    TcpIncoming::new(addr, nodelay, keepalive).map_or_else(
+        |err| {
+            Operation::Abort(StartContainerAbort::Error(Error::leaf(format!(
+                "Cannot bind gRPC port '{}'",
+                created.initial.grpc_port
+            ))))
+        },
+        |incoming| {
+            let (shutdown_tx, shutdown_rx) = oneshot::channel();
+            // Oneshot receivers return an error when the sender is dropped before sending.
+            // The server should shut down either way, so ignore the result.
+            let shutdown = async move {
+                let _ = shutdown_rx.await;
+            };
+            let abort = spawn(
+                // [This suggestion](https://github.com/hyperium/tonic/pull/1893)
+                // using `into_axum_router` obviates the need to implement Tonic's `NamedService`
+                // which is not dyn-compatible.
+                Server::builder()
+                    .add_routes(pod.clone())
+                    .serve_with_incoming_shutdown(incoming, shutdown),
+            )
+            .abort_handle();
+            Operation::Insert(PodController::Running(RunningPodInfo {
+                created: created.clone(),
+                shutdown: SyncMutex::new(Some(shutdown_tx)),
+                abort,
+            }))
+        },
+    )
+}
+
+const INITIATED_POD_ADJECTIVE: &str = "initiated";
+const CREATED_POD_ADJECTIVE: &str = "created";
+const RUNNING_POD_ADJECTIVE: &str = "running";
+const STOPPED_POD_ADJECTIVE: &str = "stopped";
+const REMOVED_POD_ADJECTIVE: &str = "removed";
+
+impl PodController {
+    fn adjective(&self) -> &'static str {
+        match self {
+            PodController::Initiated(_) => INITIATED_POD_ADJECTIVE,
+            PodController::Created(_) => CREATED_POD_ADJECTIVE,
+            PodController::Running(_) => RUNNING_POD_ADJECTIVE,
+            PodController::Stopped => STOPPED_POD_ADJECTIVE,
+            PodController::Removed => REMOVED_POD_ADJECTIVE,
         }
-    }
-
-    fn add_pod(&self) -> PodId {
-        // TODO: Something real.
-        0usize
-    }
-
-    fn create_container(&self, pod_id: PodId, container: Container) -> Result<()> {
-        // TODO: Something real.
-        Ok(())
     }
 }

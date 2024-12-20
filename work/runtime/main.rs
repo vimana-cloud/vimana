@@ -1,78 +1,84 @@
-/// Entrypoint to the work node controller.
-/// A single instance of this binary runs in each work node.
-use std::env::args;
+//! Entrypoint to the work node controller.
+//!
+//! A single instance of this binary runs in each work node
+//! and governs the node by serving gRPC services on two ports:
+//!
+//! - UDP 443 (HTTPS/3)
+//!   fields requests from Ingress to all hosted services.
+//! - Unix `/run/vimana/workd.sock`
+//!   handles orchestration requests from Kubelet.
+
 use std::error::Error as StdError;
 use std::fs::{create_dir_all, remove_file};
 use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
+use clap::Parser;
 use hyper_util::rt::TokioIo;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::select;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::UnixListenerStream;
-use tonic::transport::{Endpoint, Server, Uri};
+use tonic::transport::{Endpoint, Server};
 use tower::service_fn;
 
 use api_proto::runtime::v1::image_service_client::ImageServiceClient;
 use api_proto::runtime::v1::image_service_server::ImageServiceServer;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
-use cri::{VimanaCriService, CONTAINER_RUNTIME_VERSION};
+use cri::{VimanaCriService, CONTAINER_RUNTIME_NAME, CONTAINER_RUNTIME_VERSION};
 use state::WorkRuntime;
 
-/// Path to the Unix-domain socket
-/// on which the work node runtime listens for CRI requests from the Kubelet.
-const CRI_SOCKET: &str = "/run/vimana/workd.sock";
+#[derive(Parser)]
+#[command(name = CONTAINER_RUNTIME_NAME, version = CONTAINER_RUNTIME_VERSION)]
+struct Args {
+    /// Path to the Unix-domain socket
+    /// on which the work node runtime listens for CRI requests from the Kubelet.
+    /// This should probably be '/run/vimana/workd.sock'.
+    incoming: String,
+
+    /// Path to the Unix-domain socket
+    /// to which the requests for OCI pods and images are forwarded.
+    downstream: String,
+
+    /// URL base of the container registry (scheme, host, optional port)
+    /// for non-OCI containers.
+    registry: String,
+}
 
 #[tokio::main]
 async fn main() -> StdResult<(), Box<dyn StdError>> {
-    // Parse command-line arguments by hand because they're so simple.
-    // It takes exactly 1 argument:
-    // the path to a UDS for a downstream CRI server (such as containerd)
-    // to which to proxy all requests for running OCI-compatible pods,
-    // or `--version` to just print the version and exit.
-    let mut args = args();
-    let name = args.next();
-    let argument = args.next().unwrap_or_else(|| {
-        panic!(
-            "Usage: {} ( <path> | --version )",
-            name.unwrap_or(String::from("workd"))
-        )
-    });
-    if argument == "--version" {
-        println!("{}", CONTAINER_RUNTIME_VERSION);
-        return Ok(());
-    }
+    let args = Args::parse();
 
     // This seems to be the most idiomatic way to create a client with a UDS transport:
     // https://github.com/hyperium/tonic/blob/v0.12.3/examples/src/uds/client.rs.
     // The socket path must be cloneable to enable re-invoking the connector function.
-    let oci_socket = Arc::new(argument);
-    let channel = Endpoint::from_static("http://unused")
-        .connect_with_connector(service_fn(move |_: Uri| {
-            let oci_socket = oci_socket.clone();
+    let oci_socket_path = Arc::new(args.downstream);
+    let oci_channel = Endpoint::from_static("http://unused")
+        .connect_with_connector(service_fn(move |_| {
+            let oci_socket_path = oci_socket_path.clone();
             async move {
                 Ok::<_, std::io::Error>(TokioIo::new(
-                    UnixStream::connect(oci_socket.as_ref()).await?,
+                    UnixStream::connect(oci_socket_path.as_ref()).await?,
                 ))
             }
         }))
         .await?;
-    let oci_image_client = ImageServiceClient::new(channel.clone());
-    let oci_runtime_client = RuntimeServiceClient::new(channel);
+    let oci_image_client = ImageServiceClient::new(oci_channel.clone());
+    let oci_runtime_client = RuntimeServiceClient::new(oci_channel);
 
-    let runtime = Arc::new(WorkRuntime::new(oci_runtime_client, oci_image_client).await?);
+    let runtime =
+        Arc::new(WorkRuntime::new(args.registry, oci_runtime_client, oci_image_client).await?);
 
     // Bind to our CRI API socket.
     // This is last thing before starting the servers (with shutdown)
     // because any failures that occur after this should cause the socket to be unlinked
     // so the service can be restarted successfully.
-    create_dir_all(Path::new(CRI_SOCKET).parent().unwrap())?;
-    let cri_listener = UnixListener::bind(CRI_SOCKET)
-        .unwrap_or_else(|err| panic!("Cannot bind Unix socket '{CRI_SOCKET}': {err}"));
+    create_dir_all(Path::new(&args.incoming).parent().unwrap())?;
+    let cri_listener = UnixListener::bind(&args.incoming)
+        .expect(&format!("Cannot bind Unix socket '{}'", &args.incoming));
 
     // systemd sends SIGTERM to stop services, CTRL+C sends SIGINT.
     // Listen for those to shut down the servers gracefully.
@@ -97,7 +103,7 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         .await?;
 
     // Remove the UDS path after shutdown so we can rebind on restart.
-    remove_file(CRI_SOCKET)?;
+    remove_file(&args.incoming)?;
 
     Ok(())
 }

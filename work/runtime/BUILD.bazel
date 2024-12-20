@@ -3,13 +3,14 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
 
 # Top-level target: the runtime executable.
 rust_binary(
-    name = "runtime",
+    name = "workd",
     srcs = ["main.rs"],
     visibility = ["//visibility:public"],
     deps = [
         ":cri",
-        ":runtime-api-prost",
+        ":cri-api-prost",
         ":state",
+        "@crates//:clap",
         "@crates//:hyper-util",
         "@crates//:tokio",
         "@crates//:tokio-stream",
@@ -19,26 +20,10 @@ rust_binary(
 )
 
 rust_library(
-    name = "state",
-    srcs = ["state.rs"],
-    deps = [
-        ":container-prost",
-        ":containers",
-        ":runtime-api-prost",
-        "//work:error",
-        "//work:names",
-        "@crates//:papaya",
-        "@crates//:tokio",
-        "@crates//:tonic",
-        "@crates//:wasmtime",
-    ],
-)
-
-rust_library(
     name = "cri",
     srcs = ["cri.rs"],
     deps = [
-        ":runtime-api-prost",
+        ":cri-api-prost",
         ":state",
         "//work:error",
         "//work:names",
@@ -48,42 +33,39 @@ rust_library(
 )
 
 rust_library(
-    name = "containers",
-    srcs = ["containers.rs"],
+    name = "state",
+    srcs = ["state.rs"],
     deps = [
-        ":container-prost",
+        ":containers",
+        ":cri-api-prost",
+        ":grpc-container-prost",
+        ":grpc-pod",
         "//work:error",
         "//work:names",
+        "@crates//:axum",
+        "@crates//:futures",
+        "@crates//:http",
+        "@crates//:papaya",
+        "@crates//:tokio",
+        "@crates//:tonic",
+        "@crates//:tower",
+        "@crates//:wasmtime",
     ],
-)
-
-# K8s Container Runtime Interface "Runtime API".
-rust_prost_library(
-    name = "runtime-api-prost",
-    proto = "@cri-api//pkg/apis/runtime/v1:api-proto",
-)
-
-proto_library(
-    name = "container-proto",
-    srcs = ["container.proto"],
-    deps = [
-        ":coding-proto",
-    ],
-)
-
-rust_prost_library(
-    name = "container-prost",
-    proto = "container-proto",
 )
 
 rust_library(
-    name = "grpc",
-    srcs = ["data-plane.rs"],
+    name = "grpc-pod",
+    srcs = ["grpc-pod.rs"],
     deps = [
-        ":state",
+        ":containers",
+        ":grpc-container-prost",
         "//work:error",
         "//work:names",
+        "//work/runtime/decode",
+        "//work/runtime/encode",
+        "@crates//:axum",
         "@crates//:bytes",
+        "@crates//:futures",
         "@crates//:http",
         "@crates//:http-body",
         "@crates//:http-body-util",
@@ -91,17 +73,44 @@ rust_library(
         "@crates//:hyper-util",
         "@crates//:tokio",
         "@crates//:tonic",
+        "@crates//:tower",
         "@crates//:tower-service",
+        "@crates//:wasmtime",
     ],
 )
 
-proto_library(
-    name = "coding-proto",
-    srcs = ["coding.proto"],
+rust_library(
+    name = "containers",
+    srcs = ["containers.rs"],
+    proc_macro_deps = [
+        "@crates//:async-trait",
+    ],
+    deps = [
+        ":grpc-container-prost",
+        "//work:error",
+        "//work:names",
+        "@crates//:bytes",
+        "@crates//:prost",
+        "@crates//:reqwest",
+        "@crates//:serde",
+        "@crates//:tokio",
+        "@crates//:tonic",
+        "@crates//:wasmtime",
+    ],
 )
 
-# K8s Container Runtime Interface "Runtime API".
 rust_prost_library(
-    name = "coding-prost",
-    proto = ":coding-proto",
+    name = "cri-api-prost",
+    proto = "@cri-api//pkg/apis/runtime/v1:api-proto",
+)
+
+proto_library(
+    name = "grpc-container-proto",
+    srcs = ["grpc-container.proto"],
+)
+
+rust_prost_library(
+    name = "grpc-container-prost",
+    proto = "grpc-container-proto",
+    visibility = [":__subpackages__"],
 )

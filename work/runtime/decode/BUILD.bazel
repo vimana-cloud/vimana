@@ -1,0 +1,50 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "decode",
+    srcs = ["lib.rs"],
+    visibility = ["//work/runtime:__pkg__"],
+    deps = [
+        ":common",
+        ":message",
+    ],
+)
+
+rust_library(
+    name = "message",
+    srcs = ["message.rs"],
+    deps = [
+        ":common",
+        ":scalar",
+        "//work:error",
+        "//work:names",
+        "//work/runtime:grpc-container-prost",
+        "@crates//:prost",
+        "@crates//:tonic",
+        "@crates//:wasmtime",
+    ],
+)
+
+rust_library(
+    name = "scalar",
+    srcs = ["scalar.rs"],
+    deps = [
+        ":common",
+        "//work:error",
+        "//work:names",
+        "//work/runtime:grpc-container-prost",
+        "@crates//:prost",
+        "@crates//:tonic",
+        "@crates//:wasmtime",
+    ],
+)
+
+rust_library(
+    name = "common",
+    srcs = ["common.rs"],
+    deps = [
+        "@crates//:prost",
+        "@crates//:tonic",
+        "@crates//:wasmtime",
+    ],
+)

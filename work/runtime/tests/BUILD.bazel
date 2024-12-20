@@ -1,0 +1,49 @@
+load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@rules_python//python:py_library.bzl", "py_library")
+load("@rules_python//python:py_test.bzl", "py_test")
+
+py_test(
+    name = "success-test",
+    srcs = ["success-test.py"],
+    deps = [
+        ":cri-api-py-pb2",
+        ":util",
+    ],
+)
+
+py_library(
+    name = "util",
+    srcs = ["util.py"],
+    data = ["//work/runtime:workd"],
+    deps = [
+        ":cri-api-py-grpc",
+        ":cri-api-py-pb2",
+    ],
+)
+
+py_grpc_library(
+    name = "cri-api-py-grpc",
+    srcs = [":cri-api-proto"],
+    deps = ["cri-api-py-pb2"],
+)
+
+py_proto_library(
+    name = "cri-api-py-pb2",
+    deps = [":cri-api-proto"],
+)
+
+proto_library(
+    name = "cri-api-proto",
+    # TODO: Use `copy_file` to import the Protobuf source file (see below).
+    srcs = ["api.proto"],
+)
+
+# Copy the source Protobuf because importing externally is broken:
+# https://github.com/bazelbuild/rules_python/issues/1679
+# At least this could be used instead of checking in the CRI API proto.
+#copy_file(
+#    name = "cri-api.proto",
+#    src = "@cri-api//pkg/apis/runtime/v1:api.proto",
+#    out = "api.proto",
+#)
