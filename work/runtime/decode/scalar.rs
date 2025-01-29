@@ -1,346 +1,502 @@
 //! Decoding logic for scalar protobuf fields
 //! (anything besides messages, enums, and oneofs).
-#![feature(core_intrinsics)]
 
-use std::intrinsics::{likely, unlikely};
-use std::result::Result as StdResult;
+use std::io::Read;
+use std::result::Result;
 
 use prost::bytes::Buf;
+use prost::encoding::WireType;
 use tonic::codec::DecodeBuf;
-use tonic::Status;
 use wasmtime::component::Val;
 
-use common::{
-    buffer_overflow, decode_varint, derive_decoders, invalid_utf8, read_length_check_overflow,
-    Decoder,
+use crate::{
+    read_length_check_overflow, read_varint, CompoundMerger, DecodeError, MergeFn, Merger,
+    BUFFER_OVERFLOW, BUFFER_UNDERFLOW, INVALID_BOOL, INVALID_PERMISSIVE_STRING, INVALID_UTF8,
+    INVALID_VARINT, OVERFLOW_32BIT, REPEATED_NON_LIST, WIRETYPE_NON_32BIT, WIRETYPE_NON_64BIT,
+    WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
 };
-use error::{Error, Result};
-use grpc_container_proto::work::runtime::grpc_metadata::method::field::{
-    Coding, CompoundCoding, ScalarCoding,
-};
+use metadata_proto::work::runtime::container::field::ScalarCoding;
 
-type ScalarDecoderFn = fn(&mut DecodeBuf<'_>) -> StdResult<Val, Status>;
-
-pub struct ScalarDecoder {
-    decode_fn: ScalarDecoderFn,
+impl Merger {
+    pub(crate) fn scalar(coding: ScalarCoding) -> (Self, Val) {
+        // Called in control plane, so O(n) exhaustive match is OK.
+        let (merge, default): (MergeFn, Val) = match coding {
+            ScalarCoding::BytesImplicit => (bytes_implicit_merge, Val::List(Vec::new())),
+            ScalarCoding::BytesExplicit => (bytes_explicit_merge, Val::Option(None)),
+            ScalarCoding::BytesExpanded => (bytes_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::StringUtf8Implicit => {
+                (string_utf8_implicit_merge, Val::String("".into()))
+            }
+            ScalarCoding::StringUtf8Explicit => (string_utf8_explicit_merge, Val::Option(None)),
+            ScalarCoding::StringUtf8Expanded => (string_utf8_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::StringPermissiveImplicit => {
+                (string_permissive_implicit_merge, Val::String("".into()))
+            }
+            ScalarCoding::StringPermissiveExplicit => {
+                (string_permissive_explicit_merge, Val::Option(None))
+            }
+            ScalarCoding::StringPermissiveExpanded => {
+                (string_permissive_repeated_merge, Val::List(Vec::new()))
+            }
+            ScalarCoding::BoolImplicit => (bool_implicit_merge, Val::Bool(false)),
+            ScalarCoding::BoolPacked => (bool_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::BoolExplicit => (bool_explicit_merge, Val::Option(None)),
+            ScalarCoding::BoolExpanded => (bool_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Int32Implicit => (int32_implicit_merge, Val::S32(0)),
+            ScalarCoding::Int32Packed => (int32_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Int32Explicit => (int32_explicit_merge, Val::Option(None)),
+            ScalarCoding::Int32Expanded => (int32_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Sint32Implicit => (sint32_implicit_merge, Val::S32(0)),
+            ScalarCoding::Sint32Packed => (sint32_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Sint32Explicit => (sint32_explicit_merge, Val::Option(None)),
+            ScalarCoding::Sint32Expanded => (sint32_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Sfixed32Implicit => (sfixed32_implicit_merge, Val::S32(0)),
+            ScalarCoding::Sfixed32Packed => (sfixed32_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Sfixed32Explicit => (sfixed32_explicit_merge, Val::Option(None)),
+            ScalarCoding::Sfixed32Expanded => (sfixed32_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Uint32Implicit => (uint32_implicit_merge, Val::U32(0)),
+            ScalarCoding::Uint32Packed => (uint32_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Uint32Explicit => (uint32_explicit_merge, Val::Option(None)),
+            ScalarCoding::Uint32Expanded => (uint32_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Fixed32Implicit => (fixed32_implicit_merge, Val::U32(0)),
+            ScalarCoding::Fixed32Packed => (fixed32_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Fixed32Explicit => (fixed32_explicit_merge, Val::Option(None)),
+            ScalarCoding::Fixed32Expanded => (fixed32_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Int64Implicit => (int64_implicit_merge, Val::S64(0)),
+            ScalarCoding::Int64Packed => (int64_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Int64Explicit => (int64_explicit_merge, Val::Option(None)),
+            ScalarCoding::Int64Expanded => (int64_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Sint64Implicit => (sint64_implicit_merge, Val::S64(0)),
+            ScalarCoding::Sint64Packed => (sint64_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Sint64Explicit => (sint64_explicit_merge, Val::Option(None)),
+            ScalarCoding::Sint64Expanded => (sint64_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Sfixed64Implicit => (sfixed64_implicit_merge, Val::S64(0)),
+            ScalarCoding::Sfixed64Packed => (sfixed64_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Sfixed64Explicit => (sfixed64_explicit_merge, Val::Option(None)),
+            ScalarCoding::Sfixed64Expanded => (sfixed64_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Uint64Implicit => (uint64_implicit_merge, Val::U64(0)),
+            ScalarCoding::Uint64Packed => (uint64_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Uint64Explicit => (uint64_explicit_merge, Val::Option(None)),
+            ScalarCoding::Uint64Expanded => (uint64_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Fixed64Implicit => (fixed64_implicit_merge, Val::U64(0)),
+            ScalarCoding::Fixed64Packed => (fixed64_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::Fixed64Explicit => (fixed64_explicit_merge, Val::Option(None)),
+            ScalarCoding::Fixed64Expanded => (fixed64_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::FloatImplicit => (float_implicit_merge, Val::Float32(0.0)),
+            ScalarCoding::FloatPacked => (float_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::FloatExplicit => (float_explicit_merge, Val::Option(None)),
+            ScalarCoding::FloatExpanded => (float_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::DoubleImplicit => (double_implicit_merge, Val::Float64(0.0)),
+            ScalarCoding::DoublePacked => (double_repeated_merge, Val::List(Vec::new())),
+            ScalarCoding::DoubleExplicit => (double_explicit_merge, Val::Option(None)),
+            ScalarCoding::DoubleExpanded => (double_repeated_merge, Val::List(Vec::new())),
+        };
+        (
+            Self {
+                merge,
+                // `defaults` and `compound` are ignored for scalars.
+                defaults: Vec::new(),
+                compound: CompoundMerger { scalar: () },
+            },
+            // Return the default value to the caller
+            // (which is always a message merger being instantiated).
+            default,
+        )
+    }
 }
 
-impl ScalarDecoder {
-    /// Construct a new [`MessageDecoder`] for the given variant of [`ScalarCoding`]
-    /// (given as its integer representation).
-    pub fn new(coding_index: i32) -> Result<Self> {
-        if let Err(enum_error) = ScalarCoding::try_from(coding_index) {
-            return Err(Error::wrap("Unexpected enum value", enum_error));
+/// Define two [functions](MergeFn), `$explicit_name` and `$implicit_name`,
+/// which check that the wire type is `$wire_type`
+/// then merge the result of `$decode_inner` into the destination.
+macro_rules! singular_merge_fns {
+    ($explicit_name:ident, $implicit_name:ident, $wire_type:expr, $wire_type_error:expr, $decode_inner:ident,) => {
+        fn $explicit_name(
+            _merger: &Merger,
+            wire_type: WireType,
+            limit: &mut u32,
+            src: &mut DecodeBuf<'_>,
+            dst: &mut Val,
+        ) -> Result<(), DecodeError> {
+            if wire_type == $wire_type {
+                *dst = Val::Option(Some(Box::new(($decode_inner)(limit, src)?)));
+                Ok(())
+            } else {
+                Err(DecodeError::new($wire_type_error))
+            }
         }
 
-        Ok(Self {
-            decode_fn: DECODE_FNS[coding_index as usize],
-        })
-    }
+        fn $implicit_name(
+            _merger: &Merger,
+            wire_type: WireType,
+            limit: &mut u32,
+            src: &mut DecodeBuf<'_>,
+            dst: &mut Val,
+        ) -> Result<(), DecodeError> {
+            if wire_type == $wire_type {
+                *dst = ($decode_inner)(limit, src)?;
+                Ok(())
+            } else {
+                Err(DecodeError::new($wire_type_error))
+            }
+        }
+    };
 }
 
-impl Decoder for ScalarDecoder {
-    /// Decode a message from a buffer containing exactly the bytes of a full message.
-    fn decode(&self, src: &mut DecodeBuf<'_>) -> StdResult<Option<Val>, Status> {
-        (self.decode_fn)(src).map(Some)
-    }
-}
+/// Merge function boilerplate for "stringy" types: strings and bytes.
+/// These are distinct in being unpackable; they can only be expanded for repetition.
+macro_rules! stringy_mergers {
+    ($explicit_name:ident, $implicit_name:ident, $repeated_name:ident, $decode_inner:ident,) => {
+        singular_merge_fns!(
+            $explicit_name,
+            $implicit_name,
+            WireType::LengthDelimited,
+            WIRETYPE_NON_LENGTH_DELIMITED,
+            $decode_inner,
+        );
 
-const DECODE_FNS: [ScalarDecoderFn; 64] = [
-    decode_bytes_implicit,
-    decode_bytes_packed,
-    decode_bytes_explicit,
-    decode_expanded,
-    decode_string_utf8_implicit,
-    decode_string_utf8_packed,
-    decode_string_utf8_explicit,
-    decode_expanded,
-    decode_string_permissive_implicit,
-    decode_string_permissive_packed,
-    decode_string_permissive_explicit,
-    decode_expanded,
-    decode_bool_implicit,
-    decode_bool_packed,
-    decode_bool_explicit,
-    decode_expanded,
-    decode_int32_implicit,
-    decode_int32_packed,
-    decode_int32_explicit,
-    decode_expanded,
-    decode_sint32_implicit,
-    decode_sint32_packed,
-    decode_sint32_explicit,
-    decode_expanded,
-    decode_sfixed32_implicit,
-    decode_sfixed32_packed,
-    decode_sfixed32_explicit,
-    decode_expanded,
-    decode_uint32_implicit,
-    decode_uint32_packed,
-    decode_uint32_explicit,
-    decode_expanded,
-    decode_fixed32_implicit,
-    decode_fixed32_packed,
-    decode_fixed32_explicit,
-    decode_expanded,
-    decode_int64_implicit,
-    decode_int64_packed,
-    decode_int64_explicit,
-    decode_expanded,
-    decode_sint64_implicit,
-    decode_sint64_packed,
-    decode_sint64_explicit,
-    decode_expanded,
-    decode_sfixed64_implicit,
-    decode_sfixed64_packed,
-    decode_sfixed64_explicit,
-    decode_expanded,
-    decode_uint64_implicit,
-    decode_uint64_packed,
-    decode_uint64_explicit,
-    decode_expanded,
-    decode_fixed64_implicit,
-    decode_fixed64_packed,
-    decode_fixed64_explicit,
-    decode_expanded,
-    decode_float_implicit,
-    decode_float_packed,
-    decode_float_explicit,
-    decode_expanded,
-    decode_double_implicit,
-    decode_double_packed,
-    decode_double_explicit,
-    decode_expanded,
-];
-
-fn decode_expanded(_src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    // This needs to be handled in an outer layer.
-    todo!()
+        fn $repeated_name(
+            _merger: &Merger,
+            wire_type: WireType,
+            limit: &mut u32,
+            src: &mut DecodeBuf<'_>,
+            dst: &mut Val,
+        ) -> Result<(), DecodeError> {
+            // Strings and bytes cannot be packed. They can only be repeated expanded.
+            if let Val::List(items) = dst {
+                if wire_type == WireType::LengthDelimited {
+                    items.push(($decode_inner)(limit, src).map_err(|e| e.with_index(items.len()))?);
+                    Ok(())
+                } else {
+                    Err(DecodeError::new(WIRETYPE_NON_LENGTH_DELIMITED))
+                }
+            } else {
+                Err(DecodeError::new(REPEATED_NON_LIST))
+            }
+        }
+    };
 }
 
 #[inline(always)]
-fn decode_bytes_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    let mut len = read_length_check_overflow(src)?;
-
-    let mut bytes = Vec::new();
-    while len > 0 {
+fn bytes_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    let mut length = read_length_check_overflow(limit, src)?;
+    let mut bytes = Vec::with_capacity(length as usize);
+    while length > 0 {
         bytes.push(Val::U8(src.get_u8()));
-        len -= 1;
+        length -= 1;
     }
-
     Ok(Val::List(bytes))
 }
 
-derive_decoders!(
-    decode_bytes_implicit,
-    decode_bytes_packed,
-    decode_bytes_explicit
+stringy_mergers!(
+    bytes_explicit_merge,
+    bytes_implicit_merge,
+    bytes_repeated_merge,
+    bytes_decode_inner,
 );
 
 #[inline(always)]
-fn decode_string_utf8_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    let len = read_length_check_overflow(src)?;
+fn string_utf8_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    let length = read_length_check_overflow(limit, src)? as usize;
+    let mut string = String::with_capacity(length);
+    src.take(length)
+        .reader()
+        .read_to_string(&mut string)
+        .map_err(|_| DecodeError::new(INVALID_UTF8))?;
+    Ok(Val::String(string))
+}
 
-    // TODO: Investigate how much copying this does.
-    let bytes = src.copy_to_bytes(len as usize);
-    match String::from_utf8(bytes.to_vec()) {
-        Ok(string) => Ok(Val::String(string)),
-        Err(_utf8_error) => Err(invalid_utf8()),
+stringy_mergers!(
+    string_utf8_explicit_merge,
+    string_utf8_implicit_merge,
+    string_utf8_repeated_merge,
+    string_utf8_decode_inner,
+);
+
+#[inline(always)]
+fn string_permissive_decode_inner(
+    limit: &mut u32,
+    src: &mut DecodeBuf<'_>,
+) -> Result<Val, DecodeError> {
+    let length = read_length_check_overflow(limit, src)? as usize;
+    let mut string = String::with_capacity(length);
+    src.take(length)
+        .reader()
+        .read_to_end(unsafe { string.as_mut_vec() })
+        .map_err(|_| DecodeError::new(INVALID_PERMISSIVE_STRING))?;
+    Ok(Val::String(string))
+}
+
+stringy_mergers!(
+    string_permissive_explicit_merge,
+    string_permissive_implicit_merge,
+    string_permissive_repeated_merge,
+    string_permissive_decode_inner,
+);
+
+/// Merge function boilerplate for all the "non-stringy" scalars:
+/// Everything besides strings and bytes.
+/// These can be both packed and expanded for repetition.
+/// The decoder must always handle both, including intermixed.
+macro_rules! numeric_mergers {
+    ($explicit_name:ident, $implicit_name:ident, $repeated_name:ident, $wire_type:expr, $wire_type_error:expr, $decode_inner:ident,) => {
+        singular_merge_fns!(
+            $explicit_name,
+            $implicit_name,
+            $wire_type,
+            $wire_type_error,
+            $decode_inner,
+        );
+
+        fn $repeated_name(
+            _merger: &Merger,
+            wire_type: WireType,
+            limit: &mut u32,
+            src: &mut DecodeBuf<'_>,
+            dst: &mut Val,
+        ) -> Result<(), DecodeError> {
+            // Protocol buffer parsers must be able to parse repeated fields
+            // that were compiled as packed as if they were not packed, and vice versa.
+            // This permits adding `[packed=true]` to existing fields
+            // in a forward- and backward-compatible way.
+            // https://protobuf.dev/programming-guides/encoding/#packed
+            if let Val::List(items) = dst {
+                if wire_type == WireType::LengthDelimited {
+                    let mut length = read_length_check_overflow(limit, src)?;
+                    while length > 0 {
+                        items.push(
+                            ($decode_inner)(&mut length, src)
+                                .map_err(|e| e.with_index(items.len()))?,
+                        );
+                    }
+                    Ok(())
+                } else if wire_type == $wire_type {
+                    items.push(($decode_inner)(limit, src).map_err(|e| e.with_index(items.len()))?);
+                    Ok(())
+                } else {
+                    Err(DecodeError::new($wire_type_error))
+                }
+            } else {
+                Err(DecodeError::new(REPEATED_NON_LIST))
+            }
+        }
+    };
+}
+
+#[inline(always)]
+fn bool_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    if *limit >= 1 {
+        let byte = src.get_u8();
+        *limit -= 1;
+        if byte <= 1 {
+            Ok(Val::Bool(byte != 0))
+        } else {
+            Err(DecodeError::new(INVALID_BOOL))
+        }
+    } else {
+        Err(DecodeError::new(BUFFER_OVERFLOW))
     }
 }
-
-derive_decoders!(
-    decode_string_utf8_implicit,
-    decode_string_utf8_packed,
-    decode_string_utf8_explicit
+numeric_mergers!(
+    bool_explicit_merge,
+    bool_implicit_merge,
+    bool_repeated_merge,
+    WireType::Varint,
+    WIRETYPE_NON_VARINT,
+    bool_decode_inner,
 );
 
 #[inline(always)]
-fn decode_string_permissive_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    let len = read_length_check_overflow(src)?;
-
-    // TODO: Investigate how much copying this does.
-    let bytes = src.copy_to_bytes(len as usize);
-    Ok(Val::String(unsafe {
-        String::from_utf8_unchecked(bytes.to_vec())
-    }))
+fn int32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    let varint = read_varint(limit, src, INVALID_VARINT)?;
+    let value = i32::try_from(varint).map_err(|_| DecodeError::new(OVERFLOW_32BIT))?;
+    Ok(Val::S32(value))
 }
-
-derive_decoders!(
-    decode_string_permissive_implicit,
-    decode_string_permissive_packed,
-    decode_string_permissive_explicit
+numeric_mergers!(
+    int32_explicit_merge,
+    int32_implicit_merge,
+    int32_repeated_merge,
+    WireType::Varint,
+    WIRETYPE_NON_VARINT,
+    int32_decode_inner,
 );
 
 #[inline(always)]
-fn decode_bool_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    Ok(Val::Bool(decode_varint(src)? != 0))
+fn sint32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    let varint = read_varint(limit, src, INVALID_VARINT)?;
+    let value = u32::try_from(varint).map_err(|_| DecodeError::new(OVERFLOW_32BIT))?;
+    Ok(Val::S32(((value >> 1) as i32) ^ (-((value & 1) as i32))))
 }
-
-derive_decoders!(
-    decode_bool_implicit,
-    decode_bool_packed,
-    decode_bool_explicit
+numeric_mergers!(
+    sint32_explicit_merge,
+    sint32_implicit_merge,
+    sint32_repeated_merge,
+    WireType::Varint,
+    WIRETYPE_NON_VARINT,
+    sint32_decode_inner,
 );
 
 #[inline(always)]
-fn decode_int32_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    Ok(Val::S32(decode_varint(src)? as i32))
-}
-
-derive_decoders!(
-    decode_int32_implicit,
-    decode_int32_packed,
-    decode_int32_explicit
-);
-
-#[inline(always)]
-fn decode_sint32_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    let raw_value = decode_varint(src)? as u32;
-    Ok(Val::S32(
-        ((raw_value >> 1) as i32) ^ (-((raw_value & 1) as i32)),
-    ))
-}
-
-derive_decoders!(
-    decode_sint32_implicit,
-    decode_sint32_packed,
-    decode_sint32_explicit
-);
-
-#[inline(always)]
-fn decode_sfixed32_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    if unlikely(src.remaining() < 4) {
-        Err(buffer_overflow())
-    } else {
+fn sfixed32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    if *limit >= 4 {
+        *limit -= 4;
         Ok(Val::S32(src.get_i32_le()))
+    } else {
+        Err(DecodeError::new(BUFFER_UNDERFLOW))
     }
 }
-
-derive_decoders!(
-    decode_sfixed32_implicit,
-    decode_sfixed32_packed,
-    decode_sfixed32_explicit
+numeric_mergers!(
+    sfixed32_explicit_merge,
+    sfixed32_implicit_merge,
+    sfixed32_repeated_merge,
+    WireType::ThirtyTwoBit,
+    WIRETYPE_NON_32BIT,
+    sfixed32_decode_inner,
 );
 
 #[inline(always)]
-fn decode_uint32_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    Ok(Val::U32(decode_varint(src)? as u32))
+fn uint32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    let varint = read_varint(limit, src, INVALID_VARINT)?;
+    let value = u32::try_from(varint).map_err(|_| DecodeError::new(OVERFLOW_32BIT))?;
+    Ok(Val::U32(value))
 }
-
-derive_decoders!(
-    decode_uint32_implicit,
-    decode_uint32_packed,
-    decode_uint32_explicit
+numeric_mergers!(
+    uint32_explicit_merge,
+    uint32_implicit_merge,
+    uint32_repeated_merge,
+    WireType::Varint,
+    WIRETYPE_NON_VARINT,
+    uint32_decode_inner,
 );
 
 #[inline(always)]
-fn decode_fixed32_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    if unlikely(src.remaining() < 4) {
-        Err(buffer_overflow())
-    } else {
+fn fixed32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    if *limit >= 4 {
+        *limit -= 4;
         Ok(Val::U32(src.get_u32_le()))
+    } else {
+        Err(DecodeError::new(BUFFER_UNDERFLOW))
     }
 }
-
-derive_decoders!(
-    decode_fixed32_implicit,
-    decode_fixed32_packed,
-    decode_fixed32_explicit
+numeric_mergers!(
+    fixed32_explicit_merge,
+    fixed32_implicit_merge,
+    fixed32_repeated_merge,
+    WireType::ThirtyTwoBit,
+    WIRETYPE_NON_32BIT,
+    fixed32_decode_inner,
 );
 
 #[inline(always)]
-fn decode_int64_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    Ok(Val::S64(decode_varint(src)? as i64))
+fn int64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    let varint = read_varint(limit, src, INVALID_VARINT)?;
+    Ok(Val::S64(varint as i64))
 }
-
-derive_decoders!(
-    decode_int64_implicit,
-    decode_int64_packed,
-    decode_int64_explicit
+numeric_mergers!(
+    int64_explicit_merge,
+    int64_implicit_merge,
+    int64_repeated_merge,
+    WireType::Varint,
+    WIRETYPE_NON_VARINT,
+    int64_decode_inner,
 );
 
 #[inline(always)]
-fn decode_sint64_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    let raw_value = decode_varint(src)?;
-    Ok(Val::S64(
-        ((raw_value >> 1) as i64) ^ (-((raw_value & 1) as i64)),
-    ))
+fn sint64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    let varint = read_varint(limit, src, INVALID_VARINT)?;
+    let value = varint as i64;
+    Ok(Val::S64(((value >> 1) as i64) ^ (-((value & 1) as i64))))
 }
-
-derive_decoders!(
-    decode_sint64_implicit,
-    decode_sint64_packed,
-    decode_sint64_explicit
+numeric_mergers!(
+    sint64_explicit_merge,
+    sint64_implicit_merge,
+    sint64_repeated_merge,
+    WireType::Varint,
+    WIRETYPE_NON_VARINT,
+    sint64_decode_inner,
 );
 
 #[inline(always)]
-fn decode_sfixed64_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    if unlikely(src.remaining() < 8) {
-        Err(buffer_overflow())
-    } else {
+fn sfixed64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    if *limit >= 8 {
+        *limit -= 8;
         Ok(Val::S64(src.get_i64_le()))
+    } else {
+        Err(DecodeError::new(BUFFER_UNDERFLOW))
     }
 }
-
-derive_decoders!(
-    decode_sfixed64_implicit,
-    decode_sfixed64_packed,
-    decode_sfixed64_explicit
+numeric_mergers!(
+    sfixed64_explicit_merge,
+    sfixed64_implicit_merge,
+    sfixed64_repeated_merge,
+    WireType::SixtyFourBit,
+    WIRETYPE_NON_64BIT,
+    sfixed64_decode_inner,
 );
 
 #[inline(always)]
-fn decode_uint64_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    Ok(Val::U64(decode_varint(src)?))
+fn uint64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    let value = read_varint(limit, src, INVALID_VARINT)?;
+    Ok(Val::U64(value))
 }
-
-derive_decoders!(
-    decode_uint64_implicit,
-    decode_uint64_packed,
-    decode_uint64_explicit
+numeric_mergers!(
+    uint64_explicit_merge,
+    uint64_implicit_merge,
+    uint64_repeated_merge,
+    WireType::Varint,
+    WIRETYPE_NON_VARINT,
+    uint64_decode_inner,
 );
 
 #[inline(always)]
-fn decode_fixed64_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    if unlikely(src.remaining() < 8) {
-        Err(buffer_overflow())
-    } else {
+fn fixed64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    if *limit >= 8 {
+        *limit -= 8;
         Ok(Val::U64(src.get_u64_le()))
+    } else {
+        Err(DecodeError::new(BUFFER_UNDERFLOW))
     }
 }
-
-derive_decoders!(
-    decode_fixed64_implicit,
-    decode_fixed64_packed,
-    decode_fixed64_explicit
+numeric_mergers!(
+    fixed64_explicit_merge,
+    fixed64_implicit_merge,
+    fixed64_repeated_merge,
+    WireType::SixtyFourBit,
+    WIRETYPE_NON_64BIT,
+    fixed64_decode_inner,
 );
 
 #[inline(always)]
-fn decode_float_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    if unlikely(src.remaining() < 4) {
-        Err(buffer_overflow())
-    } else {
+fn float_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    if *limit >= 4 {
+        *limit -= 4;
         Ok(Val::Float32(src.get_f32_le()))
+    } else {
+        Err(DecodeError::new(BUFFER_UNDERFLOW))
     }
 }
-
-derive_decoders!(
-    decode_float_implicit,
-    decode_float_packed,
-    decode_float_explicit
+numeric_mergers!(
+    float_explicit_merge,
+    float_implicit_merge,
+    float_repeated_merge,
+    WireType::ThirtyTwoBit,
+    WIRETYPE_NON_32BIT,
+    float_decode_inner,
 );
 
 #[inline(always)]
-fn decode_double_implicit(src: &mut DecodeBuf<'_>) -> StdResult<Val, Status> {
-    if unlikely(src.remaining() < 8) {
-        Err(buffer_overflow())
-    } else {
+fn double_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+    if *limit >= 8 {
+        *limit -= 8;
         Ok(Val::Float64(src.get_f64_le()))
+    } else {
+        Err(DecodeError::new(BUFFER_UNDERFLOW))
     }
 }
-
-derive_decoders!(
-    decode_double_implicit,
-    decode_double_packed,
-    decode_double_explicit
+numeric_mergers!(
+    double_explicit_merge,
+    double_implicit_merge,
+    double_repeated_merge,
+    WireType::SixtyFourBit,
+    WIRETYPE_NON_64BIT,
+    double_decode_inner,
 );
