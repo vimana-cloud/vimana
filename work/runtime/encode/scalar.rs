@@ -9,10 +9,9 @@ use wasmtime::component::Val;
 use crate::{
     tag, CompoundEncoder, EncodeError, EncodeFn, Encoder, LengthFn, BOOL_NON_BOOL, BYTES_NON_LIST,
     BYTE_NON_BYTE, DOUBLE_NON_DOUBLE, EXPLICIT_NON_OPTION, FIXED32_NON_FIXED32,
-    FIXED64_NON_FIXED64, FLOAT_NON_FLOAT, IMPOSSIBLE_PACKED_BYTES, IMPOSSIBLE_PACKED_STRING,
-    INT32_NON_INT32, INT64_NON_INT64, LENGTH_INCONSISTENCY, REPEATED_NON_LIST,
-    SFIXED32_NON_SFIXED32, SFIXED64_NON_SFIXED64, SINT32_NON_SINT32, SINT64_NON_SINT64,
-    STRING_NON_STRING, UINT32_NON_UINT32, UINT64_NON_UINT64,
+    FIXED64_NON_FIXED64, FLOAT_NON_FLOAT, INT32_NON_INT32, INT64_NON_INT64, LENGTH_INCONSISTENCY,
+    REPEATED_NON_LIST, SFIXED32_NON_SFIXED32, SFIXED64_NON_SFIXED64, SINT32_NON_SINT32,
+    SINT64_NON_SINT64, STRING_NON_STRING, UINT32_NON_UINT32, UINT64_NON_UINT64,
 };
 use metadata_proto::work::runtime::container::field::ScalarCoding;
 
@@ -23,11 +22,6 @@ impl Encoder {
             ScalarCoding::BytesImplicit => (
                 bytes_implicit_encode,
                 bytes_implicit_length,
-                WireType::LengthDelimited,
-            ),
-            ScalarCoding::BytesPacked => (
-                bytes_packed_encode,
-                bytes_packed_length,
                 WireType::LengthDelimited,
             ),
             ScalarCoding::BytesExplicit => (
@@ -43,11 +37,6 @@ impl Encoder {
             ScalarCoding::StringUtf8Implicit | ScalarCoding::StringPermissiveImplicit => (
                 string_implicit_encode,
                 string_implicit_length,
-                WireType::LengthDelimited,
-            ),
-            ScalarCoding::StringUtf8Packed | ScalarCoding::StringPermissivePacked => (
-                string_packed_encode,
-                string_packed_length,
                 WireType::LengthDelimited,
             ),
             ScalarCoding::StringUtf8Explicit | ScalarCoding::StringPermissiveExplicit => (
@@ -324,10 +313,9 @@ impl Encoder {
     }
 }
 
-/// Handle only the most banal boilerplate involved in declaring a scalar encoder.
+// Handle only the most banal boilerplate involved in declaring a scalar encoder / length function.
 macro_rules! encode_fn {
     ($name:ident, $type:path, $type_error:expr, $encode:expr,) => {
-        #[allow(dead_code)]
         fn $name(
             encoder: &Encoder,
             value: &Val,
@@ -344,7 +332,6 @@ macro_rules! encode_fn {
 }
 macro_rules! length_fn {
     ($name:ident, $type:path, $type_error:expr, $length:expr,) => {
-        #[allow(dead_code)]
         fn $name(
             encoder: &Encoder,
             value: &Val,
@@ -358,6 +345,8 @@ macro_rules! length_fn {
         }
     };
 }
+
+// All scalars follow roughly the same patterns for encoding functions.
 macro_rules! scalar_encode_fns {
     ($encode_inner:ident, $default:ident, $type:path, $type_error:expr, $explicit_name:ident, $implicit_name:ident, $packed_name:ident, $expanded_name:ident,) => {
         encode_fn!(
@@ -441,6 +430,9 @@ macro_rules! scalar_encode_fns {
         );
     };
 }
+
+// Length functions are defined differently
+// depending on whether the length is fixed (e.g. fixed64, float) or variable (e.g. int64, string).
 macro_rules! scalar_fixed_length_fns {
     ($fixed_length:expr, $default:ident, $type:path, $type_error:expr, $explicit_name:ident, $implicit_name:ident, $packed_name:ident, $expanded_name:ident,) => {
         length_fn!(
@@ -634,23 +626,6 @@ scalar_var_length_fns!(
     bytes_expanded_length,
 );
 
-// Bytes and string values cannot be packed, only expanded.
-fn bytes_packed_encode(
-    _encoder: &Encoder,
-    _value: &Val,
-    _lengths: &mut Vec<u32>,
-    _buf: &mut EncodeBuf<'_>,
-) -> Result<(), EncodeError> {
-    Err(EncodeError::new(IMPOSSIBLE_PACKED_BYTES))
-}
-fn bytes_packed_length(
-    _encoder: &Encoder,
-    _value: &Val,
-    _lengths: &mut Vec<u32>,
-) -> Result<u32, EncodeError> {
-    Err(EncodeError::new(IMPOSSIBLE_PACKED_BYTES))
-}
-
 #[inline(always)]
 fn string_encode_inner(value: &String, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
     encode_varint(value.len() as u64, buf);
@@ -690,23 +665,6 @@ scalar_var_length_fns!(
     _string_packed_length_unused,
     string_expanded_length,
 );
-
-// Bytes and string values cannot be packed, only expanded.
-fn string_packed_encode(
-    _encoder: &Encoder,
-    _value: &Val,
-    _lengths: &mut Vec<u32>,
-    _buf: &mut EncodeBuf<'_>,
-) -> Result<(), EncodeError> {
-    Err(EncodeError::new(IMPOSSIBLE_PACKED_STRING))
-}
-fn string_packed_length(
-    _encoder: &Encoder,
-    _value: &Val,
-    _lengths: &mut Vec<u32>,
-) -> Result<u32, EncodeError> {
-    Err(EncodeError::new(IMPOSSIBLE_PACKED_STRING))
-}
 
 #[inline(always)]
 fn bool_encode_inner(value: &bool, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {

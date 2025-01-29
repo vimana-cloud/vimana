@@ -45,9 +45,12 @@ struct Encoder {
 }
 
 /// Information for an [`Encoder`] for compound types (messages, oneofs, enumerations).
+///
+/// Implemented as a union to save space while keeping a known size.
+/// Each specific encoding function will know how to deal with this appropriately,
+/// but we also have to manually drop the appropriate one in [`Encoder::drop`].
 union CompoundEncoder {
-    /// Map from component subfield names to encoders
-    /// for messages and oneofs.
+    /// Map from subfield names to encoders for messages and oneofs.
     subfields: ManuallyDrop<HashMap<String, Encoder>>,
 
     /// Enumeration variants.
@@ -94,7 +97,7 @@ enum EncodeLevel {
 impl ResponseEncoder {
     pub fn new(response: &Field, component: Arc<ComponentName>) -> Result<Self, Status> {
         Ok(Self {
-            inner: Encoder::message_untagged(response, component.as_ref())?,
+            inner: Encoder::message_inner(response, component.as_ref())?,
             component: component,
         })
     }
@@ -124,8 +127,8 @@ impl Drop for Encoder {
         // Encoders are dropped when a container shuts down (infrequently)
         // so we can exhaustively check against the known compound encoding functions
         // to figure out which hash map needs to get dropped.
-        if self.encode == compound::message_tagged_encode
-            || self.encode == compound::message_untagged_encode
+        if self.encode == compound::message_outer_encode
+            || self.encode == compound::message_inner_encode
             || self.encode == compound::message_repeated_encode
             || self.encode == compound::oneof_encode
         {
@@ -173,6 +176,13 @@ fn tag(number: u32, wire_type: WireType) -> u64 {
     ((number as u64) << 3) | (wire_type as u64)
 }
 
+/// Return whether the given `ScalarCoding` uses explicit presence tracking.
+#[inline(always)]
+fn explicit_scalar(scalar_coding: i32) -> bool {
+    // Explicit scalar coding numbers all happen to equal `4n+2` for some `n`.
+    scalar_coding % 4 == 2
+}
+
 /// An encoding error should be displayed like this:
 ///   EncodeError(.path.to[0][4].the.field): <message>
 impl Debug for EncodeError {
@@ -207,8 +217,6 @@ const EXPLICIT_NON_OPTION: &str = "Explicit field is not an option";
 const BYTES_NON_LIST: &str = "Bytes field is not a list";
 const BYTE_NON_BYTE: &str = "Byte item is not a byte";
 const STRING_NON_STRING: &str = "String field is not a string";
-const IMPOSSIBLE_PACKED_BYTES: &str = "Packed repeated bytes";
-const IMPOSSIBLE_PACKED_STRING: &str = "Packed repeated string";
 const BOOL_NON_BOOL: &str = "Boolean field is not boolean";
 const INT32_NON_INT32: &str = "Int32 field is not S32";
 const SINT32_NON_SINT32: &str = "Sint32 field is not S32";

@@ -9,10 +9,10 @@ use tonic::Status;
 use wasmtime::component::Val;
 
 use crate::{
-    tag, CompoundEncoder, EncodeError, Encoder, ENUM_NON_ENUM, ENUM_VARIANT_UNRECOGNIZED,
-    LENGTH_INCONSISTENCY, MESSAGE_NON_OPTIONAL, MESSAGE_NON_RECORD, NO_ENCODER_FOR_FIELD,
-    ONEOF_NON_OPTIONAL, ONEOF_NON_VARIANT, ONEOF_VARIANT_NO_PAYLOAD, ONEOF_VARIANT_UNRECOGNIZED,
-    REPEATED_NON_LIST,
+    explicit_scalar, tag, CompoundEncoder, EncodeError, Encoder, ENUM_NON_ENUM,
+    ENUM_VARIANT_UNRECOGNIZED, LENGTH_INCONSISTENCY, MESSAGE_NON_OPTIONAL, MESSAGE_NON_RECORD,
+    NO_ENCODER_FOR_FIELD, ONEOF_NON_OPTIONAL, ONEOF_NON_VARIANT, ONEOF_VARIANT_NO_PAYLOAD,
+    ONEOF_VARIANT_UNRECOGNIZED, REPEATED_NON_LIST,
 };
 use error::log_error_status;
 use metadata_proto::work::runtime::container::field::{Coding, CompoundCoding, ScalarCoding};
@@ -25,13 +25,13 @@ impl Encoder {
     ///
     /// Since this method is expected to be invoked by the control plane,
     /// it returns an error [`Status`] consistent with the Work node's [`error`] handling.
-    pub(crate) fn message_untagged(
+    pub(crate) fn message_inner(
         message: &Field,
         component: &ComponentName,
     ) -> Result<Self, Status> {
         Ok(Self {
-            encode: message_untagged_encode,
-            length: message_untagged_length,
+            encode: message_inner_encode,
+            length: message_inner_length,
             tag: tag(message.number, WireType::LengthDelimited), // Ignored.
             compound: CompoundEncoder {
                 subfields: compile_compound(message, false, component)?,
@@ -39,10 +39,10 @@ impl Encoder {
         })
     }
 
-    fn message_tagged(message: &Field, component: &ComponentName) -> Result<Self, Status> {
+    fn message_outer(message: &Field, component: &ComponentName) -> Result<Self, Status> {
         Ok(Self {
-            encode: message_tagged_encode,
-            length: message_tagged_length,
+            encode: message_outer_encode,
+            length: message_outer_length,
             tag: tag(message.number, WireType::LengthDelimited),
             compound: CompoundEncoder {
                 subfields: compile_compound(message, false, component)?,
@@ -133,9 +133,8 @@ fn compile_compound(
         )? {
             Coding::ScalarCoding(scalar_coding) => {
                 // Oneof subfields must use explicit coding.
-                // Explicit scalar coding numbers all happen to equal `4n+2` for some `n`.
-                // Check to make sure.
-                if is_oneof && (scalar_coding % 4 != 2) {
+                // The Protobuf compiler should have made sure of that.
+                if is_oneof && !explicit_scalar(scalar_coding) {
                     return Err(log_error_status!("oneof-subfield-non-explicit", component)(
                         scalar_coding,
                     ));
@@ -144,7 +143,7 @@ fn compile_compound(
                 Encoder::scalar(
                     ScalarCoding::try_from(scalar_coding).map_err(
                         // Unrecognized enum value: Protobuf inconsistency?
-                        log_error_status!("bad-scalar-encoding", component),
+                        log_error_status!("bad-scalar-coding", component),
                     )?,
                     subfield.number,
                 )
@@ -162,13 +161,13 @@ fn compile_compound(
 
                 match CompoundCoding::try_from(compound_coding).map_err(
                     // Protobuf inconsistency? Enum number unknown.
-                    log_error_status!("encoder-compound-coding", component),
+                    log_error_status!("bad-compound-coding", component),
                 )? {
                     CompoundCoding::EnumImplicit => Encoder::enum_implicit(subfield),
                     CompoundCoding::EnumPacked => Encoder::enum_packed(subfield),
                     CompoundCoding::EnumExplicit => Encoder::enum_explicit(subfield),
                     CompoundCoding::EnumExpanded => Encoder::enum_expanded(subfield),
-                    CompoundCoding::Message => Encoder::message_tagged(subfield, component)?,
+                    CompoundCoding::Message => Encoder::message_outer(subfield, component)?,
                     CompoundCoding::MessageExpanded => {
                         Encoder::message_repeated(subfield, component)?
                     }
@@ -193,7 +192,7 @@ fn compile_enum_variants(enumeration: &Field) -> ManuallyDrop<HashMap<String, u3
 }
 
 #[inline(always)]
-pub(crate) fn message_untagged_encode(
+pub(crate) fn message_inner_encode(
     encoder: &Encoder,
     value: &Val,
     lengths: &mut Vec<u32>,
@@ -222,10 +221,10 @@ pub(crate) fn message_untagged_encode(
 /// but do *not* push the message's own content length onto the queue.
 ///
 /// Used directly by [`ResponseEncoder`].
-/// See [`message_untagged_length`] for message subfields
+/// See [`message_inner_length`] for message subfields
 /// where the the length of the message content is also pushed.
 #[inline(always)]
-fn message_untagged_length(
+fn message_inner_length(
     encoder: &Encoder,
     value: &Val,
     lengths: &mut Vec<u32>,
@@ -252,7 +251,7 @@ fn message_untagged_length(
     }
 }
 
-pub(crate) fn message_tagged_encode(
+pub(crate) fn message_outer_encode(
     encoder: &Encoder,
     value: &Val,
     lengths: &mut Vec<u32>,
@@ -264,7 +263,7 @@ pub(crate) fn message_tagged_encode(
             if let Some(length) = lengths.pop() {
                 encode_varint(encoder.tag, buf);
                 encode_varint(length as u64, buf);
-                message_untagged_encode(encoder, value, lengths, buf)
+                message_inner_encode(encoder, value, lengths, buf)
             } else {
                 Err(EncodeError::new(LENGTH_INCONSISTENCY))
             }
@@ -279,7 +278,7 @@ pub(crate) fn message_tagged_encode(
     }
 }
 
-fn message_tagged_length(
+fn message_outer_length(
     encoder: &Encoder,
     value: &Val,
     lengths: &mut Vec<u32>,
@@ -287,7 +286,7 @@ fn message_tagged_length(
     // Message are always explicitly presence-tracked.
     if let Val::Option(option) = value {
         Ok(if let Some(value) = option {
-            let length = message_untagged_length(encoder, value, lengths)?;
+            let length = message_inner_length(encoder, value, lengths)?;
             lengths.push(length);
             u32::saturating_add(
                 length,
@@ -316,7 +315,7 @@ pub(crate) fn message_repeated_encode(
             if let Some(length) = lengths.pop() {
                 encode_varint(encoder.tag, buf);
                 encode_varint(length as u64, buf);
-                message_untagged_encode(encoder, value, lengths, buf)
+                message_inner_encode(encoder, value, lengths, buf)
                     .map_err(|e| e.with_index(index))?;
             } else {
                 return Err(EncodeError::new(LENGTH_INCONSISTENCY).with_index(index));
@@ -339,8 +338,8 @@ fn message_repeated_length(
     if let Val::List(items) = value {
         let mut total = 0;
         for (index, value) in items.iter().enumerate() {
-            let sublength = message_untagged_length(encoder, value, lengths)
-                .map_err(|e| e.with_index(index))?;
+            let sublength =
+                message_inner_length(encoder, value, lengths).map_err(|e| e.with_index(index))?;
             total = u32::saturating_add(
                 total,
                 u32::saturating_add(
@@ -368,10 +367,10 @@ pub(crate) fn oneof_encode(
             if let Val::Variant(name, payload) = value.as_ref() {
                 if let Some(subfield_encoder) = unsafe { &encoder.compound.subfields }.get(name) {
                     if let Some(value) = payload {
-                        // The inner function must use explicit presence tracking.
-                        // Wrap the value as an optional so it always encodes.
-                        // Unsafe voodoo "takes ownership" of `value` (`&Box<Val>`)
-                        // so we can re-use the heap pointer in our optional.
+                        // The inner function must use explicit presence tracking,
+                        // which expects an optional. Wrap the value in one.
+                        // Unsafe voodoo takes ownership of `value` (`&Box<Val>`)
+                        // so we can re-use the heap pointer in our wrapper optional.
                         let wrapped_value = Val::Option(Some(unsafe {
                             Box::from_raw(Box::as_ptr(value) as *mut Val)
                         }));
