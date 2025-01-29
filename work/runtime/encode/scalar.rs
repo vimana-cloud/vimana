@@ -1,20 +1,18 @@
 //! Encoding logic for scalar protobuf fields
 //! (anything besides messages, enums, and oneofs).
 
-use std::collections::HashMap;
-
 use prost::bytes::BufMut;
 use prost::encoding::{encode_varint, encoded_len_varint, WireType};
 use tonic::codec::EncodeBuf;
 use wasmtime::component::Val;
 
 use crate::{
-    tag, EncodeError, EncodeFn, Encoder, LengthFn, BOOL_NON_BOOL, BYTES_NON_LIST, BYTE_NON_BYTE,
-    DOUBLE_NON_DOUBLE, EXPLICIT_NON_OPTION, FIXED32_NON_FIXED32, FIXED64_NON_FIXED64,
-    FLOAT_NON_FLOAT, IMPOSSIBLE_PACKED_BYTES, IMPOSSIBLE_PACKED_STRING, INT32_NON_INT32,
-    INT64_NON_INT64, LENGTH_INCONSISTENCY, REPEATED_NON_LIST, SFIXED32_NON_SFIXED32,
-    SFIXED64_NON_SFIXED64, SINT32_NON_SINT32, SINT64_NON_SINT64, STRING_NON_STRING,
-    UINT32_NON_UINT32, UINT64_NON_UINT64,
+    tag, CompoundEncoder, EncodeError, EncodeFn, Encoder, LengthFn, BOOL_NON_BOOL, BYTES_NON_LIST,
+    BYTE_NON_BYTE, DOUBLE_NON_DOUBLE, EXPLICIT_NON_OPTION, FIXED32_NON_FIXED32,
+    FIXED64_NON_FIXED64, FLOAT_NON_FLOAT, IMPOSSIBLE_PACKED_BYTES, IMPOSSIBLE_PACKED_STRING,
+    INT32_NON_INT32, INT64_NON_INT64, LENGTH_INCONSISTENCY, REPEATED_NON_LIST,
+    SFIXED32_NON_SFIXED32, SFIXED64_NON_SFIXED64, SINT32_NON_SINT32, SINT64_NON_SINT64,
+    STRING_NON_STRING, UINT32_NON_UINT32, UINT64_NON_UINT64,
 };
 use metadata_proto::work::runtime::container::field::ScalarCoding;
 
@@ -321,8 +319,7 @@ impl Encoder {
             encode,
             length,
             tag: tag(number, wire_type),
-            subfields: HashMap::new(),
-            variants: HashMap::new(),
+            compound: CompoundEncoder { scalar: () },
         }
     }
 }

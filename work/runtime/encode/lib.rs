@@ -5,6 +5,7 @@ mod scalar;
 
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Write};
+use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
 use metadata_proto::work::runtime::container::Field;
@@ -38,13 +39,22 @@ struct Encoder {
     /// Tag (field number and wire type).
     tag: u64,
 
-    /// Map from component subfield names to encoders.
-    /// Ignored for scalar values.
-    subfields: HashMap<String, Encoder>,
+    /// Information for encoding compound types (messages, oneofs, enumerations).
+    /// Ignored for scalar types.
+    compound: CompoundEncoder,
+}
 
-    // TODO: Unionize these with subfields.
+/// Information for an [`Encoder`] for compound types (messages, oneofs, enumerations).
+union CompoundEncoder {
+    /// Map from component subfield names to encoders
+    /// for messages and oneofs.
+    subfields: ManuallyDrop<HashMap<String, Encoder>>,
+
     /// Enumeration variants.
-    variants: HashMap<String, u32>,
+    variants: ManuallyDrop<HashMap<String, u32>>,
+
+    /// Set this placeholder value for scalars.
+    scalar: (),
 }
 
 /// Encode the [value](Val) to the [buffer](EncodeBuf)
@@ -104,6 +114,33 @@ impl TonicEncoder for ResponseEncoder {
         // In tests, make sure we used all the pre-computed lengths as expected.
         debug_assert!(lengths.is_empty());
         result
+    }
+}
+
+/// [`Encoder`] uses a union internally,
+/// which requires the hash maps to be dropped manually.
+impl Drop for Encoder {
+    fn drop(&mut self) {
+        // Encoders are dropped when a container shuts down (infrequently)
+        // so we can exhaustively check against the known compound encoding functions
+        // to figure out which hash map needs to get dropped.
+        if self.encode == compound::message_tagged_encode
+            || self.encode == compound::message_untagged_encode
+            || self.encode == compound::message_repeated_encode
+            || self.encode == compound::oneof_encode
+        {
+            unsafe {
+                ManuallyDrop::drop(&mut self.compound.subfields);
+            }
+        } else if self.encode == compound::enum_explicit_encode
+            || self.encode == compound::enum_implicit_encode
+            || self.encode == compound::enum_packed_encode
+            || self.encode == compound::enum_expanded_encode
+        {
+            unsafe {
+                ManuallyDrop::drop(&mut self.compound.variants);
+            }
+        }
     }
 }
 

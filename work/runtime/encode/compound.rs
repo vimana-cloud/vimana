@@ -1,7 +1,7 @@
 //! Logic to encode protobuf messages directly from Wasm component values.
 
 use std::collections::HashMap;
-use std::mem::forget;
+use std::mem::{forget, ManuallyDrop};
 
 use prost::encoding::{encode_varint, encoded_len_varint, WireType};
 use tonic::codec::EncodeBuf;
@@ -9,9 +9,10 @@ use tonic::Status;
 use wasmtime::component::Val;
 
 use crate::{
-    tag, EncodeError, Encoder, ENUM_NON_ENUM, ENUM_VARIANT_UNRECOGNIZED, LENGTH_INCONSISTENCY,
-    MESSAGE_NON_OPTIONAL, MESSAGE_NON_RECORD, NO_ENCODER_FOR_FIELD, ONEOF_NON_OPTIONAL,
-    ONEOF_NON_VARIANT, ONEOF_VARIANT_NO_PAYLOAD, ONEOF_VARIANT_UNRECOGNIZED, REPEATED_NON_LIST,
+    tag, CompoundEncoder, EncodeError, Encoder, ENUM_NON_ENUM, ENUM_VARIANT_UNRECOGNIZED,
+    LENGTH_INCONSISTENCY, MESSAGE_NON_OPTIONAL, MESSAGE_NON_RECORD, NO_ENCODER_FOR_FIELD,
+    ONEOF_NON_OPTIONAL, ONEOF_NON_VARIANT, ONEOF_VARIANT_NO_PAYLOAD, ONEOF_VARIANT_UNRECOGNIZED,
+    REPEATED_NON_LIST,
 };
 use error::log_error_status;
 use metadata_proto::work::runtime::container::field::{Coding, CompoundCoding, ScalarCoding};
@@ -32,8 +33,9 @@ impl Encoder {
             encode: message_untagged_encode,
             length: message_untagged_length,
             tag: tag(message.number, WireType::LengthDelimited), // Ignored.
-            subfields: compile_compound(message, false, component)?,
-            variants: HashMap::new(),
+            compound: CompoundEncoder {
+                subfields: compile_compound(message, false, component)?,
+            },
         })
     }
 
@@ -42,8 +44,9 @@ impl Encoder {
             encode: message_tagged_encode,
             length: message_tagged_length,
             tag: tag(message.number, WireType::LengthDelimited),
-            subfields: compile_compound(message, false, component)?,
-            variants: HashMap::new(),
+            compound: CompoundEncoder {
+                subfields: compile_compound(message, false, component)?,
+            },
         })
     }
 
@@ -52,8 +55,9 @@ impl Encoder {
             encode: message_repeated_encode,
             length: message_repeated_length,
             tag: tag(message.number, WireType::LengthDelimited),
-            subfields: compile_compound(message, false, component)?,
-            variants: HashMap::new(),
+            compound: CompoundEncoder {
+                subfields: compile_compound(message, false, component)?,
+            },
         })
     }
 
@@ -62,8 +66,9 @@ impl Encoder {
             encode: oneof_encode,
             length: oneof_length,
             tag: 0, // Ignored. Each variant has a tag.
-            subfields: compile_compound(oneof, true, component)?,
-            variants: HashMap::new(),
+            compound: CompoundEncoder {
+                subfields: compile_compound(oneof, true, component)?,
+            },
         })
     }
 
@@ -72,8 +77,9 @@ impl Encoder {
             encode: enum_implicit_encode,
             length: enum_implicit_length,
             tag: tag(enumeration.number, WireType::Varint), // Ignored.
-            subfields: HashMap::new(),
-            variants: compile_enum_variants(enumeration),
+            compound: CompoundEncoder {
+                variants: compile_enum_variants(enumeration),
+            },
         }
     }
 
@@ -82,8 +88,9 @@ impl Encoder {
             encode: enum_packed_encode,
             length: enum_packed_length,
             tag: tag(enumeration.number, WireType::LengthDelimited),
-            subfields: HashMap::new(),
-            variants: compile_enum_variants(enumeration),
+            compound: CompoundEncoder {
+                variants: compile_enum_variants(enumeration),
+            },
         }
     }
 
@@ -92,8 +99,9 @@ impl Encoder {
             encode: enum_explicit_encode,
             length: enum_explicit_length,
             tag: tag(enumeration.number, WireType::Varint),
-            subfields: HashMap::new(),
-            variants: compile_enum_variants(enumeration),
+            compound: CompoundEncoder {
+                variants: compile_enum_variants(enumeration),
+            },
         }
     }
 
@@ -102,8 +110,9 @@ impl Encoder {
             encode: enum_expanded_encode,
             length: enum_expanded_length,
             tag: tag(enumeration.number, WireType::Varint),
-            subfields: HashMap::new(),
-            variants: compile_enum_variants(enumeration),
+            compound: CompoundEncoder {
+                variants: compile_enum_variants(enumeration),
+            },
         }
     }
 }
@@ -114,7 +123,7 @@ fn compile_compound(
     field: &Field,
     is_oneof: bool,
     component: &ComponentName,
-) -> Result<HashMap<String, Encoder>, Status> {
+) -> Result<ManuallyDrop<HashMap<String, Encoder>>, Status> {
     let mut subfields: HashMap<String, Encoder> = HashMap::with_capacity(field.subfields.len());
 
     for subfield in &field.subfields {
@@ -171,20 +180,20 @@ fn compile_compound(
         subfields.insert(subfield.name.clone(), subfield_encoder);
     }
 
-    Ok(subfields)
+    Ok(ManuallyDrop::new(subfields))
 }
 
 /// Initialization logic for enumerations.
-fn compile_enum_variants(enumeration: &Field) -> HashMap<String, u32> {
+fn compile_enum_variants(enumeration: &Field) -> ManuallyDrop<HashMap<String, u32>> {
     let mut variants = HashMap::with_capacity(enumeration.subfields.len());
     for subfield in &enumeration.subfields {
         variants.insert(subfield.name.clone(), subfield.number);
     }
-    variants
+    ManuallyDrop::new(variants)
 }
 
 #[inline(always)]
-fn message_untagged_encode(
+pub(crate) fn message_untagged_encode(
     encoder: &Encoder,
     value: &Val,
     lengths: &mut Vec<u32>,
@@ -193,7 +202,7 @@ fn message_untagged_encode(
     if let Val::Record(fields) = value {
         for (name, value) in fields.iter() {
             // Look up the encoder for the subfield by name.
-            if let Some(encoder) = encoder.subfields.get(name) {
+            if let Some(encoder) = unsafe { &encoder.compound.subfields }.get(name) {
                 (encoder.encode)(&encoder, value, lengths, buf)
                     .map_err(|e| e.with_field(name.clone()))?;
             } else {
@@ -227,7 +236,7 @@ fn message_untagged_length(
         // so sublengths are pushed in the opposite order of
         // how they are later popped during encoding.
         for (name, value) in fields.iter().rev() {
-            if let Some(encoder) = encoder.subfields.get(name) {
+            if let Some(encoder) = unsafe { &encoder.compound.subfields }.get(name) {
                 let sublength = (encoder.length)(&encoder, value, lengths)
                     .map_err(|e| e.with_field(name.clone()))?;
                 total = u32::saturating_add(total, sublength);
@@ -243,7 +252,7 @@ fn message_untagged_length(
     }
 }
 
-fn message_tagged_encode(
+pub(crate) fn message_tagged_encode(
     encoder: &Encoder,
     value: &Val,
     lengths: &mut Vec<u32>,
@@ -296,7 +305,7 @@ fn message_tagged_length(
 
 /// Encode a repeated message.
 /// These are always expanded, never packed.
-fn message_repeated_encode(
+pub(crate) fn message_repeated_encode(
     encoder: &Encoder,
     value: &Val,
     lengths: &mut Vec<u32>,
@@ -348,7 +357,7 @@ fn message_repeated_length(
 
 /// Encode a oneof.
 /// These are never repeated, and always explicitly presence-tracked.
-fn oneof_encode(
+pub(crate) fn oneof_encode(
     encoder: &Encoder,
     value: &Val,
     lengths: &mut Vec<u32>,
@@ -357,7 +366,7 @@ fn oneof_encode(
     if let Val::Option(option) = value {
         if let Some(value) = option {
             if let Val::Variant(name, payload) = value.as_ref() {
-                if let Some(subfield_encoder) = encoder.subfields.get(name) {
+                if let Some(subfield_encoder) = unsafe { &encoder.compound.subfields }.get(name) {
                     if let Some(value) = payload {
                         // The inner function must use explicit presence tracking.
                         // Wrap the value as an optional so it always encodes.
@@ -406,7 +415,7 @@ fn oneof_length(
         if let Some(value) = option {
             if let Val::Variant(name, payload) = value.as_ref() {
                 // Look up the variant type by name.
-                if let Some(subfield_encoder) = encoder.subfields.get(name) {
+                if let Some(subfield_encoder) = unsafe { &encoder.compound.subfields }.get(name) {
                     if let Some(value) = payload {
                         // The inner function must use explicit presence tracking.
                         // Wrap the value as an optional so it always encodes.
@@ -441,14 +450,14 @@ fn oneof_length(
     }
 }
 
-fn enum_explicit_encode(
+pub(crate) fn enum_explicit_encode(
     encoder: &Encoder,
     value: &Val,
     _lengths: &mut Vec<u32>,
     buf: &mut EncodeBuf<'_>,
 ) -> Result<(), EncodeError> {
     if let Val::Enum(name) = value {
-        if let Some(number) = encoder.variants.get(name) {
+        if let Some(number) = unsafe { &encoder.compound.variants }.get(name) {
             encode_varint(encoder.tag, buf);
             encode_varint(*number as u64, buf);
             Ok(())
@@ -469,7 +478,7 @@ fn enum_explicit_length(
 ) -> Result<u32, EncodeError> {
     if let Val::Enum(name) = value {
         // Look up the enum variant number by name.
-        if let Some(number) = encoder.variants.get(name) {
+        if let Some(number) = unsafe { &encoder.compound.variants }.get(name) {
             Ok((encoded_len_varint(encoder.tag) + encoded_len_varint(*number as u64)) as u32)
         } else {
             // Got an unexpected enum variant name.
@@ -481,14 +490,14 @@ fn enum_explicit_length(
     }
 }
 
-fn enum_implicit_encode(
+pub(crate) fn enum_implicit_encode(
     encoder: &Encoder,
     value: &Val,
     _lengths: &mut Vec<u32>,
     buf: &mut EncodeBuf<'_>,
 ) -> Result<(), EncodeError> {
     if let Val::Enum(name) = value {
-        if let Some(number) = encoder.variants.get(name) {
+        if let Some(number) = unsafe { &encoder.compound.variants }.get(name) {
             if *number != 0 {
                 encode_varint(encoder.tag, buf);
                 encode_varint(*number as u64, buf);
@@ -510,7 +519,7 @@ fn enum_implicit_length(
     _lengths: &mut Vec<u32>,
 ) -> Result<u32, EncodeError> {
     if let Val::Enum(name) = value {
-        if let Some(number) = encoder.variants.get(name) {
+        if let Some(number) = unsafe { &encoder.compound.variants }.get(name) {
             Ok(if *number != 0 {
                 (encoded_len_varint(encoder.tag) + encoded_len_varint(*number as u64)) as u32
             } else {
@@ -526,7 +535,7 @@ fn enum_implicit_length(
     }
 }
 
-fn enum_packed_encode(
+pub(crate) fn enum_packed_encode(
     encoder: &Encoder,
     value: &Val,
     lengths: &mut Vec<u32>,
@@ -539,7 +548,7 @@ fn enum_packed_encode(
                 encode_varint(length as u64, buf);
                 for (index, value) in items.iter().enumerate() {
                     if let Val::Enum(name) = value {
-                        if let Some(number) = encoder.variants.get(name) {
+                        if let Some(number) = unsafe { &encoder.compound.variants }.get(name) {
                             encode_varint(*number as u64, buf);
                         } else {
                             return Err(
@@ -570,7 +579,7 @@ fn enum_packed_length(
             let mut total = 0;
             for (index, value) in items.iter().enumerate() {
                 if let Val::Enum(name) = value {
-                    if let Some(number) = encoder.variants.get(name) {
+                    if let Some(number) = unsafe { &encoder.compound.variants }.get(name) {
                         total += encoded_len_varint(*number as u64) as u32;
                     } else {
                         return Err(EncodeError::new(ENUM_VARIANT_UNRECOGNIZED).with_index(index));
@@ -591,7 +600,7 @@ fn enum_packed_length(
     }
 }
 
-fn enum_expanded_encode(
+pub(crate) fn enum_expanded_encode(
     encoder: &Encoder,
     value: &Val,
     _lengths: &mut Vec<u32>,
@@ -600,7 +609,7 @@ fn enum_expanded_encode(
     if let Val::List(items) = value {
         for (index, value) in items.iter().enumerate() {
             if let Val::Enum(name) = value {
-                if let Some(number) = encoder.variants.get(name) {
+                if let Some(number) = unsafe { &encoder.compound.variants }.get(name) {
                     encode_varint(encoder.tag, buf);
                     encode_varint(*number as u64, buf);
                 } else {
@@ -626,7 +635,7 @@ fn enum_expanded_length(
         let mut total = 0;
         for (index, value) in items.iter().enumerate() {
             if let Val::Enum(name) = value {
-                if let Some(number) = encoder.variants.get(name) {
+                if let Some(number) = unsafe { &encoder.compound.variants }.get(name) {
                     total = u32::saturating_add(
                         total,
                         tag_length + encoded_len_varint(*number as u64) as u32,
