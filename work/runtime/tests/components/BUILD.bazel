@@ -1,0 +1,51 @@
+load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
+load("@rules_wasm//:c.bzl", "c_component")
+load("@rules_wasm//:wasm.bzl", "wit_package")
+
+package(default_visibility = ["//work/runtime/tests:__pkg__"])
+
+wit_package(
+    name = "adder-wit",
+    srcs = ["adder.wit"],
+    deps = ["//work/wit:grpc"],
+)
+
+c_component(
+    name = "adder-c",
+    srcs = ["adder.c"],
+    wit = ":adder-wit",
+    world = "adder-service",
+)
+
+# Compile text protobuf to binary protobuf.
+genrule(
+    name = "adder-metadata",
+    srcs = ["adder.txtpb"],
+    outs = ["adder.binpb"],
+    cmd = "cat $(SRCS)" +
+          " | ./$(location @protobuf//:protoc)" +
+          " --encode=work.runtime.Metadata" +
+          " --proto_path=`dirname $(location //work/runtime:metadata.proto)`" +
+          " $(location //work/runtime:metadata.proto)" +
+          " > $@",
+    tools = [
+        "//work/runtime:metadata.proto",
+        "@protobuf//:protoc",
+    ],
+)
+
+proto_library(
+    name = "adder-proto",
+    srcs = ["adder.proto"],
+)
+
+py_proto_library(
+    name = "adder-py-pb2",
+    deps = [":adder-proto"],
+)
+
+py_grpc_library(
+    name = "adder-py-grpc",
+    srcs = [":adder-proto"],
+    deps = ["adder-py-pb2"],
+)

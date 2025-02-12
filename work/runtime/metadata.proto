@@ -4,311 +4,314 @@ syntax = "proto3";
 
 package work.runtime;
 
-// gRPC container metadata includes all information necessary to run a service.
+// All information necessary to operate any component.
+message Metadata {
+
+  // For components that implement a gRPC service.
+  GrpcMetadata grpc = 1;
+}
+
+// All information necessary to operate a gRPC service.
 message GrpcMetadata {
 
-  // Name of the gRPC service (e.g. `package.ServiceName`).
-  string service_name = 1;
+  // Name of the service (e.g. `package.ServiceName`).
+  string service = 1;
 
   // Mapping from gRPC method names (e.g. `MethodName`) to descriptors.
-  map<string, Method> methods = 2;
+  map<string, GrpcMethod> methods = 2;
+}
 
-  // Method descriptor.
-  message Method {
+// gRPC method handler descriptor.
+message GrpcMethod {
 
-    // Name of the Wasm function to invoke (e.g. `function-name`).
-    string function_name = 1;
+  // Name of the Wasm function to invoke (e.g. `function-name`).
+  string function = 1;
 
-    // Type definition of request messages.
-    Field request = 2;
+  // Streaming / unarity classification.
+  GrpcArity arity = 2;
 
-    // Type definition of response messages.
-    Field response = 3;
+  // Type definition of request messages.
+  Field request = 3;
 
-    // Streaming / unarity classification.
-    Arity arity = 4;
+  // Type definition of response messages.
+  Field response = 4;
+}
 
-    // Information necessary to encode / decode any Protobuf field.
-    message Field {
+// Streaming / unarity classification for gRPC methods.
+enum GrpcArity {
+  UNARY = 0;
+  SERVER_STREAMING = 1;
+  CLIENT_STREAMING = 2;
+  BIDI_STREAMING = 3;
+}
 
-      // Protobuf field tag, which consists of both the field number and
-      // [wire
-      // type](https://protobuf.dev/programming-guides/encoding/#structure).
-      uint64 tag = 1;
+// Information necessary to encode / decode any Protobuf field.
+message Field {
 
-      // Wasm record field name (e.g. `field-name`).
-      string name = 2;
+  // Protobuf field number,
+  // or enumeration variant number if in a subfield of an enumeration.
+  uint32 number = 1;
 
-      // Subfields for compound types (message, enumeration, or one-of).
-      // Ignored for scalar types (all others).
-      repeated Field subfields = 3;
+  // Wasm record field name (e.g. `field-name`).
+  string name = 2;
 
-      // Roughly corresponds to field type.
-      // Ignored if this is a subfield of an enumeration.
-      oneof coding {
-        ScalarCoding scalar_coding = 4;
-        CompoundCoding compound_coding = 5;
-      }
+  // Subfields for compound types (message, enumeration, or one-of).
+  // Ignored for scalar types (all others).
+  repeated Field subfields = 3;
 
-      // Scalar fields have no constituent components.
-      // They include all Protobuf types except messages, enumerations, and
-      // one-ofs.
-      enum ScalarCoding {
+  // Roughly corresponds to field type.
+  // Ignored if this is a subfield of an enumeration.
+  oneof coding {
+    ScalarCoding scalar_coding = 4;
+    CompoundCoding compound_coding = 5;
+  }
 
-        // A non-repeated byte array field
-        // with implicit presence (proto3 behavior).
-        BYTES_IMPLICIT = 0;
-        // A repeated byte array field
-        // with packed repetition (proto3 behavior).
-        BYTES_PACKED = 1;
-        // A non-repeated byte array field
-        // with explicit presence (proto2 behavior).
-        BYTES_EXPLICIT = 2;
-        // A repeated byte array field
-        // with expanded repetition (proto2 behavior).
-        BYTES_EXPANDED = 3;
+  // Scalar fields have no constituent components.
+  // They include all Protobuf types
+  // *except* messages, enumerations, and one-ofs.
+  //
+  // It's important that the cycle [implicit, packed, explicit, expanded]
+  // be repeated every four numbers starting at zero.
+  // This pattern is used in the encoder / decoder to simplify things.
+  // Also, bytes and strings must be first.
+  // These are the only length-delimited scalars and cannot be packed.
+  enum ScalarCoding {
 
-        // A non-repeated string field
-        // with implicit presence (proto3 behavior)
-        // and UTF-8 validation (proto3 behavior).
-        STRING_UTF8_IMPLICIT = 4;
-        // A repeated string field
-        // with packed repetition (proto3 behavior)
-        // and UTF-8 validation (proto3 behavior).
-        STRING_UTF8_PACKED = 5;
-        // A non-repeated string field
-        // with explicit presence (proto2 behavior)
-        // and UTF-8 validation (proto3 behavior).
-        STRING_UTF8_EXPLICIT = 6;
-        // A repeated string field
-        // with expanded repetition (proto2 behavior)
-        // and UTF-8 validation (proto3 behavior).
-        STRING_UTF8_EXPANDED = 7;
+    // A non-repeated byte array field
+    // with implicit presence (proto3 behavior).
+    BYTES_IMPLICIT = 0;
+    // There is no packed bytes.
+    reserved 1;
+    // A non-repeated byte array field
+    // with explicit presence (proto2 behavior).
+    BYTES_EXPLICIT = 2;
+    // A repeated byte array field
+    // with expanded repetition (proto2 behavior).
+    BYTES_EXPANDED = 3;
 
-        // A non-repeated string field
-        // with implicit presence (proto3 behavior)
-        // and *no* UTF-8 validation (proto2 behavior).
-        STRING_PERMISSIVE_IMPLICIT = 8;
-        // A repeated string field
-        // with packed repetition (proto3 behavior)
-        // and *no* UTF-8 validation (proto2 behavior).
-        STRING_PERMISSIVE_PACKED = 9;
-        // A non-repeated string field
-        // with explicit presence (proto2 behavior)
-        // and *no* UTF-8 validation (proto2 behavior).
-        STRING_PERMISSIVE_EXPLICIT = 10;
-        // A repeated string field
-        // with expanded repetition (proto2 behavior)
-        // and *no* UTF-8 validation (proto2 behavior).
-        STRING_PERMISSIVE_EXPANDED = 11;
+    // A non-repeated string field
+    // with implicit presence (proto3 behavior)
+    // and UTF-8 validation (proto3 behavior).
+    STRING_UTF8_IMPLICIT = 4;
+    // There is no packed string.
+    reserved 5;
+    // A non-repeated string field
+    // with explicit presence (proto2 behavior)
+    // and UTF-8 validation (proto3 behavior).
+    STRING_UTF8_EXPLICIT = 6;
+    // A repeated string field
+    // with expanded repetition (proto2 behavior)
+    // and UTF-8 validation (proto3 behavior).
+    STRING_UTF8_EXPANDED = 7;
 
-        // A non-repeated boolean field
-        // with implicit presence (proto3 behavior).
-        BOOL_IMPLICIT = 12;
-        // A repeated boolean field
-        // with packed repetition (proto3 behavior).
-        BOOL_PACKED = 13;
-        // A non-repeated boolean field
-        // with explicit presence (proto2 behavior).
-        BOOL_EXPLICIT = 14;
-        // A repeated boolean field
-        // with expanded repetition (proto2 behavior).
-        BOOL_EXPANDED = 15;
+    // A non-repeated string field
+    // with implicit presence (proto3 behavior)
+    // and *no* UTF-8 validation (proto2 behavior).
+    STRING_PERMISSIVE_IMPLICIT = 8;
+    // There is no packed string.
+    reserved 9;
+    // A non-repeated string field
+    // with explicit presence (proto2 behavior)
+    // and *no* UTF-8 validation (proto2 behavior).
+    STRING_PERMISSIVE_EXPLICIT = 10;
+    // A repeated string field
+    // with expanded repetition (proto2 behavior)
+    // and *no* UTF-8 validation (proto2 behavior).
+    STRING_PERMISSIVE_EXPANDED = 11;
 
-        // A non-repeated 32-bit variable-length-encoded signed integer field
-        // with implicit presence (proto3 behavior).
-        INT32_IMPLICIT = 16;
-        // A repeated 32-bit variable-length-encoded signed integer field
-        // with packed repetition (proto3 behavior).
-        INT32_PACKED = 17;
-        // A non-repeated 32-bit variable-length-encoded signed integer field
-        // with explicit presence (proto2 behavior).
-        INT32_EXPLICIT = 18;
-        // A repeated 32-bit variable-length-encoded signed integer field
-        // with expanded repetition (proto2 behavior).
-        INT32_EXPANDED = 19;
+    // A non-repeated boolean field
+    // with implicit presence (proto3 behavior).
+    BOOL_IMPLICIT = 12;
+    // A repeated boolean field
+    // with packed repetition (proto3 behavior).
+    BOOL_PACKED = 13;
+    // A non-repeated boolean field
+    // with explicit presence (proto2 behavior).
+    BOOL_EXPLICIT = 14;
+    // A repeated boolean field
+    // with expanded repetition (proto2 behavior).
+    BOOL_EXPANDED = 15;
 
-        // A non-repeated 32-bit zigzag-encoded signed integer field
-        // with implicit presence (proto3 behavior).
-        SINT32_IMPLICIT = 20;
-        // A repeated 32-bit zigzag-encoded signed integer field
-        // with packed repetition (proto3 behavior).
-        SINT32_PACKED = 21;
-        // A non-repeated 32-bit zigzag-encoded signed integer field
-        // with explicit presence (proto2 behavior).
-        SINT32_EXPLICIT = 22;
-        // A repeated 32-bit zigzag-encoded signed integer field
-        // with expanded repetition (proto2 behavior).
-        SINT32_EXPANDED = 23;
+    // A non-repeated 32-bit variable-length-encoded signed integer field
+    // with implicit presence (proto3 behavior).
+    INT32_IMPLICIT = 16;
+    // A repeated 32-bit variable-length-encoded signed integer field
+    // with packed repetition (proto3 behavior).
+    INT32_PACKED = 17;
+    // A non-repeated 32-bit variable-length-encoded signed integer field
+    // with explicit presence (proto2 behavior).
+    INT32_EXPLICIT = 18;
+    // A repeated 32-bit variable-length-encoded signed integer field
+    // with expanded repetition (proto2 behavior).
+    INT32_EXPANDED = 19;
 
-        // A non-repeated 32-bit fixed-length signed integer field
-        // with implicit presence (proto3 behavior).
-        SFIXED32_IMPLICIT = 24;
-        // A repeated 32-bit fixed-length signed integer field
-        // with packed repetition (proto3 behavior).
-        SFIXED32_PACKED = 25;
-        // A non-repeated 32-bit fixed-length signed integer field
-        // with explicit presence (proto2 behavior).
-        SFIXED32_EXPLICIT = 26;
-        // A repeated 32-bit fixed-length signed integer field
-        // with expanded repetition (proto2 behavior).
-        SFIXED32_EXPANDED = 27;
+    // A non-repeated 32-bit zigzag-encoded signed integer field
+    // with implicit presence (proto3 behavior).
+    SINT32_IMPLICIT = 20;
+    // A repeated 32-bit zigzag-encoded signed integer field
+    // with packed repetition (proto3 behavior).
+    SINT32_PACKED = 21;
+    // A non-repeated 32-bit zigzag-encoded signed integer field
+    // with explicit presence (proto2 behavior).
+    SINT32_EXPLICIT = 22;
+    // A repeated 32-bit zigzag-encoded signed integer field
+    // with expanded repetition (proto2 behavior).
+    SINT32_EXPANDED = 23;
 
-        // A non-repeated 32-bit variable-length-encoded unsigned integer
-        // field with implicit presence (proto3 behavior).
-        UINT32_IMPLICIT = 28;
-        // A repeated 32-bit variable-length-encoded unsigned integer field
-        // with packed repetition (proto3 behavior).
-        UINT32_PACKED = 29;
-        // A non-repeated 32-bit variable-length-encoded unsigned integer
-        // field with explicit presence (proto2 behavior).
-        UINT32_EXPLICIT = 30;
-        // A repeated 32-bit variable-length-encoded unsigned integer field
-        // with expanded repetition (proto2 behavior).
-        UINT32_EXPANDED = 31;
+    // A non-repeated 32-bit fixed-length signed integer field
+    // with implicit presence (proto3 behavior).
+    SFIXED32_IMPLICIT = 24;
+    // A repeated 32-bit fixed-length signed integer field
+    // with packed repetition (proto3 behavior).
+    SFIXED32_PACKED = 25;
+    // A non-repeated 32-bit fixed-length signed integer field
+    // with explicit presence (proto2 behavior).
+    SFIXED32_EXPLICIT = 26;
+    // A repeated 32-bit fixed-length signed integer field
+    // with expanded repetition (proto2 behavior).
+    SFIXED32_EXPANDED = 27;
 
-        // A non-repeated 32-bit fixed-length unsigned integer field
-        // with implicit presence (proto3 behavior).
-        FIXED32_IMPLICIT = 32;
-        // A repeated 32-bit fixed-length unsigned integer field
-        // with packed repetition (proto3 behavior).
-        FIXED32_PACKED = 33;
-        // A non-repeated 32-bit fixed-length unsigned integer field
-        // with explicit presence (proto2 behavior).
-        FIXED32_EXPLICIT = 34;
-        // A repeated 32-bit fixed-length unsigned integer field
-        // with expanded repetition (proto2 behavior).
-        FIXED32_EXPANDED = 35;
+    // A non-repeated 32-bit variable-length-encoded unsigned integer
+    // field with implicit presence (proto3 behavior).
+    UINT32_IMPLICIT = 28;
+    // A repeated 32-bit variable-length-encoded unsigned integer field
+    // with packed repetition (proto3 behavior).
+    UINT32_PACKED = 29;
+    // A non-repeated 32-bit variable-length-encoded unsigned integer
+    // field with explicit presence (proto2 behavior).
+    UINT32_EXPLICIT = 30;
+    // A repeated 32-bit variable-length-encoded unsigned integer field
+    // with expanded repetition (proto2 behavior).
+    UINT32_EXPANDED = 31;
 
-        // A non-repeated 64-bit variable-length-encoded integer field
-        // with implicit presence (proto3 behavior).
-        INT64_IMPLICIT = 36;
-        // A repeated 64-bit variable-length-encoded integer field
-        // with packed repetition (proto3 behavior).
-        INT64_PACKED = 37;
-        // A non-repeated 64-bit variable-length-encoded integer field
-        // with explicit presence (proto2 behavior).
-        INT64_EXPLICIT = 38;
-        // A repeated 64-bit variable-length-encoded integer field
-        // with expanded repetition (proto2 behavior).
-        INT64_EXPANDED = 39;
+    // A non-repeated 32-bit fixed-length unsigned integer field
+    // with implicit presence (proto3 behavior).
+    FIXED32_IMPLICIT = 32;
+    // A repeated 32-bit fixed-length unsigned integer field
+    // with packed repetition (proto3 behavior).
+    FIXED32_PACKED = 33;
+    // A non-repeated 32-bit fixed-length unsigned integer field
+    // with explicit presence (proto2 behavior).
+    FIXED32_EXPLICIT = 34;
+    // A repeated 32-bit fixed-length unsigned integer field
+    // with expanded repetition (proto2 behavior).
+    FIXED32_EXPANDED = 35;
 
-        // A non-repeated 64-bit zigzag-encoded integer field
-        // with implicit presence (proto3 behavior).
-        SINT64_IMPLICIT = 40;
-        // A repeated 64-bit zigzag-encoded integer field
-        // with packed repetition (proto3 behavior).
-        SINT64_PACKED = 41;
-        // A non-repeated 64-bit zigzag-encoded integer field
-        // with explicit presence (proto2 behavior).
-        SINT64_EXPLICIT = 42;
-        // A repeated 64-bit zigzag-encoded integer field
-        // with expanded repetition (proto2 behavior).
-        SINT64_EXPANDED = 43;
+    // A non-repeated 64-bit variable-length-encoded integer field
+    // with implicit presence (proto3 behavior).
+    INT64_IMPLICIT = 36;
+    // A repeated 64-bit variable-length-encoded integer field
+    // with packed repetition (proto3 behavior).
+    INT64_PACKED = 37;
+    // A non-repeated 64-bit variable-length-encoded integer field
+    // with explicit presence (proto2 behavior).
+    INT64_EXPLICIT = 38;
+    // A repeated 64-bit variable-length-encoded integer field
+    // with expanded repetition (proto2 behavior).
+    INT64_EXPANDED = 39;
 
-        // A non-repeated 64-bit fixed-length integer field
-        // with implicit presence (proto3 behavior).
-        SFIXED64_IMPLICIT = 44;
-        // A repeated 64-bit fixed-length integer field
-        // with packed repetition (proto3 behavior).
-        SFIXED64_PACKED = 45;
-        // A non-repeated 64-bit fixed-length integer field
-        // with explicit presence (proto2 behavior).
-        SFIXED64_EXPLICIT = 46;
-        // A repeated 64-bit fixed-length integer field
-        // with expanded repetition (proto2 behavior).
-        SFIXED64_EXPANDED = 47;
+    // A non-repeated 64-bit zigzag-encoded integer field
+    // with implicit presence (proto3 behavior).
+    SINT64_IMPLICIT = 40;
+    // A repeated 64-bit zigzag-encoded integer field
+    // with packed repetition (proto3 behavior).
+    SINT64_PACKED = 41;
+    // A non-repeated 64-bit zigzag-encoded integer field
+    // with explicit presence (proto2 behavior).
+    SINT64_EXPLICIT = 42;
+    // A repeated 64-bit zigzag-encoded integer field
+    // with expanded repetition (proto2 behavior).
+    SINT64_EXPANDED = 43;
 
-        // A non-repeated 64-bit variable-length-encoded unsigned integer
-        // field with implicit presence (proto3 behavior).
-        UINT64_IMPLICIT = 48;
-        // A repeated 64-bit variable-length-encoded unsigned integer field
-        // with packed repetition (proto3 behavior).
-        UINT64_PACKED = 49;
-        // A non-repeated 64-bit variable-length-encoded unsigned integer
-        // field with explicit presence (proto2 behavior).
-        UINT64_EXPLICIT = 50;
-        // A repeated 64-bit variable-length-encoded unsigned integer field
-        // with expanded repetition (proto2 behavior).
-        UINT64_EXPANDED = 51;
+    // A non-repeated 64-bit fixed-length integer field
+    // with implicit presence (proto3 behavior).
+    SFIXED64_IMPLICIT = 44;
+    // A repeated 64-bit fixed-length integer field
+    // with packed repetition (proto3 behavior).
+    SFIXED64_PACKED = 45;
+    // A non-repeated 64-bit fixed-length integer field
+    // with explicit presence (proto2 behavior).
+    SFIXED64_EXPLICIT = 46;
+    // A repeated 64-bit fixed-length integer field
+    // with expanded repetition (proto2 behavior).
+    SFIXED64_EXPANDED = 47;
 
-        // A non-repeated 64-bit fixed-length unsigned integer field
-        // with implicit presence (proto3 behavior).
-        FIXED64_IMPLICIT = 52;
-        // A repeated 64-bit fixed-length unsigned integer field
-        // with packed repetition (proto3 behavior).
-        FIXED64_PACKED = 53;
-        // A non-repeated 64-bit fixed-length unsigned integer field
-        // with explicit presence (proto2 behavior).
-        FIXED64_EXPLICIT = 54;
-        // A repeated 64-bit fixed-length unsigned integer field
-        // with expanded repetition (proto2 behavior).
-        FIXED64_EXPANDED = 55;
+    // A non-repeated 64-bit variable-length-encoded unsigned integer
+    // field with implicit presence (proto3 behavior).
+    UINT64_IMPLICIT = 48;
+    // A repeated 64-bit variable-length-encoded unsigned integer field
+    // with packed repetition (proto3 behavior).
+    UINT64_PACKED = 49;
+    // A non-repeated 64-bit variable-length-encoded unsigned integer
+    // field with explicit presence (proto2 behavior).
+    UINT64_EXPLICIT = 50;
+    // A repeated 64-bit variable-length-encoded unsigned integer field
+    // with expanded repetition (proto2 behavior).
+    UINT64_EXPANDED = 51;
 
-        // A non-repeated 32-bit floating-point field
-        // with implicit presence (proto3 behavior).
-        FLOAT_IMPLICIT = 56;
-        // A repeated 32-bit floating-point field
-        // with packed repetition (proto3 behavior).
-        FLOAT_PACKED = 57;
-        // A non-repeated 32-bit floating-point field
-        // with explicit presence (proto2 behavior).
-        FLOAT_EXPLICIT = 58;
-        // A repeated 32-bit floating-point field
-        // with expanded repetition (proto2 behavior).
-        FLOAT_EXPANDED = 59;
+    // A non-repeated 64-bit fixed-length unsigned integer field
+    // with implicit presence (proto3 behavior).
+    FIXED64_IMPLICIT = 52;
+    // A repeated 64-bit fixed-length unsigned integer field
+    // with packed repetition (proto3 behavior).
+    FIXED64_PACKED = 53;
+    // A non-repeated 64-bit fixed-length unsigned integer field
+    // with explicit presence (proto2 behavior).
+    FIXED64_EXPLICIT = 54;
+    // A repeated 64-bit fixed-length unsigned integer field
+    // with expanded repetition (proto2 behavior).
+    FIXED64_EXPANDED = 55;
 
-        // A non-repeated 64-bit floating-point field
-        // with implicit presence (proto3 behavior).
-        DOUBLE_IMPLICIT = 60;
-        // A repeated 64-bit floating-point field
-        // with packed repetition (proto3 behavior).
-        DOUBLE_PACKED = 61;
-        // A non-repeated 64-bit floating-point field
-        // with explicit presence (proto2 behavior).
-        DOUBLE_EXPLICIT = 62;
-        // A repeated 64-bit floating-point field
-        // with expanded repetition (proto2 behavior).
-        DOUBLE_EXPANDED = 63;
-      }
+    // A non-repeated 32-bit floating-point field
+    // with implicit presence (proto3 behavior).
+    FLOAT_IMPLICIT = 56;
+    // A repeated 32-bit floating-point field
+    // with packed repetition (proto3 behavior).
+    FLOAT_PACKED = 57;
+    // A non-repeated 32-bit floating-point field
+    // with explicit presence (proto2 behavior).
+    FLOAT_EXPLICIT = 58;
+    // A repeated 32-bit floating-point field
+    // with expanded repetition (proto2 behavior).
+    FLOAT_EXPANDED = 59;
 
-      // Compound fields are composed of subfields.
-      // They include messages, enumerations, and one-ofs.
-      enum CompoundCoding {
+    // A non-repeated 64-bit floating-point field
+    // with implicit presence (proto3 behavior).
+    DOUBLE_IMPLICIT = 60;
+    // A repeated 64-bit floating-point field
+    // with packed repetition (proto3 behavior).
+    DOUBLE_PACKED = 61;
+    // A non-repeated 64-bit floating-point field
+    // with explicit presence (proto2 behavior).
+    DOUBLE_EXPLICIT = 62;
+    // A repeated 64-bit floating-point field
+    // with expanded repetition (proto2 behavior).
+    DOUBLE_EXPANDED = 63;
+  }
 
-        // A non-repeated enumeration field
-        // with implicit presence (proto3 behavior).
-        ENUM_IMPLICIT = 0;
-        // A repeated enumeration field
-        // with packed repetition (proto3 behavior).
-        ENUM_PACKED = 1;
-        // A non-repeated enumeration field
-        // with explicit presence (proto2 behavior).
-        ENUM_EXPLICIT = 2;
-        // A repeated enumeration field
-        // with expanded repetition (proto2 behavior).
-        ENUM_EXPANDED = 3;
+  // Compound fields are composed of subfields.
+  // They include messages, enumerations, and one-ofs.
+  enum CompoundCoding {
 
-        // A non-repeated message field. Presence is always explicit.
-        MESSAGE = 4;
-        // A repeated message field
-        // with packed repetition (proto3 behavior).
-        MESSAGE_PACKED = 5;
-        // A repeated message field
-        // with expanded repetition (proto2 behavior).
-        MESSAGE_EXPANDED = 6;
+    // A non-repeated enumeration field
+    // with implicit presence (proto3 behavior).
+    ENUM_IMPLICIT = 0;
+    // A repeated enumeration field
+    // with packed repetition (proto3 behavior).
+    ENUM_PACKED = 1;
+    // A non-repeated enumeration field
+    // with explicit presence (proto2 behavior).
+    ENUM_EXPLICIT = 2;
+    // A repeated enumeration field
+    // with expanded repetition (proto2 behavior).
+    ENUM_EXPANDED = 3;
 
-        // A one-of field. Presence is always explicit. Cannot be repeated.
-        ONEOF = 7;
-      }
-    }
+    // A non-repeated message field. Presence is always explicit.
+    MESSAGE = 6;
+    /// A repeated message field. Cannot be packed.
+    MESSAGE_EXPANDED = 7;
 
-    // Streaming / unarity classification for methods.
-    enum Arity {
-      UNARY = 0;
-      SERVER_STREAMING = 1;
-      CLIENT_STREAMING = 2;
-      BIDI_STREAMING = 3;
-    }
+    // A one-of field. Presence is always explicit. Cannot be repeated.
+    ONEOF = 8;
   }
 }

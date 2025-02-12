@@ -1,5 +1,5 @@
-load("@rules_rust//proto/prost:defs.bzl", "rust_prost_library")
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
 
 # Top-level target: the runtime executable.
 rust_binary(
@@ -11,11 +11,18 @@ rust_binary(
         ":cri-api-prost",
         ":state",
         "@crates//:clap",
+        "@crates//:futures",
         "@crates//:hyper-util",
+        "@crates//:log",
+        "@crates//:opentelemetry-appender-log",
+        "@crates//:opentelemetry-stdout",
+        "@crates//:opentelemetry_sdk",
         "@crates//:tokio",
         "@crates//:tokio-stream",
         "@crates//:tonic",
         "@crates//:tower",
+        "@crates//:tracing",
+        "@crates//:tracing-subscriber",
     ],
 )
 
@@ -24,9 +31,9 @@ rust_library(
     srcs = ["cri.rs"],
     deps = [
         ":cri-api-prost",
+        ":error",
+        ":names",
         ":state",
-        "//work:error",
-        "//work:names",
         "@crates//:tokio-stream",
         "@crates//:tonic",
     ],
@@ -38,10 +45,10 @@ rust_library(
     deps = [
         ":containers",
         ":cri-api-prost",
-        ":grpc-container-prost",
+        ":error",
         ":grpc-pod",
-        "//work:error",
-        "//work:names",
+        ":metadata-prost",
+        ":names",
         "@crates//:axum",
         "@crates//:futures",
         "@crates//:http",
@@ -54,27 +61,33 @@ rust_library(
 )
 
 rust_library(
+    name = "host",
+    srcs = ["host.rs"],
+    deps = [
+        ":error",
+        ":names",
+        "@crates//:anyhow",
+        "@crates//:tonic",
+        "@crates//:wasmtime",
+    ],
+)
+
+rust_library(
     name = "grpc-pod",
     srcs = ["grpc-pod.rs"],
     deps = [
         ":containers",
-        ":grpc-container-prost",
-        "//work:error",
-        "//work:names",
+        ":error",
+        ":host",
+        ":metadata-prost",
+        ":names",
         "//work/runtime/decode",
         "//work/runtime/encode",
         "@crates//:axum",
-        "@crates//:bytes",
         "@crates//:futures",
         "@crates//:http",
-        "@crates//:http-body",
-        "@crates//:http-body-util",
-        "@crates//:hyper",
-        "@crates//:hyper-util",
         "@crates//:tokio",
         "@crates//:tonic",
-        "@crates//:tower",
-        "@crates//:tower-service",
         "@crates//:wasmtime",
     ],
 )
@@ -86,10 +99,11 @@ rust_library(
         "@crates//:async-trait",
     ],
     deps = [
-        ":grpc-container-prost",
-        "//work:error",
-        "//work:names",
+        ":error",
+        ":metadata-prost",
+        ":names",
         "@crates//:bytes",
+        "@crates//:moka",
         "@crates//:prost",
         "@crates//:reqwest",
         "@crates//:serde",
@@ -99,18 +113,51 @@ rust_library(
     ],
 )
 
-rust_prost_library(
-    name = "cri-api-prost",
-    proto = "@cri-api//pkg/apis/runtime/v1:api-proto",
+rust_library(
+    name = "error",
+    srcs = ["error.rs"],
+    visibility = [":__subpackages__"],
+    deps = [
+        "@crates//:log",
+        "@crates//:tonic",
+    ],
+)
+
+rust_library(
+    name = "names",
+    srcs = ["names.rs"],
+    visibility = [":__subpackages__"],
+    deps = [
+        ":error",
+        "@crates//:lazy_static",
+        "@crates//:regex",
+        "@crates//:tonic",
+    ],
+)
+
+rust_test(
+    name = "names-test",
+    crate = ":names",
+)
+
+exports_files(
+    ["metadata.proto"],
+    visibility = ["//visibility:public"],
 )
 
 proto_library(
-    name = "grpc-container-proto",
-    srcs = ["grpc-container.proto"],
+    name = "metadata-proto",
+    srcs = ["metadata.proto"],
+    visibility = [":__subpackages__"],
 )
 
 rust_prost_library(
-    name = "grpc-container-prost",
-    proto = "grpc-container-proto",
+    name = "metadata-prost",
+    proto = "metadata-proto",
     visibility = [":__subpackages__"],
+)
+
+rust_prost_library(
+    name = "cri-api-prost",
+    proto = "@cri-api//pkg/apis/runtime/v1:api-proto",
 )

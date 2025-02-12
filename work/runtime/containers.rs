@@ -5,37 +5,62 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use moka::future::Cache;
 use prost::Message;
 use reqwest::header::ACCEPT;
 use reqwest::{Client, StatusCode as HttpStatusCode};
 use serde::Deserialize;
 use tokio::task::spawn;
-use tonic::Status;
 use wasmtime::component::Component;
 use wasmtime::Engine as WasmEngine;
 
-use grpc_container_proto::work::runtime::GrpcMetadata;
-use names::CanonicalComponentName;
+use error::{log_error_status, Result};
+use metadata_proto::work::runtime::Metadata;
+use names::ComponentName;
 
 /// Client used to fetch and compile containers from a registry,
-/// caching compiled components and container metadata locally.
+/// caching compiled components and parsed container metadata locally.
 pub struct ContainerStore {
+    /// Local in-memory cache of compiled/parsed containers.
+    cache: Cache<ComponentName, Arc<Container>>,
+
+    /// Means to fetch containers from a remote container registry.
     client: ContainerClient,
 }
 
+/// Ready-to-link container.
+pub struct Container {
+    /// Compiled component implementation.
+    pub component: Component,
+
+    /// Parsed container metadata.
+    pub metadata: Metadata,
+
+    /// Size, in kibibytes, of the serialized container blobs,
+    /// which **approximates** the memory footprint of the cached container.
+    ///
+    /// 32 bits because that's what the Moka cache expects for entry weights.
+    /// Not measured in bytes because that would make the maximum size 4 GiB.
+    /// Using kibibytes instead gives us a max of 4TiB.
+    kibibytes: u32,
+}
+
 impl ContainerStore {
-    pub fn new(registry: String, wasmtime: &WasmEngine) -> Self {
+    pub fn new(registry: String, max_cache_capacity: u64, wasmtime: &WasmEngine) -> Self {
         Self {
+            cache: Cache::builder()
+                .weigher(|_, container: &Arc<Container>| container.kibibytes)
+                .max_capacity(max_cache_capacity)
+                .build(),
             client: ContainerClient::new(registry, wasmtime),
         }
     }
 
-    pub async fn get(
-        &self,
-        name: CanonicalComponentName,
-    ) -> Result<(Component, GrpcMetadata), Status> {
-        // TODO: Cache metadata / compiled components locally.
-        self.client.fetch(name).await
+    pub async fn get(&self, name: &ComponentName) -> Result<Arc<Container>> {
+        self.cache
+            .try_get_with_by_ref(name, self.client.fetch(name))
+            .await
+            .map_err(|status| status.as_ref().clone())
     }
 }
 
@@ -44,6 +69,8 @@ impl ContainerStore {
 #[derive(Clone)]
 struct ContainerClient(Arc<ContainerClientInner>);
 
+/// Reference-counted to make [`ContainerClient`] cheaply cloneable
+/// for parallel downloads.
 struct ContainerClientInner {
     /// Basic HTTP client.
     http: Client,
@@ -55,6 +82,8 @@ struct ContainerClientInner {
     wasmtime: WasmEngine,
 }
 
+const MANIFEST_MIME: &str = "application/vnd.oci.image.manifest.v1+json";
+
 impl ContainerClient {
     fn new(registry: String, wasmtime: &WasmEngine) -> Self {
         Self(Arc::new(ContainerClientInner {
@@ -64,105 +93,160 @@ impl ContainerClient {
         }))
     }
 
-    async fn fetch(
-        &self,
-        name: CanonicalComponentName,
-    ) -> Result<(Component, GrpcMetadata), Status> {
+    async fn fetch(&self, name: &ComponentName) -> Result<Arc<Container>> {
         // Any URL path for `1234567890abcdef1234567890abcdef:package.Service`
-        // would begin with `/v2/1234567890abcdef1234567890abcdef/package.Service/`.
+        // would begin with `/v2/1234567890abcdef1234567890abcdef/071636b6167656e235562767963656/`.
         let service_url = format!(
             "{}/v2/{}/{}",
-            self.0.registry, name.service.domain, name.service.service,
+            self.0.registry,
+            name.service.domain,
+            // Repository namespace components must contain only lowercase letters and digits,
+            // so hex-encode the service name.
+            hexify(&name.service.service),
         );
         // Pull the manifest:
         // https://specs.opencontainers.org/distribution-spec/#pulling-manifests.
+        let manifest_url = format!("{service_url}/manifests/{}", name.version);
         let response = self
             .0
             .http
-            .get(format!("{service_url}/manifests/{}", name.version))
-            .header(ACCEPT, "manifest.v2+json")
+            .get(&manifest_url)
+            .header(ACCEPT, MANIFEST_MIME)
             .send()
             .await
-            .map_err(|_| {
+            .map_err(
                 // Fails if there was an error while sending request,
                 // redirect loop was detected or redirect limit was exhausted.
-                Status::internal("Error fetching container manifest")
-            })?;
+                log_error_status!("get-manifest", name),
+            )?;
         if response.status() == HttpStatusCode::OK {
-            let manifest = response
-                .json::<ImageManifest>()
-                .await
-                .map_err(|_| Status::internal("Malformed container manifest"))?;
+            let manifest = response.json::<ImageManifest>().await.map_err(
+                // JSON decoding failed.
+                log_error_status!("decode-manifest", name),
+            )?;
+
             // All images consist of 2 layers:
             // the component byte code, followed by the serialized metadata.
             if manifest.layers.len() == 2 {
                 // Fetch the layers in parallel.
-                let component = spawn(self.clone().fetch_component(format!(
-                    "{service_url}/blobs/{}",
-                    manifest.layers.get(0).unwrap().digest,
-                )));
-                let metadata = self
-                    .fetch_metadata(format!(
+                let component_fetch = spawn(self.clone().fetch_component(
+                    format!(
                         "{service_url}/blobs/{}",
-                        manifest.layers.get(1).unwrap().digest,
-                    ))
+                        manifest.layers.get(0).unwrap().digest,
+                    ),
+                    name.clone(),
+                ));
+                let metadata_result = self
+                    .fetch_metadata(
+                        format!(
+                            "{service_url}/blobs/{}",
+                            manifest.layers.get(1).unwrap().digest,
+                        ),
+                        &name,
+                    )
                     .await;
-                let component = component.await.map_err(|_| {
+
+                // Propagate compilation errors first, then metadata parsing errors.
+                let (component, component_size) = component_fetch.await.map_err(
                     // Background task join error.
-                    Status::internal("Error fetching component in background")
-                })?;
-                Ok((component?, metadata?))
+                    log_error_status!("fetch-component-join", name),
+                )??;
+                let (metadata, metadata_size) = metadata_result?;
+
+                // Total size (in bytes) of the container (serialized).
+                let total_size = usize::saturating_add(component_size, metadata_size);
+                // Round up converting to kibibytes.
+                let kibibytes = ((total_size as f64) / 1024.0).ceil() as u32;
+
+                Ok(Arc::new(Container {
+                    component,
+                    metadata,
+                    kibibytes,
+                }))
             } else {
-                Err(Status::internal(format!(
-                    "Expected 2 layers in container (got {})",
-                    manifest.layers.len()
-                )))
+                Err(log_error_status!("unexpected-container-layers", name)(
+                    manifest.layers.len(),
+                ))
             }
         } else if response.status() == HttpStatusCode::NOT_FOUND {
-            Err(Status::internal("Container manifest not found"))
+            Err(log_error_status!("manifest-not-found", name)(manifest_url))
         } else {
-            Err(Status::internal(format!(
-                "Unexpected status from registry while fetching manifest: {}",
-                response.status().as_u16()
+            Err(log_error_status!("get-manifest-status", name)(format!(
+                "(status={} url={})",
+                response.status().as_u16(),
+                manifest_url
             )))
         }
     }
 
-    async fn fetch_component(self, url: String) -> Result<Component, Status> {
-        let byte_code = self.fetch_blob(url).await?;
-        Component::new(&self.0.wasmtime, byte_code)
-            .map_err(|_| Status::internal("Component compilation error"))
+    async fn fetch_component(self, url: String, name: ComponentName) -> Result<(Component, usize)> {
+        let byte_code = self.fetch_blob(url, &name).await?;
+        let size = byte_code.len();
+        Ok((
+            Component::new(&self.0.wasmtime, byte_code).map_err(
+                // Compilation error.
+                log_error_status!("compile-component", &name),
+            )?,
+            size,
+        ))
     }
 
-    async fn fetch_metadata(&self, url: String) -> Result<GrpcMetadata, Status> {
-        let serialized = self.fetch_blob(url).await?;
-        GrpcMetadata::decode(serialized)
-            .map_err(|_| Status::internal("Error decoding Container metadata"))
+    async fn fetch_metadata(&self, url: String, name: &ComponentName) -> Result<(Metadata, usize)> {
+        let serialized = self.fetch_blob(url, name).await?;
+        let size = serialized.len();
+        Ok((
+            Metadata::decode(serialized).map_err(
+                // Malformed metadata.
+                log_error_status!("decode-metadata", name),
+            )?,
+            size,
+        ))
     }
 
-    async fn fetch_blob(&self, url: String) -> Result<Bytes, Status> {
-        let response = self.0.http.get(url).send().await.map_err(|_| {
+    async fn fetch_blob(&self, url: String, name: &ComponentName) -> Result<Bytes> {
+        let response = self.0.http.get(&url).send().await.map_err(
             // Fails if there was an error while sending request,
             // redirect loop was detected or redirect limit was exhausted.
-            Status::internal("Error fetching container blob")
-        })?;
+            log_error_status!("get-blob", name),
+        )?;
         if response.status() == HttpStatusCode::OK {
-            response.bytes().await.map_err(|_| {
+            response.bytes().await.map_err(
                 // Not sure when this would ever happen.
-                Status::internal("Malformed container blob")
-            })
+                log_error_status!("blob-bytes", name),
+            )
         } else if response.status() == HttpStatusCode::NOT_FOUND {
-            Err(Status::internal("Container blob not found"))
+            Err(log_error_status!("blob-not-found", name)(url))
         } else {
-            Err(Status::internal(format!(
-                "Unexpected status from registry while fetching blob: {}",
-                response.status().as_u16()
+            // Catch-all non-OK status code.
+            Err(log_error_status!("get-blob-status", name)(format!(
+                "(status={} url={})",
+                response.status().as_u16(),
+                url
             )))
         }
     }
 }
 
+const HEX_CHARS: &[u8] = b"0123456789abcdef";
+
+/// Hex-encode a string,
+/// returning a new string with equivalient data and double the length,
+/// using only the characters `[0-9a-f]`,
+/// nibble-wise little-endian (lower nibble comes first).
+fn hexify(string: &str) -> String {
+    let mut v = Vec::with_capacity(string.len() * 2);
+
+    for &byte in string.as_bytes().iter() {
+        v.push(HEX_CHARS[(byte & 0xf) as usize]);
+        v.push(HEX_CHARS[(byte >> 4) as usize]);
+    }
+
+    unsafe { String::from_utf8_unchecked(v) }
+}
+
 /// See [spec](https://specs.opencontainers.org/image-spec/manifest/#image-manifest).
+#[allow(dead_code)]
+#[allow(non_snake_case)]
 #[derive(Deserialize)]
 struct ImageManifest {
     /// This REQUIRED property specifies the image manifest schema version.
@@ -208,6 +292,8 @@ struct ImageManifest {
 }
 
 /// See [spec](https://specs.opencontainers.org/image-spec/descriptor/).
+#[allow(dead_code)]
+#[allow(non_snake_case)]
 #[derive(Deserialize)]
 struct Descriptor {
     /// This REQUIRED property contains the media type of the referenced content.

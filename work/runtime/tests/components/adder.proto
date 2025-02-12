@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package foo.bar;
+
+service AdderService {
+  rpc AddFloats(AddFloatsRequest) returns (AddFloatsResponse) {}
+}
+
+message AddFloatsRequest {
+  float x = 1;
+  float y = 2;
+}
+
+message AddFloatsResponse { float result = 1; }

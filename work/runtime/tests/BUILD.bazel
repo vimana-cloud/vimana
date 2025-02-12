@@ -6,9 +6,17 @@ load("@rules_python//python:py_test.bzl", "py_test")
 py_test(
     name = "success-test",
     srcs = ["success-test.py"],
+    data = [
+        "//work/runtime/tests/components:adder-c",
+        "//work/runtime/tests/components:adder-metadata",
+    ],
+    # Verbosely log wasmtime errors.
+    env = {"WASMTIME_BACKTRACE_DETAILS": "1"},
     deps = [
         ":cri-api-py-pb2",
         ":util",
+        "//work/runtime/tests/components:adder-py-grpc",
+        "//work/runtime/tests/components:adder-py-pb2",
     ],
 )
 
@@ -19,18 +27,20 @@ py_library(
     deps = [
         ":cri-api-py-grpc",
         ":cri-api-py-pb2",
+        "@pypi//docker",
+        "@pypi//requests",
     ],
+)
+
+py_proto_library(
+    name = "cri-api-py-pb2",
+    deps = [":cri-api-proto"],
 )
 
 py_grpc_library(
     name = "cri-api-py-grpc",
     srcs = [":cri-api-proto"],
     deps = ["cri-api-py-pb2"],
-)
-
-py_proto_library(
-    name = "cri-api-py-pb2",
-    deps = [":cri-api-proto"],
 )
 
 proto_library(

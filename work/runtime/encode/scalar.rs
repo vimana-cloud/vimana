@@ -13,7 +13,7 @@ use crate::{
     REPEATED_NON_LIST, SFIXED32_NON_SFIXED32, SFIXED64_NON_SFIXED64, SINT32_NON_SINT32,
     SINT64_NON_SINT64, STRING_NON_STRING, UINT32_NON_UINT32, UINT64_NON_UINT64,
 };
-use metadata_proto::work::runtime::container::field::ScalarCoding;
+use metadata_proto::work::runtime::field::ScalarCoding;
 
 impl Encoder {
     pub(crate) fn scalar(coding: ScalarCoding, number: u32) -> Self {

@@ -15,8 +15,8 @@ use crate::{
     WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
 };
 use error::log_error_status;
-use metadata_proto::work::runtime::container::field::{Coding, CompoundCoding, ScalarCoding};
-use metadata_proto::work::runtime::container::Field;
+use metadata_proto::work::runtime::field::{Coding, CompoundCoding, ScalarCoding};
+use metadata_proto::work::runtime::Field;
 use names::ComponentName;
 
 impl Merger {

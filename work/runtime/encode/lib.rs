@@ -8,7 +8,7 @@ use std::fmt::{Debug, Display, Write};
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
-use metadata_proto::work::runtime::container::Field;
+use metadata_proto::work::runtime::Field;
 use prost::encoding::WireType;
 use tonic::codec::{EncodeBuf, Encoder as TonicEncoder};
 use tonic::Status;
@@ -18,7 +18,14 @@ use error::log_error_status;
 use names::ComponentName;
 
 /// Encodes a top-level response message (*without* tag or length).
-pub struct ResponseEncoder {
+///
+/// Reference-counted because Tonic's [codec](tonic::codec::Codec)
+/// demands an owned encoder for each request, which is achieved by cloning.
+#[derive(Clone)]
+pub struct ResponseEncoder(Arc<ResponseEncoderInner>);
+
+/// See [`ResponseEncoder`].
+struct ResponseEncoderInner {
     /// Encodes the protobuf contents.
     inner: Encoder,
 
@@ -96,10 +103,10 @@ enum EncodeLevel {
 
 impl ResponseEncoder {
     pub fn new(response: &Field, component: Arc<ComponentName>) -> Result<Self, Status> {
-        Ok(Self {
+        Ok(Self(Arc::new(ResponseEncoderInner {
             inner: Encoder::message_inner(response, component.as_ref())?,
             component: component,
-        })
+        })))
     }
 }
 
@@ -111,9 +118,9 @@ impl TonicEncoder for ResponseEncoder {
     fn encode(&mut self, item: Self::Item, dst: &mut EncodeBuf<'_>) -> Result<(), Self::Error> {
         // TODO: Pre-allocate some space for lengths?
         let mut lengths = Vec::new();
-        let result = (self.inner.length)(&self.inner, &item, &mut lengths)
-            .and_then(|_length| (self.inner.encode)(&self.inner, &item, &mut lengths, dst))
-            .map_err(log_error_status!("encode-error", &self.component));
+        let result = (self.0.inner.length)(&self.0.inner, &item, &mut lengths)
+            .and_then(|_length| (self.0.inner.encode)(&self.0.inner, &item, &mut lengths, dst))
+            .map_err(log_error_status!("encode-error", self.0.component.as_ref()));
         // In tests, make sure we used all the pre-computed lengths as expected.
         debug_assert!(lengths.is_empty());
         result

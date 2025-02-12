@@ -6,8 +6,8 @@ use tonic::codec::Encoder;
 use wasmtime::component::Val;
 
 use encode::ResponseEncoder;
-use metadata_proto::work::runtime::container::field::{Coding, CompoundCoding, ScalarCoding};
-use metadata_proto::work::runtime::container::Field;
+use metadata_proto::work::runtime::field::{Coding, CompoundCoding, ScalarCoding};
+use metadata_proto::work::runtime::Field;
 use names::Name;
 
 const EMPTY: [u8; 0] = [];

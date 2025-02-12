@@ -1,0 +1,32 @@
+# gRPC service metadata for `AdderService`
+# should match `adder.wit`.
+
+grpc {
+  service: "foo.bar.AdderService"
+  methods {
+    key: "AddFloats"
+    value {
+      function: "add-floats"
+      arity: UNARY
+      request {
+        subfields {
+          number: 1
+          name: "x"
+          scalar_coding: FLOAT_IMPLICIT
+        }
+        subfields {
+          number: 2
+          name: "y"
+          scalar_coding: FLOAT_IMPLICIT
+        }
+      }
+      response {
+        subfields {
+          number: 1
+          name: "result"
+          scalar_coding: FLOAT_IMPLICIT
+        }
+      }
+    }
+  }
+}

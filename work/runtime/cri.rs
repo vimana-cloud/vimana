@@ -17,19 +17,18 @@
 
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
-use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{Code, Request, Response, Status};
+use tonic::{async_trait, Request, Response, Status};
 
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_server::ImageService;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
 use api_proto::runtime::v1::Protocol;
 
-use error::{Error, Result};
-use names::{CanonicalComponentName, CanonicalDomainUuid, Name, PodName};
+use error::Result;
+use names::{ComponentName, DomainUuid, Name, PodName};
 use state::WorkRuntime;
 
 /// "For now it expects 0.1.0." - https://github.com/cri-o/cri-o/blob/v1.31.3/server/version.go.
@@ -46,18 +45,25 @@ const OCI_PREFIX: &str = "O:";
 /// Prefix used to differentiate Vimana pods / containers.
 const WORKD_PREFIX: &str = "W:";
 
-const HTTPS_DEFAULT_PORT: i32 = 443;
+/// gRPC pods should always use the default HTTPS port (443)
+/// for the "internal" side of their port mapping.
+const GRPC_INTERNAL_PORT: i32 = 443;
+
+// These labels must be present on every pod and container using the Vimana handler.
+const LABEL_DOMAIN_KEY: &str = "vimana.host/domain";
+const LABEL_SERVICE_KEY: &str = "vimana.host/service";
+const LABEL_VERSION_KEY: &str = "vimana.host/version";
 
 /// Wrapper around [WorkRuntime] that can implement [RuntimeService] and [ImageService]
 /// without running afoul of Rust's rules on foreign types / traits.
 pub struct VimanaCriService(pub Arc<WorkRuntime>);
 
 /// Type boilerplate for a typical Tonic response result.
-type TonicResult<T> = StdResult<Response<T>, Status>;
+type TonicResult<T> = Result<Response<T>>;
 
 /// Return early with the result of the given block
 /// if the given ID (mutable `String`) starts with the OCI prefix.
-/// Otherwise, assume it starts with the word prefix and continue.
+/// Otherwise, assume it starts with the work prefix and continue.
 /// Either way, update the ID in-place to remove the prefix.
 macro_rules! intercept_prefix {
     ( $id:expr, $downstream:block) => {
@@ -68,20 +74,29 @@ macro_rules! intercept_prefix {
         }
         // If it doesn't start with the OCI prefix, it must start with the workd prefix.
         debug_assert!(id_value.starts_with(WORKD_PREFIX));
-        $id = String::from(&id_value[WORKD_PREFIX.len()..]);
+        $id = id_value;
     };
 }
 
-#[inline]
+#[inline(always)]
 fn oci_prefix<S: Display>(id: S) -> String {
     format!("{OCI_PREFIX}{}", id)
 }
 
-#[inline]
+#[inline(always)]
 fn workd_prefix<S: Display>(id: S) -> String {
     format!("{WORKD_PREFIX}{}", id)
 }
 
+/// Inserts the OCI prefix in front of the string that lives at the end of the ID path.
+///
+/// E.g. `insert_oci_prefix!(x, foo, bar, baz)` expands to:
+///
+///     if let Some(ref mut foo) = &mut x.foo {
+///         if let Some(ref mut bar) = &mut foo.bar {
+///             bar.baz = oci_prefix(&bar.baz);
+///         }
+///     }
 macro_rules! insert_oci_prefix {
     ( $r:ident, $id:ident ) => {
         $r.$id = oci_prefix(&$r.$id);
@@ -110,7 +125,7 @@ fn log_object<R: Debug>(name: &str, request: R) {
     eprintln!("[{name}] {request:?}");
 }
 
-#[tonic::async_trait]
+#[async_trait]
 impl RuntimeService for VimanaCriService {
     async fn version(&self, r: Request<v1::VersionRequest>) -> TonicResult<v1::VersionResponse> {
         let request = r.into_inner();
@@ -145,35 +160,31 @@ impl RuntimeService for VimanaCriService {
         }
 
         let mut config = request.config.unwrap_or_default();
-        let component = component_name_from_labels(config.labels)?;
+        let component = component_name_from_labels(&config.labels)?;
 
         // Check that the request fits into Vimana's narrow vision of validity
         // for the sake of preventing unexpected behavior.
         if config.port_mappings.len() != 1 {
-            return Err(Error::leaf("gRPC pods must have a single port mapping.").into());
+            // All gRPC pods are expected to have exactly one single port mapping.
+            return Err(Status::invalid_argument("grpc-port-mappings"));
         }
         let port_mapping = config.port_mappings.pop().unwrap();
         if port_mapping.protocol != Protocol::Tcp as i32 {
-            return Err(Error::leaf("gRPC pods must use TCP.").into());
+            // That port must use TCP.
+            return Err(Status::invalid_argument("grpc-port-protocol"));
         }
-        if port_mapping.container_port != HTTPS_DEFAULT_PORT {
-            return Err(Error::leaf(format!(
-                "gRPC pods must use internal port {}.",
-                HTTPS_DEFAULT_PORT
-            ))
-            .into());
+        if port_mapping.container_port != GRPC_INTERNAL_PORT {
+            // The "internal" container port number should be 443.
+            return Err(Status::invalid_argument("grpc-port-internal"));
         }
         if port_mapping.host_port <= 0 || port_mapping.host_port > u16::MAX as i32 {
-            return Err(Error::leaf(format!(
-                "Invalid external port '{}'.",
-                port_mapping.host_port
-            ))
-            .into());
+            // The "external" host port number must be some positive 16-bit unsigned integer.
+            return Err(Status::invalid_argument("grpc-port-external"));
         }
 
         let pod_id = self.0.init_pod(
-            config.metadata.unwrap_or_default(),
             component.clone(),
+            config.metadata.unwrap_or_default(),
             port_mapping.host_port as u16,
         )?;
 
@@ -294,31 +305,34 @@ impl RuntimeService for VimanaCriService {
                 .map(map_oci_prefix!(container_id))
         });
 
-        let pod_name = Name::parse(&request.pod_sandbox_id).pod()?;
+        let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
         let config = request.config.unwrap_or_default();
-        let component = component_name_from_labels(config.labels)?;
+        let component = component_name_from_labels(&config.labels)?;
 
         // While redundant, the component name from the container's labels
         // must match the component name extracted from the pod ID and image ID.
         if component != pod_name.component {
-            return Err(Error::leaf("Container labels must match pod sandbox ID.").into());
+            return Err(Status::invalid_argument(
+                "create-container-labels-pod-mismatch",
+            ));
         }
         let image_id = config.image.unwrap_or_default().image;
-        let image_component = Name::parse(&image_id).canonical_component()?;
+        let image_component = Name::parse(&image_id).component()?;
         if component != image_component {
-            return Err(Error::leaf("Container labels must match image ID.").into());
+            return Err(Status::invalid_argument(
+                "create-container-labels-image-mismatch",
+            ));
         }
 
         let mut environment = HashMap::with_capacity(config.envs.len());
         for key_value in config.envs.iter() {
-            let pre_existing = environment.insert(key_value.key.clone(), key_value.value.clone());
-            debug_assert!(pre_existing.is_none());
+            environment.insert(key_value.key.clone(), key_value.value.clone());
         }
 
         // The CRI API has separate steps for creating pods and creating containers,
         // but a component pod is inseparable from its single container,
         // so "pods" and containers are created simultaneously.
-        self.0.create_container(pod_name.pod, environment)?;
+        self.0.create_container(pod_name, environment)?;
 
         Ok(Response::new(v1::CreateContainerResponse {
             // Containers and their pod sandboxes share IDs.
@@ -342,7 +356,18 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        todo!()
+        let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
+
+        if let Some(future) = self.0.start_container(pod_name.clone())? {
+            let _ = future.await;
+            if let Some(_) = self.0.start_container(pod_name)? {
+                // This would be a very strange case
+                // where the shared future is not peekable after awaiting it.
+                return Err(Status::internal("pod-initialization-concurrency"));
+            }
+        }
+
+        Ok(Response::new(v1::StartContainerResponse {}))
     }
 
     async fn stop_container(
@@ -664,7 +689,7 @@ impl RuntimeService for VimanaCriService {
         todo!()
     }
 
-    type GetContainerEventsStream = ReceiverStream<StdResult<v1::ContainerEventResponse, Status>>;
+    type GetContainerEventsStream = ReceiverStream<Result<v1::ContainerEventResponse>>;
 
     async fn get_container_events(
         &self,
@@ -674,7 +699,7 @@ impl RuntimeService for VimanaCriService {
         log_object("GetContainerEvents", &request);
 
         // TODO: Figure out how streaming works.
-        return Err(Error::leaf("GetContainerEvents TODO").into());
+        return Err(Status::internal("GetContainerEvents TODO"));
     }
 
     async fn list_metric_descriptors(
@@ -726,7 +751,7 @@ impl RuntimeService for VimanaCriService {
     }
 }
 
-#[tonic::async_trait]
+#[async_trait]
 impl ImageService for VimanaCriService {
     async fn list_images(
         &self,
@@ -906,27 +931,22 @@ impl VimanaCriService {
     }
 }
 
-// These labels must be present on every pod and container using the Vimana handler.
-const LABEL_DOMAIN_KEY: &str = "vimana.host/domain";
-const LABEL_SERVICE_KEY: &str = "vimana.host/service";
-const LABEL_VERSION_KEY: &str = "vimana.host/version";
-
-fn component_name_from_labels(labels: HashMap<String, String>) -> Result<CanonicalComponentName> {
-    CanonicalComponentName::new(
-        CanonicalDomainUuid::parse(
+fn component_name_from_labels(labels: &HashMap<String, String>) -> Result<ComponentName> {
+    ComponentName::new(
+        DomainUuid::parse(
             labels
                 .get(LABEL_DOMAIN_KEY)
-                .ok_or_else(|| Error::leaf(format!("Expected label for '{LABEL_DOMAIN_KEY}'")))?,
+                .ok_or_else(|| Status::invalid_argument("expected-domain-label"))?,
         )?,
         String::from(
             labels
                 .get(LABEL_SERVICE_KEY)
-                .ok_or_else(|| Error::leaf(format!("Expected label for '{LABEL_SERVICE_KEY}'")))?,
+                .ok_or_else(|| Status::invalid_argument("expected-service-label"))?,
         ),
         String::from(
             labels
                 .get(LABEL_VERSION_KEY)
-                .ok_or_else(|| Error::leaf(format!("Expected label for '{LABEL_VERSION_KEY}'")))?,
+                .ok_or_else(|| Status::invalid_argument("expected-version-label"))?,
         ),
     )
 }

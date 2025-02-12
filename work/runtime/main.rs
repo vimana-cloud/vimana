@@ -15,7 +15,13 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use clap::Parser;
+use futures::FutureExt;
 use hyper_util::rt::TokioIo;
+use log::set_boxed_logger;
+use opentelemetry_appender_log::OpenTelemetryLogBridge;
+use opentelemetry_sdk::logs::{BatchLogProcessor, LoggerProvider};
+use opentelemetry_sdk::runtime::Tokio as TokioOtelRuntime;
+use opentelemetry_stdout::LogExporter as StdoutLogExporter;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::select;
 use tokio::signal::unix::{signal, SignalKind};
@@ -30,6 +36,9 @@ use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
 use cri::{VimanaCriService, CONTAINER_RUNTIME_NAME, CONTAINER_RUNTIME_VERSION};
 use state::WorkRuntime;
+
+/// Cache up to 1 GiB by default (meassured in KiB).
+const DEFAULT_CONTAINER_CACHE_MAX_CAPACITY: u64 = 1024 * 1024;
 
 #[derive(Parser)]
 #[command(name = CONTAINER_RUNTIME_NAME, version = CONTAINER_RUNTIME_VERSION)]
@@ -46,11 +55,24 @@ struct Args {
     /// URL base of the container registry (scheme, host, optional port)
     /// for non-OCI containers.
     registry: String,
+
+    /// Maximum size (in bytes, approximate) of the local in-memory cache
+    /// for compiled containers.
+    #[arg(short, long, default_value_t = DEFAULT_CONTAINER_CACHE_MAX_CAPACITY)]
+    container_cache_max_capacity: u64,
 }
 
 #[tokio::main]
 async fn main() -> StdResult<(), Box<dyn StdError>> {
     let args = Args::parse();
+
+    let log_processor =
+        BatchLogProcessor::builder(StdoutLogExporter::default(), TokioOtelRuntime).build();
+    let logger_provider = LoggerProvider::builder()
+        .with_log_processor(log_processor)
+        .build();
+    set_boxed_logger(Box::new(OpenTelemetryLogBridge::new(&logger_provider)))
+        .expect("Error setting up logger");
 
     // This seems to be the most idiomatic way to create a client with a UDS transport:
     // https://github.com/hyperium/tonic/blob/v0.12.3/examples/src/uds/client.rs.
@@ -69,17 +91,6 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     let oci_image_client = ImageServiceClient::new(oci_channel.clone());
     let oci_runtime_client = RuntimeServiceClient::new(oci_channel);
 
-    let runtime =
-        Arc::new(WorkRuntime::new(args.registry, oci_runtime_client, oci_image_client).await?);
-
-    // Bind to our CRI API socket.
-    // This is last thing before starting the servers (with shutdown)
-    // because any failures that occur after this should cause the socket to be unlinked
-    // so the service can be restarted successfully.
-    create_dir_all(Path::new(&args.incoming).parent().unwrap())?;
-    let cri_listener = UnixListener::bind(&args.incoming)
-        .expect(&format!("Cannot bind Unix socket '{}'", &args.incoming));
-
     // systemd sends SIGTERM to stop services, CTRL+C sends SIGINT.
     // Listen for those to shut down the servers gracefully.
     let mut sigterm = signal(SignalKind::terminate())
@@ -96,14 +107,32 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         let _ = shutdown_tx.send(());
     };
 
-    Server::builder()
+    let runtime = Arc::new(WorkRuntime::new(
+        args.registry,
+        args.container_cache_max_capacity,
+        oci_runtime_client,
+        oci_image_client,
+        shutdown_rx.shared(),
+    )?);
+
+    // Bind to our CRI API socket.
+    // This is last thing before starting the servers (with shutdown)
+    // because any failures that occur after this should cause the socket to be unlinked
+    // so the service can be restarted successfully.
+    create_dir_all(Path::new(&args.incoming).parent().unwrap())?;
+    let cri_listener = UnixListener::bind(&args.incoming)
+        .expect(&format!("Cannot bind Unix socket '{}'", &args.incoming));
+
+    let result = Server::builder()
         .add_service(RuntimeServiceServer::new(VimanaCriService(runtime.clone())))
         .add_service(ImageServiceServer::new(VimanaCriService(runtime)))
         .serve_with_incoming_shutdown(UnixListenerStream::new(cri_listener), shutdown_signal)
-        .await?;
+        .await;
 
     // Remove the UDS path after shutdown so we can rebind on restart.
-    remove_file(&args.incoming)?;
+    // Do this before propagating potential CRI API server errors.
+    let unlink_socket_result = remove_file(&args.incoming);
 
-    Ok(())
+    result?;
+    Ok(unlink_socket_result?)
 }

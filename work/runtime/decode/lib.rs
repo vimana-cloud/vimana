@@ -8,7 +8,7 @@ use std::fmt::{Debug, Display, Write};
 use std::mem::{transmute, ManuallyDrop};
 use std::sync::Arc;
 
-use metadata_proto::work::runtime::container::Field;
+use metadata_proto::work::runtime::Field;
 use prost::bytes::Buf;
 use prost::encoding::{decode_varint, encoded_len_varint, WireType};
 use tonic::codec::{DecodeBuf, Decoder as TonicDecoder};
@@ -23,7 +23,14 @@ use error::log_error_status;
 use names::ComponentName;
 
 /// Decodes a top-level request message.
-pub struct RequestDecoder {
+///
+/// Reference-counted because Tonic's [codec](tonic::codec::Codec)
+/// demands an owned decoder for each request, which is achieved by cloning.
+#[derive(Clone)]
+pub struct RequestDecoder(Arc<RequestDecoderInner>);
+
+/// See [`RequestDecoder`].
+struct RequestDecoderInner {
     /// Decodes and merges protobuf contents into a default value.
     inner: Merger,
 
@@ -101,10 +108,10 @@ enum DecodeLevel {
 
 impl RequestDecoder {
     pub fn new(request: &Field, component: Arc<ComponentName>) -> Result<Self, Status> {
-        Ok(Self {
+        Ok(Self(Arc::new(RequestDecoderInner {
             inner: Merger::message_inner(request, component.as_ref())?,
             component: component,
-        })
+        })))
     }
 }
 
@@ -116,15 +123,15 @@ impl TonicDecoder for RequestDecoder {
     fn decode(&mut self, src: &mut DecodeBuf<'_>) -> Result<Option<Self::Item>, Self::Error> {
         let mut length = u32::try_from(src.remaining())
             .map_err(|_| Status::invalid_argument("Request is too big"))?;
-        let mut value = Val::Record(self.inner.defaults.clone());
-        (self.inner.merge)(
-            &self.inner,
+        let mut value = Val::Record(self.0.inner.defaults.clone());
+        (self.0.inner.merge)(
+            &self.0.inner,
             WireType::LengthDelimited,
             &mut length,
             src,
             &mut value,
         )
-        .map_err(log_error_status!("decode-error", &self.component))?;
+        .map_err(log_error_status!("decode-error", self.0.component.as_ref()))?;
         Ok(Some(value))
     }
 }

@@ -15,7 +15,7 @@ use crate::{
     INVALID_VARINT, OVERFLOW_32BIT, REPEATED_NON_LIST, WIRETYPE_NON_32BIT, WIRETYPE_NON_64BIT,
     WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
 };
-use metadata_proto::work::runtime::container::field::ScalarCoding;
+use metadata_proto::work::runtime::field::ScalarCoding;
 
 impl Merger {
     pub(crate) fn scalar(coding: ScalarCoding) -> (Self, Val) {

@@ -1,0 +1,24 @@
+// WIT for `PingPongService`
+// should match `ping-pong.txtpb`
+
+package foo:bar@1.2.3;
+
+world %adder-service {
+  use types.{%add-floats-request, %add-floats-response};
+
+  // Standard platform imports.
+  use vimana:grpc/imports@1.0.0.{context};
+
+  // `rpc AddFloats`
+  export %add-floats: func(ctx: context, request: %add-floats-request) -> %add-floats-response;
+}
+
+interface types {
+  record %add-floats-request {
+    %x: f32,
+    %y: f32,
+  }
+  record %add-floats-response {
+    %result: f32,
+  }
+}
