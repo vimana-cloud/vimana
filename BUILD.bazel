@@ -1,5 +1,5 @@
-load("@rules_rust//proto/prost:defs.bzl", "rust_prost_toolchain")
 load("@rules_rust//rust:defs.bzl", "rust_library_group")
+load("@rules_rust_prost//:defs.bzl", "rust_prost_toolchain")
 
 # Set up a Prost Bazel toolchain
 # using the Prost and Tonic binaries referenced in `MODULE.bazel`
@@ -20,6 +20,16 @@ rust_library_group(
 
 rust_prost_toolchain(
     name = "prost-toolchain-impl",
+    # Options are derived from https://docs.rs/prost-build/0.13.4/prost_build/struct.Config.html.
+    # Syntax examples: https://docs.rs/protoc-gen-prost/0.4.0/protoc_gen_prost/.
+    prost_opts = [
+        # Use Rust's `bytes::Bytes` instead of `Vec<u8>` to represent Protobuf `bytes` fields.
+        "bytes=.",
+        # Leave enum value names untouched.
+        "retain_enum_prefix",
+        # Enable serde to serialize messages as JSON.
+        #"type_attribute=.=#[derive(serde::Serialize)]",
+    ],
     prost_plugin = "@crates//:protoc-gen-prost__protoc-gen-prost",
     prost_runtime = ":prost-runtime",
     prost_types = "@crates//:prost-types",
@@ -28,7 +38,7 @@ rust_prost_toolchain(
 )
 
 toolchain(
-    name = "prost-toolchain",
+    name = "protoc-rust-toolchain",
     toolchain = "prost-toolchain-impl",
-    toolchain_type = "@rules_rust//proto/prost:toolchain_type",
+    toolchain_type = "@rules_rust_prost//:toolchain_type",
 )

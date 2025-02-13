@@ -187,16 +187,14 @@ class WorkdTester:
             headers={'Content-Type': 'application/vnd.oci.image.manifest.v1+json'},
             data=manifest,
         )
-        if response.status_code != 201:
-            raise AssertionError(f'Error pushing manifest: {response}')
+        assert response.status_code == 201, f'Error pushing manifest: {response}'
 
         return response.headers['Location']
 
     def _pushBlob(self, domain: str, serviceHex: str, blob: bytes):
         # https://specs.opencontainers.org/distribution-spec/#pushing-blobs
         response = requests.post(f'http://localhost:{self._imageRegistryPort}/v2/{domain}/{serviceHex}/blobs/uploads/')
-        if response.status_code != 202:
-            raise AssertionError(f'Error posting blob: {response}')
+        assert response.status_code == 202, f'Error posting blob: {response}'
 
         location = response.headers['Location']
         digest = _digest(blob)
@@ -208,8 +206,7 @@ class WorkdTester:
             },
             data=blob,
         )
-        if response.status_code != 201:
-            raise AssertionError(f'Error putting blob: {response}')
+        assert response.status_code == 201, f'Error putting blob: {response}'
 
         return digest
 
