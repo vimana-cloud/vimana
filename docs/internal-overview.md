@@ -10,21 +10,29 @@ see the [internal walkthrough](internal-walkthrough.md).
 Users interact with Vimana by manipulating resources.
 Each resource is identified both by an immutable unique ID
 and a mutable display name.
-Vimana's resources are conceptualized in a hierarchy:
+Vimana's resources can be organized in a multi-rooted hierarchy:
 
-- **_Domains_** isolate user organizations from one another.
-  - **_Services_** continuously serve the APIs within a domain.
-    - **_Components_** represent the immutable versions of a service.
-- **_Users_** are authenticated user accounts.
+- **Domains** isolate groups of services.
+  - A **Service** continuously serves a backward-compatible API.
+    - **Components** represent the immutable versions of a service.
+- **Users** are authenticated user accounts.
 
 ### Domains
 
-Each domain corresponds to both a DNS domain
-(*e.g.* `example.com`, which also also functions as the display name)
-and a K8s [namespace](https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/)
-(*e.g.*  
+Each *domain* corresponds to:
+
+- A canonical domain name of the form `0123456789abcdef0123456789abcdef.vimana.host`,
+  and zero or more customizable aliases, like `example.com`.
 
 ### Services
+
+Each *service* corresponds to:
+
+- A [service configuration](TODO):
+  deployment strategy (regional / global),
+  optimization target (latency / cost),
+  OpenTelemetry export,
+  TODO
 
 ### Components
 

@@ -1,22 +1,22 @@
 # Walkthrough
 
-This narrative walkthrough illustrates how Vimana works,
-both from an internal and external perspective.
-For an encyclopedic overview,
-see the [internal overview](internal-overview.md).
+This narrative
+(as opposed to [encyclopedic](internal-overview.md))
+walkthrough illustrates how Vimana works from an internal perspective.
 
-## Signing In
+## Sign In
 
 Vimana delegates authentication to OIDC providers
-like Google and GitHub.
-Get an ID token with:
+like Google or Vimana itself.
+This means you don't have to create a new account to get started.
+Simply get an ID token with:
 
 ```bash
 vimana user login
 ```
 
 Choose your ID provider on the login page &mdash;
-e.g. Google &mdash;
+*e.g.* Google &mdash;
 and the CLI eventually ends up getting a signed
 [ID token](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)
 who's JWT payload looks like this:
@@ -39,17 +39,53 @@ This token is cached locally
 and sent in the `Authorization` request header
 for subsequent API calls.
 
-Vimana maintains
-it looks up the 
+Each user is uniquely identified by their issuer (`iss`) and subject (`sub`),
+but a verified email is also required, which is used as their display name.
+Verifying email also helps prevent abuse.
 
-## Domain Configuration 
+## Create a Domain
 
-Before deploying a service,
-you need to claim a domain:
+Services exist within a canonical domain
+
+## Create a Service
+
+By default, services are global and optimized for cost.
+That means requests from anywhere will be routed to the cluster
+with the current lowest running costs globally.
+To create such a service, simply run:
 
 ```bash
-vimana domain claim example.com
+vimana service create
 ```
+
+On success, the new service ID is returned.
+
+Services can also be configured during creation
+by providing a [deployment configuration](TODO)
+in [Protobuf text format](https://protobuf.dev/reference/protobuf/textformat-spec/):
+
+```bash
+vimana service create << END
+  # A regional deployment restricts traffic to the region in which it originates.
+  regional: {
+
+    # Variables can be used for dynamic configuration.
+    # Run in any datacenter in the Eastern US
+    # or any AWS datacenter in Western Europe.
+    regions: ["/us-east", "aws/eu-west"]
+
+    # Enabling failover allows traffic to be routed across regions
+    # in case of unavailability in the client's region.
+    failover: true
+  }
+
+  # Route requests to minimize latency, rather than cost,
+  # within the constraints of the regional deployment.
+  target: LATENCY
+END
+```
+
+## Deploy a Component
 
 ### Interface and Implementation
 
@@ -81,36 +117,13 @@ service FooService {
   // Configure service settings directly in the proto file, tracked by VCS.
   option (vimana.service) = {
 
-    // Services must be versioned.
+    // Components must include an explicit service ID.
+    id: "d7bd258f-46ff-4fb4-a02d-efa4d096f810"
+
+    // Components must be versioned.
     version: "1.0.0"
 
-    // Explicitly configure the domain.
-    // If omitted, the domain would be inferred from the package.
-    domain: "example.com"
-
-    // By default, services are globally cost-optimized.
-    // Use a more interesting deployment strategy for this example.
-    deployment: {
-
-      // A regional deployment restricts traffic to the region in which it originates.
-      regional: {
-
-        // Variables can be used for dynamic configuration.
-        // Run in any datacenter in the Eastern US
-        // or any AWS datacenter in Western Europe.
-        regions: ["/us-east", "aws/eu-west"]
-
-        // Enabling failover allows traffic to be routed across regions
-        // in case of unavailability in the client's region.
-        failover: true
-      }
-
-      // Route requests to minimize latency, rather than cost,
-      // within the constraints of the regional deployment.
-      target: LATENCY
-    }
-
-    // Export telemetry to Grafana.
+    // This version exports telemetry to Grafana.
     // Secret values should be stored as variables.
     otlp: {
       protocol: "http/protobuf"
@@ -204,3 +217,20 @@ vimana deploy example.com:bar.FooService@1.0.0
 ```
 
 Try exercising the unary action's HTTP
+
+## K8s API Mapping
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: 00000000-0000-0000-0000-000000000000
+spec:
+  type: ClusterIP
+  selector:
+    service: 00000000-0000-0000-0000-000000000000
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 80
+```

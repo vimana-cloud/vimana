@@ -36,7 +36,7 @@ fi
 # and is also where `node_modules/` will be downloaded.
 pushd "$BUILD_WORKSPACE_DIRECTORY/docs" > /dev/null
 
-# `$1` is relative to the rule's runfiles. Use `bazel info` to make an absolute path.
+# `$1` is relative to the rule's runfiles.
 npm="$(bazel info bazel-bin)/docs/dev.runfiles/$1" 
 
 "$npm" install
