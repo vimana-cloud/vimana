@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/usr/bin/env bash
 
 # Hot-swap a freshly-built copy of `workd` into a running minikube cluster.
 # This should not affect any running `kube-system` containers that use containerd,

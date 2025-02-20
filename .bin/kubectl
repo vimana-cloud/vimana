@@ -1,2 +1,2 @@
-#!/bin/env bash
+#!/usr/bin/env bash
 exec bazel run @rules_k8s//:kubectl -- "$@"

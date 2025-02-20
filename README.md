@@ -8,14 +8,18 @@ For general information about documentation, see [docs](docs/).
 ## One-Time Setup
 
 1. Clone this repository.
-2. Install [Bazelisk](https://github.com/bazelbuild/bazelisk).
-3. Make sure [Docker](https://docs.docker.com/) is installed and the daemon is enabled.
-4. Run the container registry [reference implementation](https://hub.docker.com/_/registry)
-   locally, with automatic restart forever.
-   ```bash
-   docker run --detach --publish=5000:5000 --restart=always --name=registry registry:latest
-   ```
-5. Optional: Install [`direnv`](https://direnv.net/)
+2. Have a working CC toolchain.
+   * Linux: `clang` or `gcc`
+   * Mac: [Xcode](https://apps.apple.com/app/xcode/)
+3. Install [Bazelisk](https://github.com/bazelbuild/bazelisk).
+4. To run integration tests:
+   1. Install [Docker](https://docs.docker.com/) and enable the daemon.
+   2. Run the container registry [reference implementation](https://hub.docker.com/_/registry)
+      with automatic restart forever:
+      ```bash
+      docker run --detach --restart=always --name=registry --publish=5000:5000 registry:latest
+      ```
+5. (Optional) Install [`direnv`](https://direnv.net/)
    to automatically set up convenient [aliases to pre-built binaries](.bin/) &mdash;
    like `kubectl` and `wasmtime` &mdash;
    whenever you enter the repository directory in your shell.

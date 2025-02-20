@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/usr/bin/env bash
 
 # (Re)start the local minikube cluster
 # with a freshly-built `workd` runtime installed.
