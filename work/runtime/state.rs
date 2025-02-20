@@ -1,5 +1,4 @@
 //! State machine used by the CRI service to manage pods.
-#![feature(async_closure)]
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -7,6 +6,7 @@ use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
+use std::time::SystemTime;
 
 use futures::future::Shared;
 use papaya::{Compute, HashMap as LockFreeConcurrentHashMap, Operation};
@@ -20,22 +20,24 @@ use tonic::transport::{Error as ServerError, Server};
 use tonic::Status;
 use wasmtime::{Config as WasmConfig, Engine as WasmEngine, Error as WasmError};
 
+use crate::pods::{PodFuture, PodInitializer};
 use api_proto::runtime::v1::image_service_client::ImageServiceClient;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
-use api_proto::runtime::v1::PodSandboxMetadata;
+use api_proto::runtime::v1::{
+    ContainerMetadata, PodSandboxMetadata, PodSandboxState, PodSandboxStateValue,
+};
 use error::{log_error, log_error_status, log_warn, Result};
-use grpc_pod::{PodFuture, PodInitializer};
 use names::{ComponentName, PodId, PodName};
 
 /// Global runtime state for a work node.
-pub struct WorkRuntime {
+pub(crate) struct WorkRuntime {
     /// Global Wasm engine to run hosted services.
     /// This is a cheap, thread-safe handle to the "real" engine.
     wasmtime: WasmEngine,
 
     /// Map of locally running pod IDs to pod controllers.
     /// Lock-freedom is important to help isolate tenants from one another.
-    pods: LockFreeConcurrentHashMap<PodId, PodController>,
+    pods: LockFreeConcurrentHashMap<PodId, Pod>,
 
     /// To generate unique pod IDs.
     next_pod_id: AtomicUsize,
@@ -50,30 +52,33 @@ pub struct WorkRuntime {
 
     /// Client to a downstream OCI container runtime (e.g. containerd or cri-o)
     /// so work nodes can run traditional OCI containers as well.
-    pub oci_runtime: AsyncMutex<RuntimeServiceClient<Channel>>,
+    pub(crate) oci_runtime: AsyncMutex<RuntimeServiceClient<Channel>>,
 
     /// Client to the downstream OCI CRI image service.
-    pub oci_image: AsyncMutex<ImageServiceClient<Channel>>,
+    pub(crate) oci_image: AsyncMutex<ImageServiceClient<Channel>>,
 }
 
-/// Pod lifecycle state machine.
+/// Pod lifecycle state.
 ///
 /// Pods generally follow a simple linear lifecycle:
-///     *initiated* → *created* → *starting* → *running* → *stopped* → *removed*
-#[derive(Debug)]
-enum PodController {
+///     initiated → created → starting → running → stopped → removed
+/// Although, other lifecycles are theoretically possible.
+///
+/// Each transition typically maps to an RPC in the CRI API.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum PodState {
     /// A pod after initialization with `RunPodSandbox` but before `CreateContainer`.
-    Initiated(InitiatedPodInfo),
+    Initiated,
 
     /// A pod after creating the container with `CreateContainer` but before `StartContainer`.
-    Created(CreatedPodInfo),
+    Created,
 
     /// This trasition occurs immediately at the start of `StartContainer`
     /// to act as a sort of mutex before starting up a background task.
-    Starting(StartingPodInfo),
+    Starting,
 
     /// A pod after starting the container with `StartContainer`.
-    Running(RunningPodInfo),
+    Running,
 
     /// After calling `StopContainer` but before removal.
     Stopped,
@@ -82,61 +87,82 @@ enum PodController {
     Removed,
 }
 
-/// Info configured by `RunPodSandbox`.
-#[derive(Clone, Debug)]
-struct InitiatedPodInfo {
-    /// K8s metadata. Must be returned as-is for status requests.
-    metadata: PodSandboxMetadata,
-
-    /// Canonical name of the component that will run in this pod.
-    component_name: Arc<ComponentName>,
+/// All information known about a pod / container pair
+/// throughout its [lifecycle](PodState).
+#[derive(Clone)]
+pub(crate) struct Pod {
+    // --------------------------------
+    // The following are always populated:
+    // --------------------------------
+    /// Current state of the pod.
+    pub(crate) state: PodState,
 
     /// Port that the pod should listen on for the gRPC server.
     grpc_port: u16,
 
-    /// Compile component and metadata (future).
-    /// Starts initializing as soon as possible.
-    pod: PodFuture<Arc<Routes>>,
-}
+    /// Canonical name of the component that will run in this pod (used for logs).
+    pub(crate) component_name: Arc<ComponentName>,
 
-/// Info configured by `CreateContainer`.
-#[derive(Clone, Debug)]
-struct CreatedPodInfo {
-    /// Info configured by `RunPodSandbox`.
-    initial: InitiatedPodInfo,
+    /// Axum router implementing the pod.
+    /// Starts initializing as soon as possible.
+    routes: PodFuture<Arc<Routes>>,
+
+    /// K8s metadata. Must be returned as-is for status requests.
+    pub(crate) pod_sandbox_metadata: PodSandboxMetadata,
+
+    /// Resource labels associated with the pod sandbox --
+    /// and also with the container;
+    /// Workd should verify that every container has the same labels as its pod.
+    pub(crate) labels: HashMap<String, String>,
+
+    /// Vimana doesn't really use these (yet), but they're here.
+    pub(crate) annotations: HashMap<String, String>,
+
+    /// Creation timestamp of the pod sandbox in nanoseconds. Must be > 0.
+    pub(crate) pod_created_at: i64,
+
+    // --------------------------------
+    // The following are populated after `CreateContainer`:
+    // --------------------------------
+    /// Creation timestamp of the container in nanoseconds. Must be > 0.
+    pub(crate) container_created_at: i64,
+
+    /// K8s metadata. Must be returned as-is for status requests.
+    pub(crate) container_metadata: Option<ContainerMetadata>,
 
     /// Environment variable keys and values.
     environment: HashMap<String, String>,
+
+    // --------------------------------
+    // The following are populated after `StartContainer`:
+    // --------------------------------
+    /// Start timestamp of the container in nanoseconds. Must be > 0.
+    pub(crate) container_started_at: i64,
+
+    /// Shuts down the running container.
+    killer: Option<Arc<ContainerKiller>>,
+
+    // --------------------------------
+    // The following are populated after `StopContainer`:
+    // --------------------------------
+    /// Stop timestamp of the container in nanoseconds. Must be > 0.
+    pub(crate) container_finished_at: i64,
 }
 
-/// Info configured by `CreateContainer`.
-#[derive(Clone, Debug)]
-struct StartingPodInfo {
-    /// Info configured by `CreateContainer`.
-    created: CreatedPodInfo,
-
-    /// Ready-to-run server.
-    pod: Arc<Routes>,
-}
-
-/// Info configured by `StartContainer`.
-#[derive(Debug)]
-struct RunningPodInfo {
-    /// Info configured by `CreateContainer`.
-    created: CreatedPodInfo,
-
+/// Used to shut down a running container.
+struct ContainerKiller {
     /// Send to this channel to shut down the server gracefully.
     shutdown: SyncMutex<Option<oneshot::Sender<()>>>,
 
-    // Useful for two things:
-    // - Awaiting graceful shutdown after sending the signal to [`shutdown`](Self::shutdown).
-    // - Forcibly shutting down.
+    /// Useful for two things:
+    /// - Awaiting graceful shutdown after sending the signal to [`shutdown`](Self::shutdown).
+    /// - Forcibly shutting down.
     join: JoinHandle<StdResult<(), ServerError>>,
 }
 
 impl WorkRuntime {
     /// Return a new runtime with no running pods.
-    pub fn new(
+    pub(crate) fn new(
         registry: String,
         max_container_cache_capacity: u64,
         oci_runtime: RuntimeServiceClient<Channel>,
@@ -180,28 +206,41 @@ impl WorkRuntime {
     ///
     /// A pod does not serve gRPC traffic until the container is [created](Self::create_container)
     /// and then [started](Self::start_container) therein.
-    pub fn init_pod(
+    pub(crate) fn init_pod(
         &self,
         component_name: ComponentName,
-        metadata: PodSandboxMetadata,
         grpc_port: u16,
+        pod_sandbox_metadata: PodSandboxMetadata,
+        labels: HashMap<String, String>,
+        annotations: HashMap<String, String>,
     ) -> Result<PodId> {
         let component_name = Arc::new(component_name);
-        let pod = self.pod_store.grpc(&self.wasmtime, component_name.clone());
-        let controller = PodController::Initiated(InitiatedPodInfo {
-            metadata,
-            component_name,
+        let routes = self.pod_store.grpc(&self.wasmtime, component_name.clone());
+        let pod_created_at = now();
+        let pod = Pod {
+            state: PodState::Initiated,
             grpc_port,
-            pod,
-        });
+            component_name,
+            routes,
+            pod_sandbox_metadata,
+            labels,
+            annotations,
+            pod_created_at,
+            // These are set at later states:
+            container_created_at: 0,
+            container_metadata: None,
+            environment: HashMap::new(),
+            container_started_at: 0,
+            killer: None,
+            container_finished_at: 0,
+        };
 
         let pod_id = self.next_pod_id.fetch_add(1, Ordering::Relaxed);
         let pods = self.pods.pin();
-        match pods.try_insert(pod_id, controller) {
+        match pods.try_insert(pod_id, pod) {
             Ok(_) => Ok(pod_id),
             Err(_) => {
-                // Logically impossible
-                // unless the number of number of pods overflows `usize`.
+                // Impossible unless the number of pods overflows `usize`.
                 Err(Status::internal("pod-id-in-use"))
             }
         }
@@ -209,23 +248,28 @@ impl WorkRuntime {
 
     /// Set the environment variables in an [initiated](PodController::Initiated) pod controller,
     /// converting it to a [created](PodController::Created) controller.
-    pub fn create_container(
+    pub(crate) fn create_container(
         &self,
-        pod_name: PodName,
-        environment: HashMap<String, String>,
+        pod_name: &PodName,
+        container_metadata: &Option<ContainerMetadata>,
+        environment: &HashMap<String, String>,
     ) -> Result<()> {
         let pods = self.pods.pin();
         match pods.compute(pod_name.pod, |entry| match entry {
-            Some((_, value)) => match value {
-                PodController::Initiated(initial) => {
-                    Operation::Insert(PodController::Created(CreatedPodInfo {
-                        initial: initial.clone(),
-                        environment: environment.clone(),
-                    }))
+            Some((_, pod)) => match &pod.state {
+                PodState::Initiated => {
+                    let mut pod = pod.clone();
+                    pod.state = PodState::Created;
+                    pod.container_metadata = container_metadata.clone();
+                    pod.environment = environment.clone();
+                    pod.container_created_at = now();
+                    Operation::Insert(pod)
                 }
-                PodController::Created(created) => {
+                PodState::Created => {
                     // Support idempotency if the parameters are exactly the same.
-                    if created.environment == environment {
+                    if pod.container_metadata == *container_metadata
+                        && pod.environment == *environment
+                    {
                         Operation::Abort(None)
                     } else {
                         // Cannot re-create the container with a different environment.
@@ -255,28 +299,30 @@ impl WorkRuntime {
         }
     }
 
-    /// Start up a server for a [created](PodController::Created) pod controller
+    /// Start up a server for a [created](PodState::Created) pod controller
     /// on its configured gRPC port.
     ///
-    /// First, convert it to a [starting](PodController::Starting) controller
-    /// (to establish mutual exclusion),
+    /// First, convert it to a [starting](PodState::Starting) controller
+    /// (to establish mutual exclusivity),
     /// then spawn the background task to run the server,
-    /// then convert it to a [running](PodController::Running) controller
+    /// then convert it to a [running](PodState::Running) controller
     /// (to mark it as complete).
-    pub fn start_container(&self, pod_name: PodName) -> Result<Option<PodFuture<Arc<Routes>>>> {
+    pub(crate) fn start_container(
+        &self,
+        pod_name: PodName,
+    ) -> Result<Option<PodFuture<Arc<Routes>>>> {
         let pods = self.pods.pin();
         // Optimistically try to update the state assuming the pod is finished initializing.
         match pods.compute(pod_name.pod, |entry| match entry {
-            Some((_, value)) => match value {
-                PodController::Created(created) => match created.initial.pod.peek() {
-                    Some(Ok(pod)) => {
-                        // It's finished initializing!
-                        // Establish mutual exclusion over it by transitioning to *starting*.
+            Some((_, pod)) => match &pod.state {
+                PodState::Created => match pod.routes.peek() {
+                    Some(Ok(_)) => {
+                        // The server is ready! Now we just have to bind to a socket and start it.
+                        // Effectively lock a mutex on it by transitioning to *starting*.
                         // All other paths end in abortion.
-                        Operation::Insert(PodController::Starting(StartingPodInfo {
-                            created: created.clone(),
-                            pod: pod.clone(),
-                        }))
+                        let mut pod = pod.clone();
+                        pod.state = PodState::Starting;
+                        Operation::Insert(pod)
                     }
                     Some(Err(init_error)) => {
                         // Propagate any initialization errors up the stack.
@@ -284,10 +330,10 @@ impl WorkRuntime {
                     }
                     None => {
                         // Still initializing; await the future then retry.
-                        Operation::Abort(StartContainerAbort::Waiting(created.initial.pod.clone()))
+                        Operation::Abort(StartContainerAbort::Waiting(pod.routes.clone()))
                     }
                 },
-                PodController::Starting(_) | PodController::Running(_) => {
+                PodState::Starting | PodState::Running => {
                     // Support idempotency.
                     Operation::Abort(StartContainerAbort::Done)
                 }
@@ -301,68 +347,74 @@ impl WorkRuntime {
             },
             None => {
                 // Unexpected Kubelet behavior.
-                Operation::Abort(StartContainerAbort::Error(Status::failed_precondition(
+                Operation::Abort(StartContainerAbort::Error(Status::not_found(
                     "start-container-pod-not-found",
                 )))
             }
         }) {
             Compute::Updated {
                 old: _,
-                new: (_, controller),
+                new: (_, pod),
             } => {
-                if let PodController::Starting(StartingPodInfo { created, pod }) = controller {
-                    // Always listen on address 127.0.0.1.
-                    let addr = SocketAddr::new(
-                        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                        created.initial.grpc_port,
-                    );
-                    // TODO: Revisit implications of nodelay.
-                    let nodelay = true;
-                    // TODO: Revisit implications of keepalive.
-                    let keepalive = None;
-                    // Synchronously bind to the port so errors can be handled immediately.
-                    TcpIncoming::new(addr, nodelay, keepalive).map_or_else(
-                        |err| {
-                            // "Unlock" the state machine mutex before returning an error.
-                            pods.insert(pod_name.pod, PodController::Created(created.clone()));
-                            Err(log_error_status!("bid-grpc-port", &pod_name.component)(err))
-                        },
-                        |incoming| {
-                            // Shut down the server gracefully when either:
-                            // - The pod is specifically targetted for shut down by the CRI controller.
-                            // - All pods are shut down globally.
-                            let (shutdown_target_tx, shutdown_target_rx) = oneshot::channel();
-                            let shutdown_global_rx = self.shutdown.clone();
-                            let shutdown = async move {
-                                select! {
-                                    _ = shutdown_target_rx => {}
-                                    _ = shutdown_global_rx => {}
-                                }
-                            };
+                // The only code path that results in `Compute::Updated` transitions to `Starting`
+                // and should have verified that the routes are ready and OK,
+                // so we should be able to just unwrap it here.
+                debug_assert!(pod.state == PodState::Starting);
+                let routes = pod.routes.peek().clone().unwrap().clone().unwrap();
 
-                            let task = spawn(
-                                // [This suggestion](https://github.com/hyperium/tonic/pull/1893)
-                                // using `into_axum_router` obviates the need to implement Tonic's `NamedService`
-                                // which is not dyn-compatible.
-                                Server::builder()
-                                    .add_routes(pod.as_ref().clone())
-                                    .serve_with_incoming_shutdown(incoming, shutdown),
-                            );
-                            let state = PodController::Running(RunningPodInfo {
-                                created: created.clone(),
-                                shutdown: SyncMutex::new(Some(shutdown_target_tx)),
-                                join: task,
-                            });
+                // Always listen on address 127.0.0.1.
+                let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), pod.grpc_port);
+                // TODO: Revisit implications of nodelay.
+                let nodelay = true;
+                // TODO: Revisit implications of keepalive.
+                let keepalive = None;
 
-                            pods.insert(pod_name.pod, state);
-                            Ok(None)
-                        },
-                    )
-                } else {
-                    // Logically impossible
-                    // (the only compute  path that updates anything inserts `PodController::Starting`).
-                    Err(Status::internal("start-container-bad-mutex"))
-                }
+                // Synchronously bind to the port so errors can be handled immediately.
+                TcpIncoming::new(addr, nodelay, keepalive).map_or_else(
+                    |err| {
+                        // "Unlock" the state machine "mutex" by setting the state back to `Created`
+                        // before returning any error.
+                        let mut pod = pod.clone();
+                        pod.state = PodState::Created;
+                        pods.insert(pod_name.pod, pod);
+                        Err(log_error_status!("bind-grpc-port", &pod_name.component)(
+                            err,
+                        ))
+                    },
+                    |incoming| {
+                        // Shut down the server gracefully when either:
+                        // - The pod is specifically targetted for shut down by the CRI controller.
+                        // - All pods are shut down globally.
+                        let (shutdown_target_tx, shutdown_target_rx) = oneshot::channel();
+                        let shutdown_global_rx = self.shutdown.clone();
+                        let shutdown = async move {
+                            select! {
+                                _ = shutdown_target_rx => {}
+                                _ = shutdown_global_rx => {}
+                            }
+                        };
+
+                        let task = spawn(
+                            // [This suggestion](https://github.com/hyperium/tonic/pull/1893)
+                            // using `into_axum_router` obviates the need to implement Tonic's `NamedService`
+                            // which is not dyn-compatible.
+                            Server::builder()
+                                .add_routes(routes.as_ref().clone())
+                                .serve_with_incoming_shutdown(incoming, shutdown),
+                        );
+
+                        let mut pod = pod.clone();
+                        pod.state = PodState::Running;
+                        pod.killer = Some(Arc::new(ContainerKiller {
+                            shutdown: SyncMutex::new(Some(shutdown_target_tx)),
+                            join: task,
+                        }));
+                        pod.container_started_at = now();
+                        pods.insert(pod_name.pod, pod);
+
+                        Ok(None)
+                    },
+                )
             }
             Compute::Aborted(StartContainerAbort::Done) => {
                 // The pod was already started by some other thread.
@@ -383,6 +435,84 @@ impl WorkRuntime {
             }
         }
     }
+
+    /// Like [`Self::list_pods`],
+    /// but with the added `name` condition for exact match by ID.
+    /// Skips the exhaustive search and adds at most 1 pod to results.
+    /// Does nothing of the pod can't be found.
+    pub(crate) fn get_pod<T, F>(
+        &self,
+        name: &PodName,
+        state: &Option<PodSandboxStateValue>,
+        labels: &Vec<(&String, &String)>,
+        transform: &F,
+        results: &mut Vec<T>,
+    ) where
+        F: Fn(&PodName, &Pod) -> T,
+    {
+        if let Some(controller) = self.pods.pin().get(&name.pod) {
+            Self::match_pod(&name.pod, controller, state, labels, transform, results);
+        }
+    }
+
+    /// List all the pods that match the given state (if provided) and labels.
+    /// Push results into the provided vector.
+    ///
+    /// Currently implemented by searching the pod map exhaustively (*O(n)*).
+    /// YAGNIndices?
+    pub(crate) fn list_pods<T, F>(
+        &self,
+        state: &Option<PodSandboxStateValue>,
+        labels: &Vec<(&String, &String)>,
+        transform: &F,
+        results: &mut Vec<T>,
+    ) where
+        F: Fn(&PodName, &Pod) -> T,
+    {
+        for (id, controller) in self.pods.pin().iter() {
+            Self::match_pod(id, controller, state, labels, transform, results);
+        }
+    }
+
+    /// Logic common to [`Self::get_pod`] and [`Self::list_pods`].
+    ///
+    /// Check if the given pod (represented by `pod_id` and `pod`)
+    /// matches the given filter conditions (`state` and `labels`).
+    /// If so, convert it to a CRI API [`PodSandbox`]
+    /// and append it to `results`
+    /// after passing it through `transform`.
+    #[inline(always)]
+    fn match_pod<T, F>(
+        pod_id: &PodId,
+        pod: &Pod,
+        state: &Option<PodSandboxStateValue>,
+        labels: &Vec<(&String, &String)>,
+        transform: &F,
+        results: &mut Vec<T>,
+    ) where
+        F: Fn(&PodName, &Pod) -> T,
+    {
+        // If state is unspecified, or specifically 'ready',
+        // then the state filter always passes because pods are always ready
+        // (containers might not be).
+        // Otherwise, the whole filter always fails
+        // because conditions are composed with AND.
+        if state.map_or(true, |state_value| {
+            state_value.state == PodSandboxState::SandboxReady as i32
+        }) && labels.iter().all(|(key, value)| {
+            // Look up each key, which must be present,
+            // and check that the value matches as well.
+            pod.labels
+                .get(*key)
+                .map_or(false, |actual| actual == *value)
+        }) {
+            // This clone is not strictly necessary
+            // (it effectively means double-cloning the service name).
+            // We just need something `Display` that behaves like a `PodName`.
+            let name = PodName::new(pod.component_name.as_ref().clone(), *pod_id);
+            results.push(transform(&name, pod));
+        }
+    }
 }
 
 /// Possible reasons why starting a container might be aborted.
@@ -394,4 +524,15 @@ enum StartContainerAbort {
     Error(Status),
     /// Support idempotency if the pod is already started.
     Done,
+}
+
+// Return non-leap nanoseconds since 1970-01-01 as i64.
+// Panic if this code runs before 1970.
+// May wrap around in 2262.
+fn now() -> i64 {
+    (SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
+        % (i64::MAX as u64)) as i64
 }

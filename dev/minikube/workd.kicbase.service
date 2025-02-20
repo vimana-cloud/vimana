@@ -1,0 +1,14 @@
+# Injected, along with the `workd` binary, into a Kicbase image
+# to enable Vimana in minikube.
+
+[Unit]
+Description=Vimana Work Runtime Service
+Requires=containerd.service
+After=containerd.service
+
+[Service]
+Type=exec
+ExecStart=workd /run/vimana/workd.sock /run/containerd/containerd.sock http://host.minikube.internal:5000
+
+[Install]
+WantedBy=multi-user.target

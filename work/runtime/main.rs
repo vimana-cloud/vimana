@@ -7,6 +7,13 @@
 //!   fields requests from Ingress to all hosted services.
 //! - Unix `/run/vimana/workd.sock`
 //!   handles orchestration requests from Kubelet.
+#![feature(async_closure)]
+
+mod containers;
+mod cri;
+mod host;
+mod pods;
+mod state;
 
 use std::error::Error as StdError;
 use std::fs::{create_dir_all, remove_file};
@@ -17,10 +24,9 @@ use std::sync::Arc;
 use clap::Parser;
 use futures::FutureExt;
 use hyper_util::rt::TokioIo;
-use log::set_boxed_logger;
+use log::{set_boxed_logger, set_max_level, LevelFilter};
 use opentelemetry_appender_log::OpenTelemetryLogBridge;
-use opentelemetry_sdk::logs::{BatchLogProcessor, LoggerProvider};
-use opentelemetry_sdk::runtime::Tokio as TokioOtelRuntime;
+use opentelemetry_sdk::logs::LoggerProvider;
 use opentelemetry_stdout::LogExporter as StdoutLogExporter;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::select;
@@ -66,13 +72,12 @@ struct Args {
 async fn main() -> StdResult<(), Box<dyn StdError>> {
     let args = Args::parse();
 
-    let log_processor =
-        BatchLogProcessor::builder(StdoutLogExporter::default(), TokioOtelRuntime).build();
     let logger_provider = LoggerProvider::builder()
-        .with_log_processor(log_processor)
+        .with_simple_exporter(StdoutLogExporter::default())
         .build();
     set_boxed_logger(Box::new(OpenTelemetryLogBridge::new(&logger_provider)))
         .expect("Error setting up logger");
+    set_max_level(LevelFilter::Info);
 
     // This seems to be the most idiomatic way to create a client with a UDS transport:
     // https://github.com/hyperium/tonic/blob/v0.12.3/examples/src/uds/client.rs.
@@ -92,7 +97,7 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     let oci_runtime_client = RuntimeServiceClient::new(oci_channel);
 
     // systemd sends SIGTERM to stop services, CTRL+C sends SIGINT.
-    // Listen for those to shut down the servers gracefully.
+    // Listen for those to shut down the servers somewhat gracefully.
     let mut sigterm = signal(SignalKind::terminate())
         .unwrap_or_else(|err| panic!("Cannot listen for SIGTERM: {err}"));
     let mut sigint = signal(SignalKind::interrupt())
@@ -116,7 +121,7 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     )?);
 
     // Bind to our CRI API socket.
-    // This is last thing before starting the servers (with shutdown)
+    // This is last fallible thing before starting the CRI API server
     // because any failures that occur after this should cause the socket to be unlinked
     // so the service can be restarted successfully.
     create_dir_all(Path::new(&args.incoming).parent().unwrap())?;

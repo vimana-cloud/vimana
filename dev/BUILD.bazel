@@ -17,4 +17,3 @@ sh_binary(
     args = ["$(rootpath @buildtools//:buildozer)"],
     data = ["@buildtools//:buildozer"],
 )
-

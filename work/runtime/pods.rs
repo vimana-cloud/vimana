@@ -20,11 +20,11 @@ use tonic::{Code, Request as TonicRequest, Response as TonicResponse, Status};
 use wasmtime::component::{ComponentExportIndex, InstancePre, Val};
 use wasmtime::{Engine as WasmEngine, Store};
 
-use containers::ContainerStore;
+use crate::containers::ContainerStore;
+use crate::host::{grpc_linker, HostState};
 use decode::RequestDecoder;
 use encode::ResponseEncoder;
 use error::{log_error_status, log_warn, Result};
-use host::{grpc_linker, HostState};
 use metadata_proto::work::runtime::Field;
 use names::ComponentName;
 

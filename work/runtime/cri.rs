@@ -25,11 +25,11 @@ use tonic::{async_trait, Request, Response, Status};
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_server::ImageService;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
-use api_proto::runtime::v1::Protocol;
 
+use crate::state::{Pod, PodState};
+use crate::WorkRuntime;
 use error::Result;
 use names::{ComponentName, DomainUuid, Name, PodName};
-use state::WorkRuntime;
 
 /// "For now it expects 0.1.0." - https://github.com/cri-o/cri-o/blob/v1.31.3/server/version.go.
 const KUBELET_API_VERSION: &str = "0.1.0";
@@ -121,10 +121,6 @@ macro_rules! map_oci_prefix {
     };
 }
 
-fn log_object<R: Debug>(name: &str, request: R) {
-    eprintln!("[{name}] {request:?}");
-}
-
 #[async_trait]
 impl RuntimeService for VimanaCriService {
     async fn version(&self, r: Request<v1::VersionRequest>) -> TonicResult<v1::VersionResponse> {
@@ -169,7 +165,7 @@ impl RuntimeService for VimanaCriService {
             return Err(Status::invalid_argument("grpc-port-mappings"));
         }
         let port_mapping = config.port_mappings.pop().unwrap();
-        if port_mapping.protocol != Protocol::Tcp as i32 {
+        if port_mapping.protocol != v1::Protocol::Tcp as i32 {
             // That port must use TCP.
             return Err(Status::invalid_argument("grpc-port-protocol"));
         }
@@ -184,13 +180,15 @@ impl RuntimeService for VimanaCriService {
 
         let pod_id = self.0.init_pod(
             component.clone(),
-            config.metadata.unwrap_or_default(),
             port_mapping.host_port as u16,
+            config.metadata.unwrap_or_default(),
+            config.labels,
+            config.annotations,
         )?;
 
         Ok(Response::new(v1::RunPodSandboxResponse {
             // Prefix the ID so we can distinguish it from downstream OCI pod IDs.
-            pod_sandbox_id: workd_prefix(PodName::new(component, pod_id)),
+            pod_sandbox_id: workd_prefix(&PodName::new(component, pod_id)),
         }))
     }
 
@@ -260,7 +258,8 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("ListPodSandbox", &request);
 
-        // If there's a filter ID for a given runtime, use it.
+        // If there's a filter ID for a given runtime,
+        // we can eliminate like half the work.
         if let Some(ref mut filter) = &mut request.filter {
             if filter.id.starts_with(OCI_PREFIX) {
                 filter.id = String::from(&filter.id[OCI_PREFIX.len()..]);
@@ -273,10 +272,12 @@ impl RuntimeService for VimanaCriService {
             }
         }
 
-        // Otherwise, we have to combine the results with the downstream runtime.
+        // Otherwise, we have to combine the results of both runtimes
+        // to get a complete picture of all pod sandboxes.
         self.list_pod_sandbox_downstream(Request::new(request.clone()))
             .await
             .and_then(|mut downstream_result| {
+                // Upstream is the `workd` runtime.
                 self.list_pod_sandbox_upstream(request)
                     .map(|upstream_result| {
                         downstream_result
@@ -316,11 +317,29 @@ impl RuntimeService for VimanaCriService {
                 "create-container-labels-pod-mismatch",
             ));
         }
-        let image_id = config.image.unwrap_or_default().image;
-        let image_component = Name::parse(&image_id).component()?;
-        if component != image_component {
+
+        // Check that the image spec also matches the labels / pod name.
+        // In fact, the whole `ImageSpec` is essentially determined by the component name.
+        let image_spec = config.image.unwrap_or_default();
+        if image_spec.image != pod_name.component.to_string() {
             return Err(Status::invalid_argument(
                 "create-container-labels-image-mismatch",
+            ));
+        }
+        // YAGNI: multiple handlers
+        if image_spec.runtime_handler != CONTAINER_RUNTIME_NAME {
+            return Err(Status::invalid_argument("create-container-invalid-runtime"));
+        }
+        // No particular reason there can't be annotations or a user specified image;
+        // just keeping a minimum API surface while we figure things out.
+        if !image_spec.annotations.is_empty() {
+            return Err(Status::invalid_argument(
+                "create-container-image-annotations",
+            ));
+        }
+        if !image_spec.user_specified_image.is_empty() {
+            return Err(Status::invalid_argument(
+                "create-container-user-specified-image",
             ));
         }
 
@@ -332,7 +351,8 @@ impl RuntimeService for VimanaCriService {
         // The CRI API has separate steps for creating pods and creating containers,
         // but a component pod is inseparable from its single container,
         // so "pods" and containers are created simultaneously.
-        self.0.create_container(pod_name, environment)?;
+        self.0
+            .create_container(&pod_name, &config.metadata, &environment)?;
 
         Ok(Response::new(v1::CreateContainerResponse {
             // Containers and their pod sandboxes share IDs.
@@ -458,7 +478,28 @@ impl RuntimeService for VimanaCriService {
                 .map(map_oci_prefix!(status, id))
         });
 
-        todo!()
+        if request.container_id.starts_with(WORKD_PREFIX) {
+            let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
+            let mut container_status = Vec::with_capacity(1);
+            self.0.get_pod(
+                &pod_name,
+                &None,
+                &Vec::new(),
+                &cri_container_status,
+                &mut container_status,
+            );
+            container_status
+                .pop()
+                .map_or(Err(Status::not_found("container-not-found")), |status| {
+                    Ok(Response::new(v1::ContainerStatusResponse {
+                        status: Some(status),
+                        info: HashMap::default(),
+                    }))
+                })
+        } else {
+            // The container ID lacked either the `W:` prefix or the `O:` prefix.
+            Err(Status::not_found("container-id-missing-prefix"))
+        }
     }
 
     async fn update_container_resources(
@@ -767,15 +808,13 @@ impl ImageService for VimanaCriService {
         // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
         // This supports running K8s control plane pods like `kube-controller-manager` etc.
         if handler != "TODO-this-should-be-something-else-but-what?" {
-            let r = self
+            return self
                 .0
                 .oci_image
                 .lock()
                 .await
                 .list_images(Request::new(request))
                 .await;
-            log_object("ListImages-response", &r);
-            return r;
         }
 
         todo!()
@@ -864,15 +903,12 @@ impl ImageService for VimanaCriService {
         log_object("ImageFsInfo", &request);
 
         // TODO: Also merge in stats about the upstream system!
-        let r = self
-            .0
+        self.0
             .oci_image
             .lock()
             .await
             .image_fs_info(Request::new(request))
-            .await;
-        log_object("ImageFsInfo-response", &r);
-        r
+            .await
     }
 }
 
@@ -880,10 +916,46 @@ impl VimanaCriService {
     /// Perform sandbox listing in the workd runtime.
     fn list_pod_sandbox_upstream(
         &self,
-        _r: v1::ListPodSandboxRequest,
+        request: v1::ListPodSandboxRequest,
     ) -> TonicResult<v1::ListPodSandboxResponse> {
-        // TODO: Something real.
-        Ok(Response::new(v1::ListPodSandboxResponse::default()))
+        let mut response = v1::ListPodSandboxResponse::default();
+
+        // Every condition in the filter is composed with AND.
+        // The default filter if none is provided has no conditions (always passes).
+        let filter = request.filter.unwrap_or_default();
+        // Collect the required labels as a vector for easier iteration.
+        let labels: Vec<(&String, &String)> = filter.label_selector.iter().collect();
+
+        // Filter ID, if present, can speed things up a lot.
+        if filter.id.len() > 0 {
+            // I believe the ID must match exactly,
+            // but that's not entirely clear from the documentation,
+            // which just says "ID of the sandbox".
+            if let Ok(pod_name) = Name::parse(&filter.id).pod() {
+                // If it's a complete, parseable pod name (after the prefix),
+                // look it up and return it, if the other conditions are met.
+                self.0.get_pod(
+                    &pod_name,
+                    &filter.state,
+                    &labels,
+                    &cri_pod_sandbox,
+                    &mut response.items,
+                );
+            }
+            // Otherwise, the whole filter fails to match anything,
+            // because all conditions are required and the ID condition is impossible.
+        } else {
+            // If the ID filter is absent,
+            // search exhaustively based on the state and labels filters.
+            self.0.list_pods(
+                &filter.state,
+                &labels,
+                &cri_pod_sandbox,
+                &mut response.items,
+            );
+        }
+
+        Ok(Response::new(response))
     }
 
     /// Perform sandbox listing in the workd runtime.
@@ -931,6 +1003,62 @@ impl VimanaCriService {
     }
 }
 
+/// Convert the internal pod to a CRI-API [v1::PodSandbox] to return in `ListPodSandbox`.
+fn cri_pod_sandbox(name: &PodName, pod: &Pod) -> v1::PodSandbox {
+    v1::PodSandbox {
+        id: workd_prefix(name),
+        // All Workd containers use the same runtime.
+        runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
+        // Pod sandboxes are always ready (containers might not be).
+        state: v1::PodSandboxState::SandboxReady as i32,
+        // The rest are just cloned from the controller:
+        metadata: Some(pod.pod_sandbox_metadata.clone()),
+        created_at: pod.pod_created_at,
+        labels: pod.labels.clone(),
+        annotations: pod.annotations.clone(),
+    }
+}
+
+/// Convert the internal pod to a CRI-API [v1::ContainerStatus] to return in `ContainerStatus`.
+fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
+    v1::ContainerStatus {
+        id: workd_prefix(name),
+        metadata: pod.container_metadata.clone(),
+        state: match pod.state {
+            PodState::Initiated => v1::ContainerState::ContainerUnknown,
+            PodState::Created | PodState::Starting => v1::ContainerState::ContainerCreated,
+            PodState::Running => v1::ContainerState::ContainerRunning,
+            PodState::Stopped | PodState::Removed => v1::ContainerState::ContainerExited,
+        } as i32,
+        created_at: pod.container_created_at,
+        started_at: pod.container_started_at,
+        finished_at: pod.container_finished_at,
+        exit_code: 0, // TODO: Populate this in case a container fails at runtime.
+        image: Some(v1::ImageSpec {
+            image: name.component.to_string(),
+            // Pre-determined for all Vimana images:
+            annotations: HashMap::default(),
+            user_specified_image: String::default(),
+            runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
+        }),
+        image_ref: String::from("TODO"),
+        reason: String::from("TODO"),
+        message: String::from("TODO"),
+        // Labels and annotations must be identical between pods and containers.
+        labels: pod.labels.clone(),
+        annotations: pod.annotations.clone(),
+        // Vimana containers never have volume mounts.
+        mounts: Vec::default(),
+        // Logging happens entirely via OTLP, not files.
+        log_path: String::default(),
+        // TODO: Resource limiting information.
+        resources: None,
+        image_id: String::from("TODO"),
+        // Wasm modules do not use user-based privileges.
+        user: None,
+    }
+}
+
 fn component_name_from_labels(labels: &HashMap<String, String>) -> Result<ComponentName> {
     ComponentName::new(
         DomainUuid::parse(
@@ -949,4 +1077,8 @@ fn component_name_from_labels(labels: &HashMap<String, String>) -> Result<Compon
                 .ok_or_else(|| Status::invalid_argument("expected-version-label"))?,
         ),
     )
+}
+
+fn log_object<R: Debug>(name: &str, request: R) {
+    eprintln!("[{name}] {request:?}");
 }

@@ -23,7 +23,10 @@ py_test(
 py_library(
     name = "util",
     srcs = ["util.py"],
-    data = ["//work/runtime:workd"],
+    data = [
+        "//work/runtime:workd",
+        "@rules_k8s//:vimana-push",
+    ],
     deps = [
         ":cri-api-py-grpc",
         ":cri-api-py-pb2",

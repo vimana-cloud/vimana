@@ -1,4 +1,4 @@
-# One global gateway for the whole cluster.
+# All ingress to the cluster passes through the same gateway.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -22,3 +22,10 @@ spec:
       allowedRoutes:
         kinds:
           - kind: GRPCRoute
+---
+# This runtime class is used for all Wasm component "containers".
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: workd-runtime-class
+handler: workd

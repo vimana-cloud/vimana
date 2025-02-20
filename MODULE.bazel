@@ -25,7 +25,7 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "96c05d04ae1a1625d34920ba7c082fcaacbbef78",
+    commit = "c12ab0d083c4861253214389e25340bebfd69a33",
     remote = "git@github.com:vimana-cloud/rules_k8s.git",
 )
 bazel_dep(name = "runtime-class-manager")
@@ -46,10 +46,6 @@ use_repo(switched_rules, "com_google_googleapis_imports")
 # Rust setup:
 
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
-crate.spec(
-    package = "async-trait",
-    version = "0.1.83",
-)
 crate.spec(
     package = "axum",
     version = "0.7.9",
@@ -266,11 +262,11 @@ oci.pull(
 )
 
 # Kicbase is the base for the Minikube node image used in end-to-end tests.
-# https://console.cloud.google.com/artifacts/docker/k8s-minikube/us/gcr.io/kicbase-builds
+# https://github.com/kubernetes/minikube/blob/v1.35.0/pkg/drivers/kic/types.go#L30
 oci.pull(
     name = "kicbase",
-    digest = "sha256:7633d63044f3bd2874ab6c1678346ef8deaf7019695a7e9c8c23bdbd6d7a170b",
-    image = "gcr.io/k8s-minikube/kicbase-builds",
+    digest = "sha256:fd2d445ddcc33ebc5c6b68a17e6219ea207ce63c005095ea1525296da2d1a279",
+    image = "gcr.io/k8s-minikube/kicbase",
     platforms = ["linux/amd64"],
 )
 

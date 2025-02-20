@@ -1,110 +1,47 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
 
-# Top-level target: the runtime executable.
+# The Workd runtime implements the K8s CRI.
 rust_binary(
     name = "workd",
-    srcs = ["main.rs"],
+    srcs = [
+        "containers.rs",
+        "cri.rs",
+        "host.rs",
+        "main.rs",
+        "pods.rs",
+        "state.rs",
+    ],
     visibility = ["//visibility:public"],
     deps = [
-        ":cri",
-        ":cri-api-prost",
-        ":state",
-        "@crates//:clap",
-        "@crates//:futures",
-        "@crates//:hyper-util",
-        "@crates//:log",
-        "@crates//:opentelemetry-appender-log",
-        "@crates//:opentelemetry-stdout",
-        "@crates//:opentelemetry_sdk",
-        "@crates//:tokio",
-        "@crates//:tokio-stream",
-        "@crates//:tonic",
-        "@crates//:tower",
-        "@crates//:tracing",
-        "@crates//:tracing-subscriber",
-    ],
-)
-
-rust_library(
-    name = "cri",
-    srcs = ["cri.rs"],
-    deps = [
         ":cri-api-prost",
         ":error",
-        ":names",
-        ":state",
-        "@crates//:tokio-stream",
-        "@crates//:tonic",
-    ],
-)
-
-rust_library(
-    name = "state",
-    srcs = ["state.rs"],
-    deps = [
-        ":containers",
-        ":cri-api-prost",
-        ":error",
-        ":grpc-pod",
-        ":metadata-prost",
-        ":names",
-        "@crates//:futures",
-        "@crates//:http",
-        "@crates//:papaya",
-        "@crates//:tokio",
-        "@crates//:tonic",
-        "@crates//:tower",
-        "@crates//:wasmtime",
-    ],
-)
-
-rust_library(
-    name = "host",
-    srcs = ["host.rs"],
-    deps = [
-        ":error",
-        ":names",
-        "@crates//:anyhow",
-        "@crates//:tonic",
-        "@crates//:wasmtime",
-    ],
-)
-
-rust_library(
-    name = "grpc-pod",
-    srcs = ["grpc-pod.rs"],
-    deps = [
-        ":containers",
-        ":error",
-        ":host",
         ":metadata-prost",
         ":names",
         "//work/runtime/decode",
         "//work/runtime/encode",
+        "@crates//:anyhow",
         "@crates//:axum",
+        "@crates//:bytes",
+        "@crates//:clap",
         "@crates//:futures",
         "@crates//:http",
-        "@crates//:tokio",
-        "@crates//:tonic",
-        "@crates//:wasmtime",
-    ],
-)
-
-rust_library(
-    name = "containers",
-    srcs = ["containers.rs"],
-    deps = [
-        ":error",
-        ":metadata-prost",
-        ":names",
-        "@crates//:bytes",
+        "@crates//:hyper-util",
+        "@crates//:lazy_static",
+        "@crates//:log",
         "@crates//:moka",
+        "@crates//:opentelemetry-appender-log",
+        "@crates//:opentelemetry-stdout",
+        "@crates//:opentelemetry_sdk",
+        "@crates//:papaya",
         "@crates//:prost",
+        "@crates//:regex",
         "@crates//:reqwest",
         "@crates//:serde",
         "@crates//:tokio",
+        "@crates//:tokio-stream",
         "@crates//:tonic",
+        "@crates//:tower",
         "@crates//:wasmtime",
     ],
 )

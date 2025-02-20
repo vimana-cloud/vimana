@@ -3,12 +3,22 @@
 For an introduction to how Vimana works,
 see the [internal overview](docs/internal-overview.md).
 
-For general information about documentation, see [`docs`](docs/).
+For general information about documentation, see [docs](docs/).
 
-## Developer Setup
+## One-Time Setup
 
 1. Clone this repository.
 2. Install [Bazelisk](https://github.com/bazelbuild/bazelisk).
+3. Make sure [Docker](https://docs.docker.com/) is installed and the daemon is enabled.
+4. Run the container registry [reference implementation](https://hub.docker.com/_/registry)
+   locally, with automatic restart forever.
+   ```bash
+   docker run --detach --publish=5000:5000 --restart=always --name=registry registry:latest
+   ```
+5. Optional: Install [`direnv`](https://direnv.net/)
+   to automatically set up convenient [aliases to pre-built binaries](.bin/) &mdash;
+   like `kubectl` and `wasmtime` &mdash;
+   whenever you enter the repository directory in your shell.
 
 ## Commands To Know
 
@@ -16,6 +26,22 @@ Run a local documentation server:
 
 ```bash
 bazel run //docs:dev
+```
+
+Start a local [minikube](https://minikube.sigs.k8s.io/docs/) cluster with Vimana enabled.
+This is one way to run the [end-to-end](e2e/) tests.
+
+```bash
+bazel run //dev/minikube:restart
+```
+
+Starting minikube can take a while.
+Iterate faster by hot-swapping a freshly-built runtime binary
+into the running minikube cluster
+(but read the implications at the top of [`hotswap.sh`](dev/minikube/hotswap.sh) first):
+
+```bash
+bazel run //dev/minikube:hotswap
 ```
 
 Check for updates to any Bazel or Rust dependency in `MODULE.bazel`,

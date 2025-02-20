@@ -1,0 +1,90 @@
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+
+local_registry = "localhost:5000"
+
+cluster_registry = "host.minikube.internal:5000"
+
+kicbase_image_name = "kicbase-workd"
+
+kicbase_tag = "latest"
+
+kicbase_local_repo = local_registry + "/" + kicbase_image_name + ":" + kicbase_tag
+
+# Start a Vimana-enabled minikube cluster locally.
+sh_binary(
+    name = "restart",
+    srcs = ["restart.sh"],
+    args = [
+        "$(rootpath @rules_k8s//:kubectl)",
+        "$(rootpath @rules_k8s//:istioctl)",
+        "$(rootpath @rules_k8s//:minikube)",
+        "$(rootpath :kicbase-image-push-local)",
+        kicbase_local_repo,
+        cluster_registry,
+    ],
+    data = [
+        ":kicbase-image-push-local",
+        "@rules_k8s//:istioctl",
+        "@rules_k8s//:kubectl",
+        "@rules_k8s//:minikube",
+    ],
+)
+
+# If there's a running minikube cluster started by `:start`,
+# this action uploads a fresh build of `workd` to the running kicbase container
+# then restarts the daemon.
+sh_binary(
+    name = "hotswap",
+    srcs = ["hotswap.sh"],
+    args = [
+        "$(rootpath @rules_k8s//:minikube)",
+        "$(location //work/runtime:workd)",
+        kicbase_local_repo,
+    ],
+    data = [
+        "//work/runtime:workd",
+        "@rules_k8s//:minikube",
+    ],
+)
+
+# Kicbase (Kubernetes In (a) Container base?)
+# is like the node image for Minikube.
+oci_image(
+    name = "kicbase-image",
+    base = "@kicbase",
+    # Layer `workd` on top of it to enable Vimana on Minikube.
+    tars = [":workd-tar"],
+)
+
+pkg_tar(
+    name = "workd-tar",
+    srcs = [
+        # Workd SystemD unit file.
+        ":workd.kicbase.service",
+        # Workd binary (built for target platform).
+        "//work/runtime:workd",
+        # We need a more modern version of `crictl` than the one that ships with Kicbase by default
+        # (built for execution platform).
+        "@rules_k8s//:crictl",
+    ],
+    remap_paths = {
+        "/workd.kicbase.service": "/etc/systemd/system/workd.service",
+        "/workd": "/usr/bin/workd",
+        # Bazel downloader adds the `.exe` suffix no matter what the execution platform is.
+        "/crictl.exe": "/usr/bin/crictl",
+    },
+)
+
+oci_push(
+    name = "kicbase-image-push-local",
+    image = ":kicbase-image",
+    remote_tags = [kicbase_tag],
+    repository = local_registry + "/" + kicbase_image_name,
+)
+
+oci_load(
+    name = "kicbase-image-load",
+    image = ":kicbase-image",
+    repo_tags = [kicbase_image_name + ":" + kicbase_tag],
+)

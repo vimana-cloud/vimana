@@ -46,17 +46,15 @@ macro_rules! log {
     ($level: expr, $target:expr, $component:expr, $irritant:expr) => {{
         // Check the type of `$component` by moving the reference.
         let component: &ComponentName = $component;
-        // TODO: Log using OTLP.
-        //$crate::_log!(
-        //    target: $target,
-        //    $level,
-        //    domain = component.service.domain.to_string().as_str(),
-        //    service = &component.service.service.as_str(),
-        //    version = &component.version.as_str();
-        //    "{:?}",
-        //    $irritant,
-        //);
-        println!("target={} {:?}", $target, $irritant);
+        $crate::_log!(
+            target: $target,
+            $level,
+            domain = component.service.domain.to_string().as_str(),
+            service = &component.service.service.as_str(),
+            version = &component.version.as_str();
+            "{:?}",
+            $irritant,
+        );
     }};
 }
 
@@ -71,6 +69,13 @@ macro_rules! log_error {
 macro_rules! log_warn {
     ($target:expr, $component:expr, $irritant:expr) => {
         $crate::log!($crate::Level::Warn, $target, $component, $irritant)
+    };
+}
+
+#[macro_export]
+macro_rules! log_info {
+    ($target:expr, $component:expr, $irritant:expr) => {
+        $crate::log!($crate::Level::Info, $target, $component, $irritant)
     };
 }
 

@@ -12,12 +12,17 @@ new file mode 100644
 index 0000000..3ccbcfe
 --- /dev/null
 +++ pkg/apis/runtime/v1/BUILD.bazel
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,12 @@
 +load("@rules_proto//proto:defs.bzl", "proto_library")
 +
 +proto_library(
 +    name = "api-proto",
 +    srcs = ["api.proto"],
++    visibility = ["//visibility:public"],
++)
++
++exports_files(
++    ["api.proto"],
 +    visibility = ["//visibility:public"],
 +)
 diff --git pkg/apis/runtime/v1/api.proto pkg/apis/runtime/v1/api.proto

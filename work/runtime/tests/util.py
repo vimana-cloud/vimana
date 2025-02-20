@@ -1,17 +1,16 @@
-from base64 import b32hexencode
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta
-from hashlib import sha256
-from itertools import batched, chain
-from json import dumps
+from os import system
 from os.path import exists
+from queue import Queue, Empty, ShutDown
 from random import randrange
-from re import compile as compile_re
-from subprocess import Popen
+from subprocess import Popen, PIPE
 from socket import socket, AF_INET, SOCK_STREAM
 from tempfile import NamedTemporaryFile
+from threading  import Thread
+from typing import TextIO
 from time import sleep
 from uuid import uuid4
 
@@ -65,6 +64,8 @@ from work.runtime.tests.api_pb2 import (
 
 # Path to the `workd` binary in the runfiles.
 _workd_path = 'work/runtime/workd'
+# Path to the `vimana-push` binary which uploads Wasm containers to the registry.
+_vimana_push_path = '../rules_k8s+/vimana-push'
 
 class WorkdTester:
     """ Manager for the system under test.
@@ -85,6 +86,13 @@ class WorkdTester:
         _waitFor(lambda: not _isPortAvailable(self._imageRegistryPort) and exists(ociSocket))
         self._workd, self._workdSocket = startWorkd(ociSocket, self._imageRegistryPort)
 
+        # We need a separate thread just to collect the logs:
+        # https://stackoverflow.com/a/4896288/5712883.
+        self._workdLogQueue = Queue()
+        logThread = Thread(target=_collectLogs, args=(self._workd.stdout, self._workdLogQueue))
+        logThread.daemon = True  # Shut down the thread along with the parent process.
+        logThread.start()
+
         # Wait for workd to become connectable before opening client channels.
         _waitFor(lambda: exists(self._workdSocket))
         self._runtimeChannel = self._channel()
@@ -102,7 +110,7 @@ class WorkdTester:
     def __enter__(self):
         return self
 
-    def __exit__(self):
+    def __exit__(self, exc_type, exc_value, traceback):
         try:
             self._runtimeChannel.close()
             self._imageChannel.close()
@@ -115,105 +123,48 @@ class WorkdTester:
                     self._imageRegistry.stop()
                     self._imageRegistry.wait(timeout=5)
                 finally:
-                    self._ociRuntime.stop(5)
+                    try:
+                        self._ociRuntime.stop(5)
+                    finally:
+                        self._workdLogQueue.shutdown()
 
-    def pushImageFromFiles(self, domain: str, service: str, version: str, component: str, metadata: str) -> str:
-        """ Like `pushImage` but takes paths to files instead of contents. """
-        return self.pushImage(domain, service, version, _readFile(component), _readFile(metadata))
-
-    def pushImage(self, domain: str, service: str, version: str, component: bytes, metadata: bytes) -> str:
+    def pushImage(self, domain: str, service: str, version: str, component: str, metadata: str):
         """ Push a Vimana Wasm "container" image to the running container registry
 
         Args:
             domain:     e.g. `1234567890abcdef1234567890abcdef`
             service:    e.g. `some.package.FooService`
             version:    e.g. `1.0.0-release`
-            component:  Compiled Wasm component byte code.
-            metadata:   Serialized gRPC service metadata.
-
-        Returns:
-            The URL at which you could download the uploaded manifest.
+            component:  Path to compiled Wasm component byte code file.
+            metadata:   Path to serialized gRPC service metadata file.
         """
+        command = [
+            _vimana_push_path,
+            f'http://localhost:{self._imageRegistryPort}',
+            domain,
+            service,
+            version,
+            component,
+            metadata,
+        ]
+        status = system(' '.join(map(_bashQuote, command)))
+        if status != 0:
+            raise RuntimeError(f'Failed to push image (status={status}).')
 
-        # Repository namespace components must contain only lowercase letters and digits,
-        # so hex-encode the service.
-        serviceHex = service.encode().hex()
-        # Flip each pair of nibbles to make it nibble-wise little-endian
-        # because that's how workd happens to work.
-        serviceHex = ''.join(chain.from_iterable(map(reversed, batched(serviceHex, 2))))
-
-        # https://specs.opencontainers.org/distribution-spec/#push
-        componentDigest = self._pushBlob(domain, serviceHex, component)
-        metadataDigest = self._pushBlob(domain, serviceHex, metadata)
-
-        # https://specs.opencontainers.org/image-spec/config/#properties
-        # These are the minimum required properties, and they're all ignored.
-        imageConfig = dumps({
-            'architecture': 'wasm',
-            'os': 'vimana',
-            'rootfs': {
-                'type': 'layers',
-                'diff_ids': [],
-            },
-        }).encode()
-
-        imageConfigDigest = self._pushBlob(domain, serviceHex, imageConfig)
-
-        # https://specs.opencontainers.org/image-spec/manifest/#image-manifest
-        manifest = dumps({
-            'schemaVersion': 2,
-            'config': {
-                'mediaType': 'application/vnd.oci.image.config.v1+json',
-                'size': len(imageConfig),
-                'digest': imageConfigDigest,
-            },
-            'layers': [
-                {
-                    'mediaType': 'application/wasm',
-                    'size': len(component),
-                    'digest': componentDigest,
-                },
-                {
-                    'mediaType': 'application/protobuf',
-                    'size': len(metadata),
-                    'digest': metadataDigest,
-                },
-            ],
-        }).encode()
-
-        # https://specs.opencontainers.org/distribution-spec/#pushing-manifests
-        response = requests.put(
-            f'http://localhost:{self._imageRegistryPort}/v2/{domain}/{serviceHex}/manifests/{version}',
-            headers={'Content-Type': 'application/vnd.oci.image.manifest.v1+json'},
-            data=manifest,
-        )
-        assert response.status_code == 201, f'Error pushing manifest: {response}'
-
-        return response.headers['Location']
-
-    def _pushBlob(self, domain: str, serviceHex: str, blob: bytes):
-        # https://specs.opencontainers.org/distribution-spec/#pushing-blobs
-        response = requests.post(f'http://localhost:{self._imageRegistryPort}/v2/{domain}/{serviceHex}/blobs/uploads/')
-        assert response.status_code == 202, f'Error posting blob: {response}'
-
-        location = response.headers['Location']
-        digest = _digest(blob)
-        response = requests.put(
-            f'{location}&digest={digest}',
-            headers={
-                'Content-Length': str(len(blob)),
-                'Content-Type': 'application/octet-stream',
-            },
-            data=blob,
-        )
-        assert response.status_code == 201, f'Error putting blob: {response}'
-
-        return digest
-
-def _digest(blob: bytes):
-    hasher = sha256()
-    hasher.update(blob)
-    return f'sha256:{hasher.hexdigest()}'
+    def workdLogs(self) -> list[str]:
+        """
+        Return the list of available log lines that have been written by `workd`
+        since last invocation.
+        """
+        # `sleep(0)` yields the GIL
+        # so the background log collector thread can run if it needs to.
+        sleep(0)
+        logs = []
+        while True:
+            try:
+                logs.append(self._workdLogQueue.get(block = False))
+            except (Empty, ShutDown):
+                return logs
 
 def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int) -> tuple[Popen, str]:
     """ Start a background process running the work node daemon.
@@ -222,7 +173,12 @@ def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int) -> tuple[Popen, st
     """
     socket = _tmpName()
     registry = f'http://localhost:{imageRegistryPort}'
-    process = Popen([_workd_path, socket, ociRuntimeSocket, registry])
+    process = Popen(
+        [_workd_path, socket, ociRuntimeSocket, registry],
+        # Open a line-buffered text-mode pipe for stdout
+        # and convert all CR/LF sequences to just LF.
+        stdout=PIPE, text=True, bufsize=1,
+    )
     return (process, socket)
 
 def startImageRegistry() -> tuple[DockerContainer, int]:
@@ -256,15 +212,25 @@ def startOciRuntime() -> tuple[grpc.Server, str]:
     server.start()
     return (server, socket)
 
-def findAvailablePort() -> int:
+def findAvailablePort(attempts: int = 5) -> int:
     """ Find an available TCP port by random probing. """
-    attempts = 5
     for i in range(attempts):
         # Pick a random port in the ephemeral range: [49152–65536).
         port = randrange(49152, 65536)
         if _isPortAvailable(port):
             return port
     raise RuntimeError(f'Could not find an open port after {attempts} attempts.')
+
+def _collectLogs(stdout: TextIO, queue: Queue):
+    """ Read all lines from the `stdout` pipe, adding each line to the queue. """
+    # Invoke `readline` iteratively until EOF is indicated by the sentinel value `b''`.
+    for line in iter(stdout.readline, b''):
+        try:
+            queue.put(line)
+        except ShutDown:
+            # If the test is shutting down, nobody wants the remaining logs.
+            break
+    stdout.close()
 
 def _isPortAvailable(port: int) -> bool:
     with closing(socket(AF_INET, SOCK_STREAM)) as sock:
@@ -290,6 +256,9 @@ def _tmpName() -> str:
     name = f.name
     f.close()  # Delete the file.
     return name
+
+def _bashQuote(word: str) -> str:
+    return f"'{word.replace("'", "'\"'\"'")}'"
 
 def hexUuid() -> str:
     return uuid4().hex

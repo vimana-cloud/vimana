@@ -2,7 +2,12 @@ load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 load("@rules_wasm//:c.bzl", "c_component")
 load("@rules_wasm//:wasm.bzl", "wit_package")
 
-package(default_visibility = ["//work/runtime/tests:__pkg__"])
+package(
+    default_visibility = [
+        "//e2e:__pkg__",
+        "//work/runtime/tests:__pkg__",
+    ],
+)
 
 wit_package(
     name = "adder-wit",

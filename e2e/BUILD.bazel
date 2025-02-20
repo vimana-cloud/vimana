@@ -1,26 +1,53 @@
-load("@rules_k8s//:resource.bzl", "k8s_secret_tls")
+load("@rules_k8s//:resource.bzl", "k8s_secret_tls", "k8s_vimana_component", "k8s_vimana_domain")
 load("@rules_k8s//:test.bzl", "k8s_cluster_test")
+load("@rules_python//python:py_binary.bzl", "py_binary")
 
-# Make sure to run //api/v1:push-image-local before this test!
+k8s_vimana_domain(
+    name = "adder-bootstrap",
+    aliases = ["addmegood.net"],
+    cluster_registry = "host.minikube.internal:5000",
+    id = "00000000000000000000000000000001",
+    registry = "http://localhost:5000",
+    services = {
+        "foo.bar.AdderService": [
+            k8s_vimana_component(
+                name = "adder-push-container",
+                metadata = "//work/runtime/tests/components:adder-metadata",
+                module = "//work/runtime/tests/components:adder-c",
+                version = "1.0.0",
+                weight = 100,
+            ),
+        ],
+    },
+)
+
 k8s_cluster_test(
-    name = "placeholder-test",
+    name = "walkthrough-test",
     hosts = {
         "api.vimana.host": "127.0.0.1",
     },
     objects = [
+        ":adder-bootstrap",
         ":tls-api-vimana-host",
-        "//api/v1:deploy.yaml",
+        #"//api/v1:deploy.yaml",
         "//cluster:deploy.yaml",
     ],
     port_forward = {
         "svc/vimana-gateway-istio": ["61803:443"],
     },
-    test = ":placeholder",
+    setup = [
+        ":adder-push-container",
+    ],
+    test = ":walkthrough",
 )
 
-sh_binary(
-    name = "placeholder",
-    srcs = ["placeholder.sh"],
+py_binary(
+    name = "walkthrough",
+    srcs = ["walkthrough.py"],
+    deps = [
+        "//work/runtime/tests/components:adder-py-grpc",
+        "//work/runtime/tests/components:adder-py-pb2",
+    ],
 )
 
 k8s_secret_tls(

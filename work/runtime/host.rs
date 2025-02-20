@@ -32,7 +32,7 @@ pub(crate) mod wasi {
             /// in the component model, this import function should return the same
             /// values each time it is called.
             pub(crate) async fn get_environment(
-                context: wasmtime::StoreContextMut<'_, std::sync::Arc<crate::HostState>>,
+                context: wasmtime::StoreContextMut<'_, std::sync::Arc<crate::host::HostState>>,
                 parameters: (),
             ) -> anyhow::Result<(Vec<(String, String)>,)> {
                 Ok((Vec::new(),))
@@ -42,7 +42,7 @@ pub(crate) mod wasi {
         pub(crate) mod exit {
             /// Exit the current instance and any linked instances.
             pub(crate) async fn exit(
-                context: wasmtime::StoreContextMut<'_, std::sync::Arc<crate::HostState>>,
+                context: wasmtime::StoreContextMut<'_, std::sync::Arc<crate::host::HostState>>,
                 parameters: (Result<(), ()>,),
             ) -> anyhow::Result<()> {
                 Ok(())

@@ -45,14 +45,13 @@ function success-message {
   echo >&2 -e "${green}Generated$reset ${bold}${1}$reset"
 }
 
-# Print a failure message about having generated the given file ($1).
+# Print a failure message about the given file ($1).
 function failure-message {
   echo >&2 -e "${red}Failed$reset to generate ${bold}${1}$reset"
   false # Propagate the failure.
 }
 
-# Generate a private key and self-signed CA certificate
-# with the given basename ($1).
+# Generate a private key and self-signed CA certificate with the given basename ($1).
 function generate-ca-creds {
   key_path="${out_dir}/${1}.key"
   cert_path="${out_dir}/${1}.cert"

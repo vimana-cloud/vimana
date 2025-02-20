@@ -87,6 +87,7 @@ spec:
         vimana.host/service: vimana-api-v1
         vimana.host/version: '1.0.0'
     spec:
+      runtimeClassName: workd-runtime-class
       serviceAccountName: vimana-api-account
       containers:
         - name: app  # All pods have a single container, called 'app'.
