@@ -1,0 +1,2 @@
+#!/bin/env bash
+exec bazel run @rules_wasm//:wasm-tools -- "$@"
