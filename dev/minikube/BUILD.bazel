@@ -1,5 +1,6 @@
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load(":platform-executable.bzl", "platform_executable")
 
 local_registry = "localhost:5000"
 
@@ -62,17 +63,16 @@ pkg_tar(
     srcs = [
         # Workd SystemD unit file.
         ":workd.kicbase.service",
-        # Workd binary (built for target platform).
-        "//work/runtime:workd",
-        # We need a more modern version of `crictl` than the one that ships with Kicbase by default
-        # (built for execution platform).
-        "@rules_k8s//:crictl",
+        # Workd binary built for the container.
+        ":workd-x86_64-linux",
+        # We need a more modern version of `crictl` than the one that ships with Kicbase by default.
+        "@rules_k8s//:crictl-x86_64-linux",
     ],
     remap_paths = {
         "/workd.kicbase.service": "/etc/systemd/system/workd.service",
-        "/workd": "/usr/bin/workd",
+        "/workd-x86_64-linux": "/usr/bin/workd",
         # Bazel downloader adds the `.exe` suffix no matter what the execution platform is.
-        "/crictl.exe": "/usr/bin/crictl",
+        "/crictl-x86_64-linux.exe": "/usr/bin/crictl",
     },
 )
 
@@ -87,4 +87,18 @@ oci_load(
     name = "kicbase-image-load",
     image = ":kicbase-image",
     repo_tags = [kicbase_image_name + ":" + kicbase_tag],
+)
+
+platform_executable(
+    name = "workd-x86_64-linux",
+    platform = ":x86_64-linux",
+    target = "//work/runtime:workd",
+)
+
+platform(
+    name = "x86_64-linux",
+    constraint_values = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
 )

@@ -6,6 +6,7 @@ bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "gazelle", version = "0.40.0")
 bazel_dep(name = "googleapis", version = "0.0.0-20240819-fe8ba054a")
 bazel_dep(name = "grpc", version = "1.69.0")
+bazel_dep(name = "platforms", version = "0.0.11")
 bazel_dep(name = "protobuf", version = "29.2")
 bazel_dep(name = "rules_go", version = "0.53.0")
 bazel_dep(name = "rules_nodejs", version = "6.3.0")
@@ -25,7 +26,7 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "ad83131ac5ef46107a8fb6bdf5d7d756c314d796",
+    commit = "6024ee6b31274cfe5bbc11c7112972c8bdd6ff2b",
     remote = "git@github.com:vimana-cloud/rules_k8s.git",
 )
 bazel_dep(name = "runtime-class-manager")
