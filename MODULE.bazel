@@ -25,7 +25,7 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "caa95654506600de8be345aa1bbbe435a880870d",
+    commit = "ad83131ac5ef46107a8fb6bdf5d7d756c314d796",
     remote = "git@github.com:vimana-cloud/rules_k8s.git",
 )
 bazel_dep(name = "runtime-class-manager")

@@ -234,8 +234,10 @@ def _collectLogs(stdout: TextIO, queue: Queue):
 
 def _isPortAvailable(port: int) -> bool:
     with closing(socket(AF_INET, SOCK_STREAM)) as sock:
-        # Error code 111 indicates connection refused (the port is available).
-        if sock.connect_ex(('localhost', port)) == 111:
+        errno = sock.connect_ex(('localhost', port))
+        # Error codes 111 (on Linux) and 61 (on Mac)
+        # seem to indicate connection refused (the port is available).
+        if errno == 111 or errno == 61:
             return True
     return False
 

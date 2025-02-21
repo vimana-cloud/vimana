@@ -8,9 +8,7 @@ For general information about documentation, see [docs](docs/).
 ## One-Time Setup
 
 1. Clone this repository.
-2. Have a working CC toolchain.
-   * Linux: `clang` or `gcc`
-   * Mac: [Xcode](https://apps.apple.com/app/xcode/)
+2. (Mac only) Install [core utilities](https://formulae.brew.sh/formula/coreutils) and [Xcode](https://apps.apple.com/app/xcode/) and get your developer permission.
 3. Install [Bazelisk](https://github.com/bazelbuild/bazelisk).
 4. To run integration tests:
    1. Install [Docker](https://docs.docker.com/) and enable the daemon.
