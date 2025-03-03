@@ -2,8 +2,11 @@ load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 load(":platform-executable.bzl", "platform_executable")
 
+# Name of some registry we can push / pull images to / from.
 local_registry = "localhost:5000"
 
+# Name of the same registry as `local_registry`,
+# as it would appear from inside the cluster.
 cluster_registry = "host.minikube.internal:5000"
 
 kicbase_image_name = "kicbase-workd"
@@ -20,6 +23,7 @@ sh_binary(
         "$(rootpath @rules_k8s//:kubectl)",
         "$(rootpath @rules_k8s//:istioctl)",
         "$(rootpath @rules_k8s//:minikube)",
+        "$(rootpath @rules_k8s//:minikube-bin)",
         "$(rootpath :kicbase-image-push-local)",
         kicbase_local_repo,
         cluster_registry,
@@ -29,6 +33,7 @@ sh_binary(
         "@rules_k8s//:istioctl",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
+        "@rules_k8s//:minikube-bin",
     ],
 )
 
@@ -40,17 +45,19 @@ sh_binary(
     srcs = ["hotswap.sh"],
     args = [
         "$(rootpath @rules_k8s//:minikube)",
-        "$(location //work/runtime:workd)",
-        kicbase_local_repo,
+        "$(rootpath @rules_k8s//:minikube-bin)",
+        "$(rootpath @rules_k8s//:kubectl)",
+        "$(rootpath //work/runtime:workd)",
     ],
     data = [
         "//work/runtime:workd",
+        "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
+        "@rules_k8s//:minikube-bin",
     ],
 )
 
-# Kicbase (Kubernetes In (a) Container base?)
-# is like the node image for Minikube.
+# Kicbase (Kubernetes In (a) Container base?) is like the node image for Minikube.
 oci_image(
     name = "kicbase-image",
     base = "@kicbase",

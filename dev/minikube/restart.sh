@@ -26,24 +26,35 @@ then
   exit 1
 fi
 
-# Standard K8s tools:
+# Standard K8s tool binaries:
 kubectl="$1"
 istioctl="$2"
-minikube="$3"
+# Minikube is run through a wrapper (see `_minikube`).
+minikube_wrapper="$3"
+minikube_bin="$4"
 # Path to a binary that, when run,
 # builds and pushes the latest `workd`-enhanced Kicbase image
 # to the registry where minikube will look for it.
-push_kicbase="$4"
-# localhost:5000/kicbase-workd:latest
-kicbase_repo="$5"
-# host.minikube.internal:5000
-cluster_registry="$6"
+push_kicbase="$5"
+# Probably `localhost:5000/kicbase-workd:latest`.
+kicbase_repo="$6"
+# Probably `host.minikube.internal:5000`.
+cluster_registry="$7"
+
+function _minikube {
+  # Very leaky abstraction :(
+  # but this seems to be the only way
+  # to get minikube to use the packaged kubectl binary.
+  # See `@rules_k8s//:minikube`.
+  "$minikube_wrapper" "$minikube_bin" "$kubectl" "$@"
+}
 
 # If minikube is already running, delete it so we can start fresh.
-"$minikube" status &>/dev/null && {
-  "$minikube" delete
-}
-# Remove the Docker's cached copy of the kicbase image
+_minikube status &>/dev/null && _minikube delete
+# If there is a running container called "minikube",
+# remove it so minikube doesn't get confused.
+docker rm minikube 2> /dev/null
+# Finally, remove the Docker's cached copy of the kicbase image
 # so minikube will re-pull it from the local registry.
 docker image rm --force "$kicbase_repo" 2> /dev/null
 
@@ -59,7 +70,7 @@ docker image rm --force "$kicbase_repo" 2> /dev/null
 # - Custom base image allowing enabling the Workd runtime.
 # - The ability to load containers from the host computer without TLS.
 # - Enough resources to run Istio: https://istio.io/latest/docs/setup/platform-setup/minikube.
-"$minikube" start \
+_minikube start \
   --base-image="$kicbase_repo" \
   --container-runtime=workd \
   --insecure-registry="$cluster_registry" \
@@ -67,7 +78,7 @@ docker image rm --force "$kicbase_repo" 2> /dev/null
   || exit 1
 
 # Enable all dashboard features.
-"$minikube" addons enable metrics-server
+_minikube addons enable metrics-server
 
 # Start Istio in ambient mode (no sidecars).
 "$istioctl" install --skip-confirmation --set profile=ambient || exit 1

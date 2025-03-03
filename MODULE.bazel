@@ -23,12 +23,14 @@ git_override(
     patches = ["dev/patches/cri-api.patch"],
     remote = "git@github.com:kubernetes/cri-api.git",
 )
+
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "6024ee6b31274cfe5bbc11c7112972c8bdd6ff2b",
+    commit = "81fbd4121dd9bfa91adf1527265bdb6f39224366",
     remote = "git@github.com:vimana-cloud/rules_k8s.git",
 )
+
 bazel_dep(name = "runtime-class-manager")
 git_override(
     module_name = "runtime-class-manager",
@@ -52,6 +54,7 @@ rust.toolchain(
     extra_target_triples = ["x86_64-unknown-linux-musl"],
 )
 use_repo(rust, "rust_toolchains")
+
 register_toolchains("@rust_toolchains//:all")
 
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
@@ -64,9 +67,9 @@ crate.spec(
     version = "1.0.94",
 )
 crate.spec(
+    features = ["kv"],
     package = "log",
     version = "0.4.25",
-    features = ["kv"],
 )
 crate.spec(
     package = "bytes",
@@ -81,9 +84,9 @@ crate.spec(
     version = "0.27.0",
 )
 crate.spec(
+    features = ["rt-tokio"],
     package = "opentelemetry_sdk",
     version = "0.27.0",
-    features = ["rt-tokio"],
 )
 crate.spec(
     package = "opentelemetry-stdout",
@@ -132,11 +135,11 @@ crate.spec(
     version = "1.5.0",
 )
 crate.spec(
-    package = "moka",
-    version = "0.12.10",
     features = [
         "future",
     ],
+    package = "moka",
+    version = "0.12.10",
 )
 crate.spec(
     package = "papaya",
@@ -206,9 +209,9 @@ crate.spec(
     version = "0.1.41",
 )
 crate.spec(
+    features = ["json"],
     package = "tracing-subscriber",
     version = "0.3.19",
-    features = ["json"],
 )
 crate.spec(
     package = "wasmtime",
@@ -278,7 +281,6 @@ oci.pull(
     image = "gcr.io/k8s-minikube/kicbase",
     platforms = ["linux/amd64"],
 )
-
 use_repo(
     oci,
     "distroless-base",

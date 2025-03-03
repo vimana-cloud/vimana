@@ -27,15 +27,23 @@ then
   exit 1
 fi
 
-# Path to minikube binary.
-minikube="$1"
+# Minikube is run through a wrapper (see `_minikube`).
+minikube_wrapper="$1"
+minikube_bin="$2"
+kubectl="$3"
 # Path to freshly-compiled `workd` binary.
-workd="$2"
-# Kicbase image name; probably `localhost:5000/kicbase-workd:latest`.
-image_name="$3"
+workd="$4"
+
+function _minikube {
+  # Very leaky abstraction :(
+  # but this seems to be the only way
+  # to get minikube to use the packaged kubectl binary.
+  # See `@rules_k8s//:minikube`.
+  "$minikube_wrapper" "$minikube_bin" "$kubectl" "$@"
+}
 
 # If minikube is not currently running, abort.
-"$minikube" status &>/dev/null || {
+_minikube status &>/dev/null || {
   echo >&2 -e "${red}Error$reset minikube is not running. Try ${bold}bazel run //dev/minikube:start$reset"
   exit 1
 }
