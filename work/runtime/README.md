@@ -62,36 +62,28 @@ first looking up the
 
 <!-- TODO: These traffic patterns are still conjecture. Confirm with e2e tests. -->
 
-```
-┌──────────────┐                                                         ┌─────┐
-│ Work Runtime │                                                         │ K8s │
-└┬─────────────┘                                                         └────┬┘
- │                                                                            │
- │ <━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ RunPodSandbox(metadata) ┥
- ├ Ok(pod-sandbox-id) ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄> │
- │                                                                            │
- │ <━━━━━━━━━━━━━━━━━━━━━━━━━ CreateContainer(pod-sandbox-id, component-name) ┥
- ├ Ok(container-id) ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄> │
- │                                                                            │
- │ <━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ StartContainer(container-id) ┥
- ├ Ok ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄> │
- │                                                                            │
- │                          Container is running...                           │
- │                                                                            │
- │ <━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ StopContainer(container-id) ┥
- ├ Ok ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄> │
- │                                                                            │
- │ <━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ RemoveContainer(container-id) ┥
- ├ Ok ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄> │
- │                                                                            │
- │ <━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ StopPodSandbox(pod-sandbox-id) ┥
- ├ Ok ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄> │
- │                                                                            │
- │ <━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ RemovePodSandbox(pod-sandbox-id) ┥
- └ Ok ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄> ┘
+```mermaid
+sequenceDiagram
+    kubelet ->> workd: RunPodSandbox(metadata)
+    workd -->> kubelet: Ok(pod-sandbox-id)
+    kubelet ->> workd: CreateContainer(pod-sandbox-id, component-name)
+    workd -->> kubelet: Ok(container-id)
+    kubelet ->> workd: StartContainer(container-id)
+    workd -->> kubelet: Ok
+    Note left of workd: Container is running …
+
+    kubelet ->> workd: StopContainer(container-id)
+    workd -->> kubelet: Ok
+    kubelet ->> workd: RemoveContainer(container-id)
+    workd -->> kubelet: Ok
+    kubelet ->> workd: StopPodSandbox(pod-sandbox-id)
+    workd -->> kubelet: Ok
+    kubelet ->> workd: RemovePodSandbox(pod-sandbox-id)
+    workd -->> kubelet: Ok
 ```
 
 ### Kubectl commands
 
-```
+```bash
 kubectl attach example.com:bar.FooService@1.2.3
+```
