@@ -16,167 +16,207 @@
   font-size: 16px;
   fill: #333;
 }
+
 @keyframes edge-animation-frame {
   from {
     stroke-dashoffset: 0;
   }
 }
+
 @keyframes dash {
   to {
     stroke-dashoffset: 0;
   }
 }
+
 .mermaid .edge-animation-slow {
   stroke-dasharray: 9, 5 !important;
   stroke-dashoffset: 900;
   animation: dash 50s linear infinite;
   stroke-linecap: round;
 }
+
 .mermaid .edge-animation-fast {
   stroke-dasharray: 9, 5 !important;
   stroke-dashoffset: 900;
   animation: dash 20s linear infinite;
   stroke-linecap: round;
 }
+
 .mermaid .error-icon {
   fill: #552222;
 }
+
 .mermaid .error-text {
   fill: #552222;
   stroke: #552222;
 }
+
 .mermaid .edge-thickness-normal {
   stroke-width: 1px;
 }
+
 .mermaid .edge-thickness-thick {
   stroke-width: 3.5px;
 }
+
 .mermaid .edge-pattern-solid {
   stroke-dasharray: 0;
 }
+
 .mermaid .edge-thickness-invisible {
   stroke-width: 0;
   fill: none;
 }
+
 .mermaid .edge-pattern-dashed {
   stroke-dasharray: 3;
 }
+
 .mermaid .edge-pattern-dotted {
   stroke-dasharray: 2;
 }
+
 .mermaid .marker {
   fill: #333333;
   stroke: #333333;
 }
+
 .mermaid .marker.cross {
   stroke: #333333;
 }
+
 .mermaid svg {
   font-family: "trebuchet ms", verdana, arial, sans-serif;
   font-size: 16px;
 }
+
 .mermaid p {
   margin: 0;
 }
+
 .mermaid .actor {
   stroke: hsl(259.6261682243, 59.7765363128%, 87.9019607843%);
   fill: #ececff;
 }
-.mermaid text.actor > tspan {
+
+.mermaid text.actor>tspan {
   fill: black;
   stroke: none;
 }
+
 .mermaid .actor-line {
   stroke: hsl(259.6261682243, 59.7765363128%, 87.9019607843%);
 }
+
 .mermaid .messageLine0 {
   stroke-width: 1.5;
   stroke-dasharray: none;
   stroke: #333;
 }
+
 .mermaid .messageLine1 {
   stroke-width: 1.5;
   stroke-dasharray: 2, 2;
   stroke: #333;
 }
+
 .mermaid #arrowhead path {
   fill: #333;
   stroke: #333;
 }
+
 .mermaid .sequenceNumber {
   fill: white;
 }
+
 .mermaid #sequencenumber {
   fill: #333;
 }
+
 .mermaid #crosshead path {
   fill: #333;
   stroke: #333;
 }
+
 .mermaid .messageText {
   fill: #333;
   stroke: none;
 }
+
 .mermaid .labelBox {
   stroke: hsl(259.6261682243, 59.7765363128%, 87.9019607843%);
   fill: #ececff;
 }
+
 .mermaid .labelText,
-.mermaid .labelText > tspan {
+.mermaid .labelText>tspan {
   fill: black;
   stroke: none;
 }
+
 .mermaid .loopText,
-.mermaid .loopText > tspan {
+.mermaid .loopText>tspan {
   fill: black;
   stroke: none;
 }
+
 .mermaid .loopLine {
   stroke-width: 2px;
   stroke-dasharray: 2, 2;
   stroke: hsl(259.6261682243, 59.7765363128%, 87.9019607843%);
   fill: hsl(259.6261682243, 59.7765363128%, 87.9019607843%);
 }
+
 .mermaid .note {
   stroke: #aaaa33;
   fill: #fff5ad;
 }
+
 .mermaid .noteText,
-.mermaid .noteText > tspan {
+.mermaid .noteText>tspan {
   fill: black;
   stroke: none;
 }
+
 .mermaid .activation0 {
   fill: #f4f4f4;
   stroke: #666;
 }
+
 .mermaid .activation1 {
   fill: #f4f4f4;
   stroke: #666;
 }
+
 .mermaid .activation2 {
   fill: #f4f4f4;
   stroke: #666;
 }
+
 .mermaid .actorPopupMenu {
   position: absolute;
 }
+
 .mermaid .actorPopupMenuPanel {
   position: absolute;
   fill: #ececff;
   box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
   filter: drop-shadow(3px 5px 2px rgb(0 0 0 / 0.4));
 }
+
 .mermaid .actor-man line {
   stroke: hsl(259.6261682243, 59.7765363128%, 87.9019607843%);
   fill: #ececff;
 }
+
 .mermaid .actor-man circle,
 .mermaid line {
   stroke: hsl(259.6261682243, 59.7765363128%, 87.9019607843%);
   fill: #ececff;
   stroke-width: 2px;
 }
+
 .mermaid :root {
   --mermaid-font-family: "trebuchet ms", verdana, arial, sans-serif;
 }
@@ -189,96 +229,122 @@
 .dark .mermaid {
   fill: #ccc;
 }
+
 .dark .mermaid .error-icon {
   fill: #a44141;
 }
+
 .dark .mermaid .error-text {
   fill: #ddd;
   stroke: #ddd;
 }
+
 .dark .mermaid .marker {
   fill: lightgrey;
   stroke: lightgrey;
 }
+
 .dark .mermaid .marker.cross {
   stroke: lightgrey;
 }
+
 .dark .mermaid .actor {
   stroke: #ccc;
   fill: #1f2020;
 }
-.dark .mermaid text.actor > tspan {
+
+.dark .mermaid text.actor>tspan {
   fill: lightgrey;
 }
+
 .dark .mermaid .actor-line {
   stroke: #ccc;
 }
+
 .dark .mermaid .messageLine0 {
   stroke: lightgrey;
 }
+
 .dark .mermaid .messageLine1 {
   stroke: lightgrey;
 }
+
 .dark .mermaid #arrowhead path {
   fill: lightgrey;
   stroke: lightgrey;
 }
+
 .dark .mermaid .sequenceNumber {
   fill: black;
 }
+
 .dark .mermaid #sequencenumber {
   fill: lightgrey;
 }
+
 .dark .mermaid #crosshead path {
   fill: lightgrey;
   stroke: lightgrey;
 }
+
 .dark .mermaid .messageText {
   fill: lightgrey;
 }
+
 .dark .mermaid .labelBox {
   stroke: #ccc;
   fill: #1f2020;
 }
+
 .dark .mermaid .labelText,
-.dark .mermaid .labelText > tspan {
+.dark .mermaid .labelText>tspan {
   fill: lightgrey;
 }
+
 .dark .mermaid .loopText,
-.dark .mermaid .loopText > tspan {
+.dark .mermaid .loopText>tspan {
   fill: lightgrey;
 }
+
 .dark .mermaid .loopLine {
   stroke: #ccc;
   fill: #ccc;
 }
+
 .dark .mermaid .note {
-  stroke: hsl(180, 0%, 18.3529411765%);
-  fill: hsl(180, 1.5873015873%, 28.3529411765%);
+  stroke: hsl(180, 0%, 28.3529411765%);
+  fill: hsl(180, 3.5873015873%, 18.3529411765%);
 }
+
 .dark .mermaid .noteText,
-.dark .mermaid .noteText > tspan {
-  fill: rgb(183.8476190475, 181.5523809523, 181.5523809523);
+.dark .mermaid .noteText>tspan {
+  fill: rgb(183.8476190475, 181.5523809523, 200.5523809523);
 }
+
 .dark .mermaid .activation0 {
   fill: hsl(180, 1.5873015873%, 28.3529411765%);
   stroke: #ccc;
 }
+
 .dark .mermaid .activation1 {
   fill: hsl(180, 1.5873015873%, 28.3529411765%);
   stroke: #ccc;
 }
+
 .dark .mermaid .activation2 {
   fill: hsl(180, 1.5873015873%, 28.3529411765%);
   stroke: #ccc;
 }
+
 .dark .mermaid .actorPopupMenuPanel {
   fill: #1f2020;
 }
+
 .dark .mermaid .actor-man line {
   stroke: #ccc;
   fill: #1f2020;
 }
+
 .dark .mermaid .actor-man circle,
 .dark .mermaid line {
   stroke: #ccc;
