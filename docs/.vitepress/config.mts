@@ -110,6 +110,57 @@ function generateSubSidebar(dirPrefix: string, mdFiles: string[], i: number) {
     return [index, results, i];
 }
 
+let mermaidCounter = 0;
+
+// Return a rendered Mermaid diagram as an SVG source.
+// The SVG is stripped of its theme style and wrapped in a `<div class="mermaid">.
+// On error, return a "danger" custom block with the error message.
+function renderMermaid(content: string): string {
+    // Use the CLI
+    // because calling an async function from sync code is even harder!
+    const result = spawnSync(
+        "mmdc",
+        [
+            "--input", "-",
+            "--output", "-",
+            "--outputFormat", "svg",
+            "--svgId", `mermaid-${mermaidCounter++}`,
+            "--backgroundColor", "transparent",
+        ],
+        { input: content },
+    );
+
+    if (result.status == 0) {
+        // Get rid of the generated style and use the global Mermaid style from `mermaid.css`.
+        // The global style responds to the light / dark toggle
+        // (and Vue gets angry about `<style>` tags in run-time-generated components anyway).
+        const svg = result.stdout.toString();
+        return `<div class="mermaid">${svg.replace(/<style>.*<\/style>/, "")}</div>`;
+    } else {
+        return mermaidError(result.stderr.toString());
+    }
+}
+
+const HTML_ESCAPES = {
+    "&": "&amp;",
+    "\"": "&quot;",
+    "'": "&apos;",
+    "<": "&lt;",
+    ">": "&gt;"
+};
+
+function mermaidError(error: string): string {
+    // Escape HTML special characters.
+    error = error.replace(/[&"'<>]/g, c => HTML_ESCAPES[c]);
+    return [
+        "<div class=\"danger custom-block\">",
+        "<p class=\"custom-block-title\">🧜‍♀️ Rendering Error</p>",
+        `<pre style="overflow-x:scroll">${error}</pre>`,
+        "</div>",
+    ].join("");
+}
+
+
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
     title: "Vimana Monorepo",
@@ -140,6 +191,11 @@ export default defineConfig({
     // Get rid of the `.html` suffix in URLs.
     cleanUrls: "without-subfolders",
 
+    head: [
+        // Global style for Mermaid diagrams that responds to the light / dark toggle.
+        ["link", { rel: "stylesheet", type: "text/css", href: "/mermaid.css" }],
+    ],
+
     markdown: {
         config: (md) => {
             const fence = md.renderer.rules.fence.bind(md.renderer.rules);
@@ -161,46 +217,3 @@ export default defineConfig({
         },
     },
 });
-
-let mermaidCounter = 0;
-
-function renderMermaid(content: string): string {
-    // Use the CLI
-    // because calling an async function from sync code is even harder!
-    const result = spawnSync(
-        "mmdc",
-        [
-            "--input", "-",
-            "--output", "-",
-            "--outputFormat", "svg",
-            "--svgId", `mermaid-${mermaidCounter++}`,
-        ],
-        { input: content },
-    );
-    if (result.status != 0) {
-        return mermaidError(result.stderr.toString());
-    }
-
-    const svg = result.stdout.toString();
-    // Replace `<style>` tags with `<svg:style>` otherwise Vue gets mad.
-    return svg.replace(/<(\/?)style>/g, "<$1svg:style>");
-}
-
-const HTML_ESCAPES = {
-    "&": "&amp;",
-    "\"": "&quot;",
-    "'": "&apos;",
-    "<": "&lt;",
-    ">": "&gt;"
-};
-
-function mermaidError(error: string): string {
-    // Escape HTML special characters.
-    error = error.replace(/[&"'<>]/g, c => HTML_ESCAPES[c]);
-    return [
-        "<div class=\"danger custom-block\">",
-        "<p class=\"custom-block-title\">🧜‍♀️ Rendering Error</p>",
-        `<pre style="overflow-x:scroll">${error}</pre>`,
-        "</div>",
-    ].join("");
-}
