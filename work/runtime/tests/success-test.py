@@ -1,13 +1,17 @@
+""" 'Happy path' unit tests. """
+
 from unittest import TestCase, main
+from ipaddress import IPv6Address, ip_address
 
 import grpc
 
-from work.runtime.tests.util import WorkdTester, findAvailablePort, hexUuid
+from work.runtime.tests.util import WorkdTester, ipHostName
 from work.runtime.tests.api_pb2 import (
     VersionRequest,
     RunPodSandboxRequest,
     PodSandboxConfig,
     PodSandboxMetadata,
+    PodSandboxStatusRequest,
     PortMapping,
     Protocol,
     CreateContainerRequest,
@@ -39,6 +43,9 @@ class SuccessTest(TestCase):
         # Shut down the various servers and subprocesses.
         cls.tester.__exit__(None, None, None)
 
+    def tearDown(self):
+        self.tester.printWorkdLogs(self)
+
     def test_Version(self):
         request = VersionRequest()
 
@@ -63,13 +70,12 @@ class SuccessTest(TestCase):
         self.assertTrue(response.pod_sandbox_id.startswith('O:'))
 
     def test_SimpleContainerLifecycle(self):
-        domain, service, version, componentName, labels = self.setupImage(
+        domain, service, version, componentName, labels = self.tester.setupImage(
             service = 'package.Serviss',
             version = '1.2.3-fureal',
             module = 'work/runtime/tests/components/adder-c.component.wasm',
             metadata = 'work/runtime/tests/components/adder.binpb',
         )
-        port = findAvailablePort()
 
         response = self.tester.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
@@ -82,11 +88,6 @@ class SuccessTest(TestCase):
                         attempt=6,
                     ),
                     hostname='simple-pod-hostname',
-                    port_mappings=[PortMapping(
-                        protocol=Protocol.TCP,
-                        container_port=443,
-                        host_port=port,
-                    )],
                     labels=labels,
                 ),
             ),
@@ -94,6 +95,12 @@ class SuccessTest(TestCase):
 
         podSandboxId = response.pod_sandbox_id
         self.assertTrue(podSandboxId.startswith('W:'))
+
+        response = self.tester.runtimeService.PodSandboxStatus(
+            PodSandboxStatusRequest(pod_sandbox_id=podSandboxId),
+        )
+
+        ipAddress = ip_address(response.status.network.ip)
 
         response = self.tester.runtimeService.CreateContainer(
             CreateContainerRequest(
@@ -121,7 +128,7 @@ class SuccessTest(TestCase):
         )
 
         # Finally, try exercising the data plane.
-        client = AdderServiceStub(grpc.insecure_channel(f'localhost:{port}'))
+        client = AdderServiceStub(grpc.insecure_channel(f'{ipHostName(ipAddress)}:80'))
         response = client.AddFloats(AddFloatsRequest(x=3.5, y=-1.2))
 
         self.assertEqual(response, AddFloatsResponse(result=2.3))
@@ -132,13 +139,12 @@ class SuccessTest(TestCase):
 
             # Set up 2 images ("foo" and "bar").
             # They share the same Wasm module, but have different pod sandbox / container metadata.
-            fooDomain, fooService, fooVersion, fooComponent, fooLabels = self.setupImage(
+            fooDomain, fooService, fooVersion, fooComponent, fooLabels = tester.setupImage(
                 service = 'foo.HelloWorld',
                 version = '0.0.0',
                 module = 'work/runtime/tests/components/adder-c.component.wasm',
                 metadata = 'work/runtime/tests/components/adder.binpb',
             )
-            fooPort = findAvailablePort()
             fooMetadata = PodSandboxMetadata(
                 name=f'{fooDomain}-name',
                 uid=f'{fooDomain}-uid',
@@ -151,23 +157,17 @@ class SuccessTest(TestCase):
                     config=PodSandboxConfig(
                         metadata=fooMetadata,
                         hostname='foobar',
-                        port_mappings=[PortMapping(
-                            protocol=Protocol.TCP,
-                            container_port=443,
-                            host_port=fooPort,
-                        )],
                         labels=fooLabels,
                     ),
                 ),
             ).pod_sandbox_id
 
-            barDomain, barService, barVersion, barComponent, barLabels = self.setupImage(
+            barDomain, barService, barVersion, barComponent, barLabels = tester.setupImage(
                 service = 'bar.GoodbyeWorld',
                 version = '6.6.6',
                 module = 'work/runtime/tests/components/adder-c.component.wasm',
                 metadata = 'work/runtime/tests/components/adder.binpb',
             )
-            barPort = findAvailablePort()
             barMetadata = PodSandboxMetadata(
                 name=f'{barDomain}-name',
                 uid=f'{barDomain}-uid',
@@ -180,11 +180,6 @@ class SuccessTest(TestCase):
                     config=PodSandboxConfig(
                         metadata=barMetadata,
                         hostname='barbar',
-                        port_mappings=[PortMapping(
-                            protocol=Protocol.TCP,
-                            container_port=443,
-                            host_port=barPort,
-                        )],
                         labels=barLabels,
                     ),
                 ),
@@ -266,13 +261,12 @@ class SuccessTest(TestCase):
             self.assertEqual(len(response.items), 0)
 
     def test_ContainerStatus(self):
-        domain, service, version, componentName, labels = self.setupImage(
+        domain, service, version, componentName, labels = self.tester.setupImage(
             service = 'some.Service',
             version = '1.2.3',
             module = 'work/runtime/tests/components/adder-c.component.wasm',
             metadata = 'work/runtime/tests/components/adder.binpb',
         )
-        port = findAvailablePort()
 
         response = self.tester.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
@@ -285,11 +279,6 @@ class SuccessTest(TestCase):
                         attempt=6,
                     ),
                     hostname='simple-pod-hostname',
-                    port_mappings=[PortMapping(
-                        protocol=Protocol.TCP,
-                        container_port=443,
-                        host_port=port,
-                    )],
                     labels=labels,
                 ),
             ),
@@ -344,18 +333,6 @@ class SuccessTest(TestCase):
         self.assertEqual(response.status.resources, ContainerResources())
         self.assertEqual(response.status.image_id, 'TODO')
         self.assertEqual(response.status.user, ContainerUser())
-
-    def setupImage(self, service, version, module, metadata):
-        """ Boilerplate to create consistent metadata with a random domain. """
-        domain = hexUuid()
-        componentName = f'{domain}:{service}@{version}'
-        labels = {
-            'vimana.host/domain': domain,
-            'vimana.host/service': service,
-            'vimana.host/version': version,
-        }
-        self.tester.pushImage(domain, service, version, module, metadata)
-        return (domain, service, version, componentName, labels)
 
 if __name__ == '__main__':
     main()

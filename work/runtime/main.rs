@@ -8,10 +8,12 @@
 //! - Unix `/run/vimana/workd.sock`
 //!   handles orchestration requests from Kubelet.
 #![feature(async_closure)]
+#![feature(anonymous_pipe)]
 
 mod containers;
 mod cri;
 mod host;
+mod ipam;
 mod pods;
 mod state;
 
@@ -61,6 +63,13 @@ struct Args {
     /// URL base of the container registry (scheme, host, optional port)
     /// for non-OCI containers.
     registry: String,
+
+    /// Name of the network interface to use (e.g. `eth0`).
+    network_interface: String,
+
+    /// Path to a CNI plugin binary to handle IPAM,
+    /// such as [`host-local`](https://www.cni.dev/plugins/current/ipam/host-local/).
+    ipam_plugin: String,
 
     /// Maximum size (in bytes, approximate) of the local in-memory cache
     /// for compiled containers.
@@ -117,6 +126,8 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         args.container_cache_max_capacity,
         oci_runtime_client,
         oci_image_client,
+        args.network_interface,
+        args.ipam_plugin,
         shutdown_rx.shared(),
     )?);
 

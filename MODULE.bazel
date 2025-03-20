@@ -27,15 +27,8 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "81fbd4121dd9bfa91adf1527265bdb6f39224366",
+    commit = "6c3b2f660858d64285696b660648a8b964084604",
     remote = "git@github.com:vimana-cloud/rules_k8s.git",
-)
-
-bazel_dep(name = "runtime-class-manager")
-git_override(
-    module_name = "runtime-class-manager",
-    commit = "c8afc93d6cabe4e0e9555a587e072b2f1fdc3bba",
-    remote = "git@github.com:vimana-cloud/runtime-class-manager.git",
 )
 
 # Register Protobuf toolchains.
@@ -176,6 +169,11 @@ crate.spec(
 crate.spec(
     package = "serde",
     version = "1.0.217",
+)
+crate.spec(
+    features = ["std"],
+    package = "serde_json",
+    version = "1.0.140",
 )
 crate.spec(
     features = [

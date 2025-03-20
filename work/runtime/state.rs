@@ -1,12 +1,12 @@
 //! State machine used by the CRI service to manage pods.
 
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use futures::future::Shared;
 use papaya::{Compute, HashMap as LockFreeConcurrentHashMap, Operation};
@@ -20,7 +20,8 @@ use tonic::transport::{Error as ServerError, Server};
 use tonic::Status;
 use wasmtime::{Config as WasmConfig, Engine as WasmEngine, Error as WasmError};
 
-use crate::pods::{PodFuture, PodInitializer};
+use crate::ipam::{ActiveIpAddress, Ipam};
+use crate::pods::{PodInitializer, SharedResultFuture, GRPC_PORT};
 use api_proto::runtime::v1::image_service_client::ImageServiceClient;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::{
@@ -46,8 +47,15 @@ pub(crate) struct WorkRuntime {
     /// which can then be loaded into pods.
     pod_store: PodInitializer,
 
-    /// Data-place servers should start gracefully shutting down
+    /// IP address management system.
+    ipam: Ipam,
+
+    /// Name of the network interface to use (e.g. `eth0`).
+    network_interface: String,
+
+    /// All data-place servers should start gracefully shutting down
     /// upon completion of this shareable future.
+    /// Individual pods can be shut down with their [killer](ContainerKiller).
     shutdown: Shared<oneshot::Receiver<()>>,
 
     /// Client to a downstream OCI container runtime (e.g. containerd or cri-o)
@@ -97,15 +105,15 @@ pub(crate) struct Pod {
     /// Current state of the pod.
     pub(crate) state: PodState,
 
-    /// Port that the pod should listen on for the gRPC server.
-    grpc_port: u16,
+    /// Pod IP address.
+    pub(crate) ip_address: ActiveIpAddress,
 
     /// Canonical name of the component that will run in this pod (used for logs).
     pub(crate) component_name: Arc<ComponentName>,
 
     /// Axum router implementing the pod.
     /// Starts initializing as soon as possible.
-    routes: PodFuture<Arc<Routes>>,
+    routes: SharedResultFuture<Arc<Routes>>,
 
     /// K8s metadata. Must be returned as-is for status requests.
     pub(crate) pod_sandbox_metadata: PodSandboxMetadata,
@@ -139,7 +147,7 @@ pub(crate) struct Pod {
     /// Start timestamp of the container in nanoseconds. Must be > 0.
     pub(crate) container_started_at: i64,
 
-    /// Shuts down the running container.
+    /// Shuts down the running container, either the easy way or the hard way.
     killer: Option<Arc<ContainerKiller>>,
 
     // --------------------------------
@@ -167,15 +175,24 @@ impl WorkRuntime {
         max_container_cache_capacity: u64,
         oci_runtime: RuntimeServiceClient<Channel>,
         oci_image: ImageServiceClient<Channel>,
+        network_interface: String,
+        ipam_path: String,
         shutdown: Shared<oneshot::Receiver<()>>,
     ) -> StdResult<Self, WasmError> {
         let wasmtime = Self::default_engine()?;
         let pod_store = PodInitializer::new(registry, max_container_cache_capacity, &wasmtime);
+        // `fc00::/7` is the entire private address block for IPv6, analogous to `10.0.0.0/8` for IPv4.
+        // TODO: Ensure each node uses a non-overlapping block,
+        //   e.g. `fc00::0001/32`, `fc00::0002/32`, etc. for nodes 1, 2, etc.
+        //   That means figuring out how to get a unique ID for each node.
+        let pod_cidr = "fc00::/7";
         Ok(Self {
             wasmtime,
             pods: LockFreeConcurrentHashMap::new(),
             next_pod_id: AtomicUsize::new(0),
             pod_store,
+            ipam: Ipam::host_local(ipam_path, pod_cidr),
+            network_interface,
             shutdown,
             oci_runtime: AsyncMutex::new(oci_runtime),
             oci_image: AsyncMutex::new(oci_image),
@@ -206,26 +223,41 @@ impl WorkRuntime {
     ///
     /// A pod does not serve gRPC traffic until the container is [created](Self::create_container)
     /// and then [started](Self::start_container) therein.
-    pub(crate) fn init_pod(
+    pub(crate) async fn init_pod(
         &self,
         component_name: ComponentName,
-        grpc_port: u16,
         pod_sandbox_metadata: PodSandboxMetadata,
         labels: HashMap<String, String>,
         annotations: HashMap<String, String>,
-    ) -> Result<PodId> {
+    ) -> Result<PodName> {
+        // TODO: Does the pod ID have to be unique within a node, or across all nodes?
+        //   if the latter, figure out how to get a unique node ID involved somehow.
+        let pod_id = self.next_pod_id.fetch_add(1, Ordering::Relaxed);
+        let pod_name = PodName::new(component_name.clone(), pod_id);
         let component_name = Arc::new(component_name);
-        let routes = self.pod_store.grpc(&self.wasmtime, component_name.clone());
-        let pod_created_at = now();
+
+        // Start initializing the pod immediately in a background task.
+        let (routes, abort_routes) = self.pod_store.grpc(&self.wasmtime, component_name.clone());
+
+        // TODO: This blocks. Can it not?
+        let ip_address = self
+            .ipam
+            .address(&pod_name)
+            .and_then(|allocated| allocated.add(&self.network_interface))
+            .map_err(|error| {
+                abort_routes.abort();
+                error
+            })?;
+
         let pod = Pod {
             state: PodState::Initiated,
-            grpc_port,
+            ip_address,
             component_name,
             routes,
             pod_sandbox_metadata,
             labels,
             annotations,
-            pod_created_at,
+            pod_created_at: now(),
             // These are set at later states:
             container_created_at: 0,
             container_metadata: None,
@@ -235,10 +267,9 @@ impl WorkRuntime {
             container_finished_at: 0,
         };
 
-        let pod_id = self.next_pod_id.fetch_add(1, Ordering::Relaxed);
         let pods = self.pods.pin();
         match pods.try_insert(pod_id, pod) {
-            Ok(_) => Ok(pod_id),
+            Ok(_) => Ok(pod_name),
             Err(_) => {
                 // Impossible unless the number of pods overflows `usize`.
                 Err(Status::internal("pod-id-in-use"))
@@ -307,10 +338,15 @@ impl WorkRuntime {
     /// then spawn the background task to run the server,
     /// then convert it to a [running](PodState::Running) controller
     /// (to mark it as complete).
+    ///
+    /// Upon successful completion, return `Ok(None)`.
+    /// If the pod is still initializing, return `Ok(Some(<future>))`.
+    /// The caller can await the future, which is cheaply cloneable, before trying again.
+    /// This allows us to implement this function non-asynchronously.
     pub(crate) fn start_container(
         &self,
         pod_name: PodName,
-    ) -> Result<Option<PodFuture<Arc<Routes>>>> {
+    ) -> Result<Option<SharedResultFuture<Arc<Routes>>>> {
         let pods = self.pods.pin();
         // Optimistically try to update the state assuming the pod is finished initializing.
         match pods.compute(pod_name.pod, |entry| match entry {
@@ -362,15 +398,14 @@ impl WorkRuntime {
                 debug_assert!(pod.state == PodState::Starting);
                 let routes = pod.routes.peek().clone().unwrap().clone().unwrap();
 
-                // Always listen on address 127.0.0.1.
-                let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), pod.grpc_port);
+                let address = SocketAddr::new(pod.ip_address.allocated.address, GRPC_PORT);
                 // TODO: Revisit implications of nodelay.
                 let nodelay = true;
                 // TODO: Revisit implications of keepalive.
                 let keepalive = None;
 
                 // Synchronously bind to the port so errors can be handled immediately.
-                TcpIncoming::new(addr, nodelay, keepalive).map_or_else(
+                TcpIncoming::new(address, nodelay, keepalive).map_or_else(
                     |err| {
                         // "Unlock" the state machine "mutex" by setting the state back to `Created`
                         // before returning any error.
@@ -519,20 +554,20 @@ impl WorkRuntime {
 /// See [`start_container`](WorkRuntime::start_container).
 enum StartContainerAbort {
     /// Pod is still initializing asynchronously.
-    Waiting(PodFuture<Arc<Routes>>),
+    Waiting(SharedResultFuture<Arc<Routes>>),
     /// There was a problem.
     Error(Status),
     /// Support idempotency if the pod is already started.
     Done,
 }
 
-// Return non-leap nanoseconds since 1970-01-01 as i64.
-// Panic if this code runs before 1970.
+// Return non-leap nanoseconds since 1970-01-01 00:00:00 UTC+0 as `i64`.
+// Return zero if executed before 1970.
 // May wrap around in 2262.
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     (SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or(Duration::ZERO)
         .as_nanos() as u64
         % (i64::MAX as u64)) as i64
 }

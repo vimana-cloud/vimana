@@ -12,6 +12,11 @@ py_test(
     ],
     # Verbosely log wasmtime errors.
     env = {"WASMTIME_BACKTRACE_DETAILS": "1"},
+    tags = [
+        # https://github.com/bazelbuild/bazel/discussions/25543
+        "block-network",
+        "requires-fakeroot",
+    ],
     deps = [
         ":cri-api-py-pb2",
         ":util",
@@ -24,15 +29,19 @@ py_library(
     name = "util",
     srcs = ["util.py"],
     data = [
+        ":ipam",
         "//work/runtime:workd",
         "@rules_k8s//:vimana-push",
     ],
     deps = [
         ":cri-api-py-grpc",
         ":cri-api-py-pb2",
-        "@pypi//docker",
-        "@pypi//requests",
     ],
+)
+
+py_binary(
+    name = "ipam",
+    srcs = ["ipam.py"],
 )
 
 py_proto_library(

@@ -1,23 +1,31 @@
+""" Test harness and helper functions for the work runtime. """
+
+from collections import defaultdict
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta
-from os import system
+from hashlib import sha256
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from ipaddress import IPv4Address, IPv6Address
+from itertools import chain
+from json import loads as parseJson
 from os.path import exists
 from queue import Queue, Empty, ShutDown
 from random import randrange
+from re import Match, compile as compileRegex
 from subprocess import Popen, PIPE
 from socket import socket, AF_INET, SOCK_STREAM
+from sys import stderr
 from tempfile import NamedTemporaryFile
 from threading  import Thread
-from typing import TextIO
+from typing import Any, TextIO
 from time import sleep
+from unittest import TestCase
 from uuid import uuid4
 
-import docker
-from docker.models.containers import Container as DockerContainer
 import grpc
-import requests
 
 from work.runtime.tests.api_pb2_grpc import (
     ImageServiceServicer, ImageServiceStub,
@@ -64,41 +72,68 @@ from work.runtime.tests.api_pb2 import (
 
 # Path to the `workd` binary in the runfiles.
 _workd_path = 'work/runtime/workd'
+# Path to the `host-local` IPAM emulator.
+_ipam_path = 'work/runtime/tests/ipam'
 # Path to the `vimana-push` binary which uploads Wasm containers to the registry.
 _vimana_push_path = '../rules_k8s+/vimana-push'
+
+# Generally wait up to 5 seconds for things to happen asynchronously.
+_timeout = timedelta(seconds=5)
 
 class WorkdTester:
     """ Manager for the system under test.
 
-    Fires up a real `workd` server
-    hooked up to the [reference container registry](https://hub.docker.com/_/registry)
-    and a fake OCI runtime,
-    and provides clients to communicate with it.
+    Fires up a real `workd` server hooked up to dependencies:
+    - A mock container image registry
+      that should act like the [reference implementation](https://hub.docker.com/_/registry).
+    - A fake OCI runtime that does nothing.
+    - An emulator for the host-local IPAM plugin.
+
+    Also provides clients to communicate with the `workd` server.
     """
 
     def __init__(self):
         # Fire up an image registry, OCI runtime, and workd instance and wire them up.
         self._imageRegistry, self._imageRegistryPort = startImageRegistry()
-        self._ociRuntime, ociSocket = startOciRuntime()
-
-        # Wait for both the image registry and oci runtime to become connectable
-        # before starting workd.
-        _waitFor(lambda: not _isPortAvailable(self._imageRegistryPort) and exists(ociSocket))
-        self._workd, self._workdSocket = startWorkd(ociSocket, self._imageRegistryPort)
-
-        # We need a separate thread just to collect the logs:
-        # https://stackoverflow.com/a/4896288/5712883.
-        self._workdLogQueue = Queue()
-        logThread = Thread(target=_collectLogs, args=(self._workd.stdout, self._workdLogQueue))
-        logThread.daemon = True  # Shut down the thread along with the parent process.
-        logThread.start()
-
-        # Wait for workd to become connectable before opening client channels.
-        _waitFor(lambda: exists(self._workdSocket))
-        self._runtimeChannel = self._channel()
-        self._imageChannel = self._channel()
-        self.runtimeService = RuntimeServiceStub(self._runtimeChannel)
-        self.imageService = ImageServiceStub(self._imageChannel)
+        try:
+            # Start a fake downstream OCI runtime (normally, this would be containerd).
+            self._ociRuntime, ociSocket = startOciRuntime()
+            try:
+                # Wait for both the image registry and oci runtime to become connectable
+                # before starting workd.
+                _waitFor(
+                    lambda: exists(ociSocket) and not _isPortAvailable(self._imageRegistryPort),
+                )
+                self._workd, self._workdSocket = startWorkd(ociSocket, self._imageRegistryPort)
+                try:
+                    # We need a separate thread just to collect the logs:
+                    # https://stackoverflow.com/a/4896288/5712883.
+                    self._workdLogQueue = Queue()
+                    Thread(
+                        target=_collectLogs,
+                        args=(self._workd.stdout, self._workdLogQueue),
+                        daemon=True,  # Shut down the thread if the parent process exits.
+                    ).start()
+                    try:
+                        # Wait for workd to become connectable before opening client channels.
+                        _waitFor(lambda: exists(self._workdSocket))
+                        self._runtimeChannel = self._channel()
+                        self._imageChannel = self._channel()
+                        self.runtimeService = RuntimeServiceStub(self._runtimeChannel)
+                        self.imageService = ImageServiceStub(self._imageChannel)
+                    except:
+                        self._workdLogQueue.shutdown()
+                        raise
+                except:
+                    self._workd.terminate()
+                    self._workd.wait(_timeout.seconds)
+                    raise
+            except:
+                self._ociRuntime.stop(_timeout.seconds)
+                raise
+        except:
+            self._imageRegistry.server_close()
+            raise
 
     def _channel(self):
         # Set authority: https://github.com/grpc/grpc/issues/34305.
@@ -117,26 +152,25 @@ class WorkdTester:
         finally:
             try:
                 self._workd.terminate()
-                self._workd.wait(5)
+                self._workd.wait(_timeout.seconds)
             finally:
                 try:
-                    self._imageRegistry.stop()
-                    self._imageRegistry.wait(timeout=5)
+                    self._imageRegistry.server_close()
                 finally:
                     try:
-                        self._ociRuntime.stop(5)
+                        self._ociRuntime.stop(_timeout.seconds)
                     finally:
                         self._workdLogQueue.shutdown()
 
-    def pushImage(self, domain: str, service: str, version: str, component: str, metadata: str):
+    def pushImage(self, domain: str, service: str, version: str, module: str, metadata: str):
         """ Push a Vimana Wasm "container" image to the running container registry
 
         Args:
-            domain:     e.g. `1234567890abcdef1234567890abcdef`
-            service:    e.g. `some.package.FooService`
-            version:    e.g. `1.0.0-release`
-            component:  Path to compiled Wasm component byte code file.
-            metadata:   Path to serialized gRPC service metadata file.
+            domain:    e.g. `1234567890abcdef1234567890abcdef`
+            service:   e.g. `some.package.FooService`
+            version:   e.g. `1.0.0-release`
+            module:    Path to compiled Wasm component byte code file.
+            metadata:  Path to serialized gRPC service metadata file.
         """
         command = [
             _vimana_push_path,
@@ -144,12 +178,24 @@ class WorkdTester:
             domain,
             service,
             version,
-            component,
+            module,
             metadata,
         ]
-        status = system(' '.join(map(_bashQuote, command)))
+        status = Popen(command).wait(_timeout.seconds)
         if status != 0:
             raise RuntimeError(f'Failed to push image (status={status}).')
+
+    def setupImage(self, service: str, version: str, module: str, metadata: str):
+        """ Boilerplate to create consistent metadata with a random domain. """
+        domain = hexUuid()
+        componentName = f'{domain}:{service}@{version}'
+        labels = {
+            'vimana.host/domain': domain,
+            'vimana.host/service': service,
+            'vimana.host/version': version,
+        }
+        self.pushImage(domain, service, version, module, metadata)
+        return (domain, service, version, componentName, labels)
 
     def workdLogs(self) -> list[str]:
         """
@@ -166,6 +212,15 @@ class WorkdTester:
             except (Empty, ShutDown):
                 return logs
 
+    def printWorkdLogs(self, testCase: TestCase):
+        """ Print collected workd logs to standard error, if there are any. """
+        logs = self.workdLogs()
+        if len(logs) > 0:
+            testName = testCase.id().split('.')[-1]
+            header = f'\nWorkd logs for {testName}:\n'
+            message = '> '.join(chain((header,), logs))
+            print(message, file=stderr)
+
 def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int) -> tuple[Popen, str]:
     """ Start a background process running the work node daemon.
 
@@ -173,31 +228,27 @@ def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int) -> tuple[Popen, st
     """
     socket = _tmpName()
     registry = f'http://localhost:{imageRegistryPort}'
+    networkInterface = 'lo'  # Loopback device.
     process = Popen(
-        [_workd_path, socket, ociRuntimeSocket, registry],
+        [_workd_path, socket, ociRuntimeSocket, registry, networkInterface, _ipam_path],
         # Open a line-buffered text-mode pipe for stdout
-        # and convert all CR/LF sequences to just LF.
+        # and convert all CR/LF sequences to plain LF.
         stdout=PIPE, text=True, bufsize=1,
     )
     return (process, socket)
 
-def startImageRegistry() -> tuple[DockerContainer, int]:
-    """ Start a docker container running the reference image registry implementation.
+def startImageRegistry() -> tuple[HTTPServer, int]:
+    """ Start a mock container image registry on some available port.
 
-    Return the running container handler and the port number where it's listening.
+    Return the running server and the port number where it's listening.
     """
-    try:
-        containers = docker.from_env().containers
-    except docker.errors.DockerException as error:
-        raise RuntimeError('Failed to connect to Docker daemon. Is Docker running?') from error
-
-    port = findAvailablePort()
-    container = containers.run(
-        'registry:latest',
-        ports={'5000/tcp': port},
-        detach=True,
-    )
-    return (container, port)
+    port = _findAvailablePort()
+    server = MockImageRegistryServer(port)
+    Thread(
+        target=server.serve_forever,
+        daemon=True,  # Shut down the thread if the parent process exits.
+    ).start()
+    return (server, port)
 
 def startOciRuntime() -> tuple[grpc.Server, str]:
     """ Start a background process running a "fake" OCI container runtime.
@@ -212,7 +263,17 @@ def startOciRuntime() -> tuple[grpc.Server, str]:
     server.start()
     return (server, socket)
 
-def findAvailablePort(attempts: int = 5) -> int:
+def hexUuid() -> str:
+    return uuid4().hex
+
+def ipHostName(address: IPv4Address | IPv6Address) -> str:
+    """ Return an IP address in a string form that can be used as a hostname.
+
+    IPv6 addresses must be wrapped in square brackets.
+    """
+    return f'[{address}]' if isinstance(address, IPv6Address) else str(address)
+
+def _findAvailablePort(attempts: int = 5) -> int:
     """ Find an available TCP port by random probing. """
     for i in range(attempts):
         # Pick a random port in the ephemeral range: [49152–65536).
@@ -241,11 +302,11 @@ def _isPortAvailable(port: int) -> bool:
             return True
     return False
 
-def _waitFor(predicate: Callable[[], bool], timeout: timedelta = timedelta(seconds=5)):
+def _waitFor(predicate: Callable[[], bool]):
     start = datetime.now()
     while not predicate():
-        if datetime.now() - start > timeout:
-            raise RuntimeError('Timed out waiting for condition')
+        if datetime.now() - start > _timeout:
+            raise RuntimeError('Timed out polling for condition')
         sleep(1 / 32)  # ~30ms
 
 def _readFile(path: str) -> bytes:
@@ -259,11 +320,145 @@ def _tmpName() -> str:
     f.close()  # Delete the file.
     return name
 
-def _bashQuote(word: str) -> str:
-    return f"'{word.replace("'", "'\"'\"'")}'"
+# Regular expressions used by the mock image registry.
+# A real registry would support multiple digest algorithms,
+# but the mock registry currently only supports SHA-256 for simplicity.
+# Also leverage the knowledge that mock registry upload IDs are simply 36-character UUIDs.
+_postBlobPath = compileRegex(r'^/v2/(.+)/blobs/uploads/$')
+_putBlobPath = compileRegex(r'^/v2/(.+)/blobs/uploads/([-0-9a-f]{36})\?digest=sha256:([0-9a-f]{64})$')
+_getBlobPath = compileRegex(r'^/v2/(.+)/blobs/sha256:([0-9a-f]{64})$')
+_manifestPath = compileRegex(r'^/v2/(.+)/manifests/([^/]+)$')
 
-def hexUuid() -> str:
-    return uuid4().hex
+# MIME types:
+OCTET_STREAM_MIME_TYPE = 'application/octet-stream'
+IMAGE_MANIFEST_MIME_TYPE = 'application/vnd.oci.image.manifest.v1+json'
+IMAGE_CONFIG_MIME_TYPE = 'application/vnd.oci.image.config.v1+json'
+WASM_MIME_TYPE = 'application/wasm'
+PROTOBUF_MIME_TYPE = 'application/protobuf'
+
+class MockImageRegistryServer(HTTPServer):
+    def __init__(self, port):
+        self.nameToUploadIds = defaultdict(set)
+        self.nameToHashToBlob = defaultdict(dict)
+        self.nameToReferenceToManifest = defaultdict(dict)
+        super().__init__(('localhost', port), MockImageRegistryHandler)
+
+class MockImageRegistryHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        # Initiates an upload.
+        if path := _postBlobPath.match(self.path):
+            name = path.group(1)
+            uploadId = str(uuid4())
+
+            self.server.nameToUploadIds[name].add(uploadId)
+
+            self.send_response(HTTPStatus.ACCEPTED.value)
+            self.send_header('Location', f'/v2/{name}/blobs/uploads/{uploadId}')
+            self.end_headers()
+
+        else:
+            self.send_error(HTTPStatus.BAD_REQUEST.value, message='invalid URL')
+
+    def do_PUT(self):
+        # Uploads actual data (either a blob or a manifest).
+        if path := _putBlobPath.match(self.path):
+            name = path.group(1)
+            uploadId = path.group(2)
+            blobSha256 = path.group(3)
+            contentLength = int(self.headers['Content-Length'])
+            blob = self.rfile.read(contentLength)
+
+            if self.headers['Content-Type'] != OCTET_STREAM_MIME_TYPE:
+                self.send_error(HTTPStatus.BAD_REQUEST.value, message='bad content type')
+                return
+            if _sha256(blob) != blobSha256:
+                self.send_error(HTTPStatus.BAD_REQUEST.value, message='bad digest')
+                return
+            if uploadId not in self.server.nameToUploadIds[name]:
+                self.send_error(HTTPStatus.NOT_FOUND.value)
+                return
+
+            self.server.nameToUploadIds[name].remove(uploadId)
+            self.server.nameToHashToBlob[name][blobSha256] = blob
+
+            self.send_response(HTTPStatus.CREATED.value)
+            self.send_header('Location', f'/v2/{name}/blobs/sha256:{blobSha256}')
+            self.end_headers()
+
+        elif path := _manifestPath.match(self.path):
+            name = path.group(1)
+            reference = path.group(2)
+            contentLength = int(self.headers['Content-Length'])
+            manifestBytes = self.rfile.read(contentLength)
+
+            if self.headers['Content-Type'] != IMAGE_MANIFEST_MIME_TYPE:
+                self.send_error(HTTPStatus.BAD_REQUEST.value, message='bad content type')
+                return
+            manifest = parseJson(manifestBytes)
+            manifestConditions = [
+                manifest['schemaVersion'] == 2,
+                self._validateDescriptor(name, manifest['config'], IMAGE_CONFIG_MIME_TYPE),
+                len(manifest['layers']) == 2,
+                self._validateDescriptor(name, manifest['layers'][0], WASM_MIME_TYPE),
+                self._validateDescriptor(name, manifest['layers'][1], PROTOBUF_MIME_TYPE),
+            ]
+            if not all(manifestConditions):
+                self.send_error(HTTPStatus.BAD_REQUEST.value, message='bad manifest')
+                return
+
+            self.server.nameToReferenceToManifest[name][reference] = manifestBytes
+
+            self.send_response(HTTPStatus.CREATED.value)
+            self.send_header('Location', f'/v2/{name}/manifests/sha256:{_sha256(manifestBytes)}')
+            self.end_headers()
+
+        else:
+            self.send_error(HTTPStatus.BAD_REQUEST.value, message='invalid URL')
+
+    def _validateDescriptor(self, name: str, descriptor: dict[str, Any], mediaType: str) -> bool:
+        """ Validate a [descriptor][https://specs.opencontainers.org/image-spec/descriptor/].
+
+        Check that the media types equals the expected value,
+        and that the blob it refers to by digest exists under the given name,
+        with the correct size.
+        """
+        # Remove the digest prefix to look it up in the map.
+        blobSha256 = descriptor['digest'][len('sha256:'):]
+        blob = self.server.nameToHashToBlob[name][blobSha256]
+        return isinstance(blob, bytes) \
+            and descriptor['mediaType'] == mediaType \
+            and descriptor['size'] == len(blob)
+
+    def do_GET(self):
+        # Retrieve either a blob or a manifest.
+        if path := _getBlobPath.match(self.path):
+            self._getBoilerplate(path, self.server.nameToHashToBlob)
+        elif path := _manifestPath.match(self.path):
+            self._getBoilerplate(path, self.server.nameToReferenceToManifest)
+        else:
+            self.send_error(HTTPStatus.BAD_REQUEST.value, message='invalid URL')
+
+    def _getBoilerplate(self, path: Match, table: dict[str, dict[str, bytes]]):
+        """ Common logic shared between blob-fetching and manifest-fetching. """
+        name = path.group(1)
+        digestOrReference = path.group(2)
+
+        if digestOrReference not in table[name]:
+            self.send_error(HTTPStatus.NOT_FOUND.value)
+            return
+        blobOrManifest = table[name][digestOrReference]
+
+        self.send_response(HTTPStatus.OK.value)
+        self.end_headers()
+        self.wfile.write(blobOrManifest)
+
+    def log_message(self, format, *args):
+        pass  # Don't clutter up standard error.
+
+def _sha256(data: bytes) -> str:
+    hasher = sha256()
+    hasher.update(data)
+    return hasher.hexdigest()
 
 class FakeRuntimeService(RuntimeServiceServicer):
     """ Fake implementation of the CRI API's `RuntimeService` that does nothing. """

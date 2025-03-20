@@ -26,7 +26,7 @@ use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_server::ImageService;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
 
-use crate::state::{Pod, PodState};
+use crate::state::{now, Pod, PodState};
 use crate::WorkRuntime;
 use error::Result;
 use names::{ComponentName, DomainUuid, Name, PodName};
@@ -44,10 +44,6 @@ const CONTAINER_RUNTIME_API_VERSION: &str = "v1";
 const OCI_PREFIX: &str = "O:";
 /// Prefix used to differentiate Vimana pods / containers.
 const WORKD_PREFIX: &str = "W:";
-
-/// gRPC pods should always use the default HTTPS port (443)
-/// for the "internal" side of their port mapping.
-const GRPC_INTERNAL_PORT: i32 = 443;
 
 // These labels must be present on every pod and container using the Vimana handler.
 const LABEL_DOMAIN_KEY: &str = "vimana.host/domain";
@@ -155,40 +151,29 @@ impl RuntimeService for VimanaCriService {
                 .map(map_oci_prefix!(pod_sandbox_id));
         }
 
-        let mut config = request.config.unwrap_or_default();
+        let config = request.config.unwrap_or_default();
         let component = component_name_from_labels(&config.labels)?;
 
         // Check that the request fits into Vimana's narrow vision of validity
         // for the sake of preventing unexpected behavior.
-        if config.port_mappings.len() != 1 {
-            // All gRPC pods are expected to have exactly one single port mapping.
+        if !config.port_mappings.is_empty() {
+            // gRPC pods are never expected to have a port mapping.
             return Err(Status::invalid_argument("grpc-port-mappings"));
         }
-        let port_mapping = config.port_mappings.pop().unwrap();
-        if port_mapping.protocol != v1::Protocol::Tcp as i32 {
-            // That port must use TCP.
-            return Err(Status::invalid_argument("grpc-port-protocol"));
-        }
-        if port_mapping.container_port != GRPC_INTERNAL_PORT {
-            // The "internal" container port number should be 443.
-            return Err(Status::invalid_argument("grpc-port-internal"));
-        }
-        if port_mapping.host_port <= 0 || port_mapping.host_port > u16::MAX as i32 {
-            // The "external" host port number must be some positive 16-bit unsigned integer.
-            return Err(Status::invalid_argument("grpc-port-external"));
-        }
 
-        let pod_id = self.0.init_pod(
-            component.clone(),
-            port_mapping.host_port as u16,
-            config.metadata.unwrap_or_default(),
-            config.labels,
-            config.annotations,
-        )?;
+        let pod_name = self
+            .0
+            .init_pod(
+                component,
+                config.metadata.unwrap_or_default(),
+                config.labels,
+                config.annotations,
+            )
+            .await?;
 
         Ok(Response::new(v1::RunPodSandboxResponse {
             // Prefix the ID so we can distinguish it from downstream OCI pod IDs.
-            pod_sandbox_id: workd_prefix(&PodName::new(component, pod_id)),
+            pod_sandbox_id: workd_prefix(&pod_name),
         }))
     }
 
@@ -248,7 +233,32 @@ impl RuntimeService for VimanaCriService {
                 .map(map_oci_prefix!(status, id))
         });
 
-        todo!()
+        if request.pod_sandbox_id.starts_with(WORKD_PREFIX) {
+            let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
+            let mut pod_sandbox_status = Vec::with_capacity(1);
+            self.0.get_pod(
+                &pod_name,
+                &None,
+                &Vec::default(),
+                &cri_pod_sandbox_status,
+                &mut pod_sandbox_status,
+            );
+            let timestamp = now();
+            pod_sandbox_status.pop().map_or(
+                Err(Status::not_found("pod-sandbox-not-found")),
+                |(pod_status, container_statuses)| {
+                    Ok(Response::new(v1::PodSandboxStatusResponse {
+                        status: Some(pod_status),
+                        info: HashMap::default(),
+                        containers_statuses: container_statuses,
+                        timestamp,
+                    }))
+                },
+            )
+        } else {
+            // The pod sandbox ID lacked either the `W:` prefix or the `O:` prefix.
+            Err(Status::not_found("pod-sandbox-id-missing-prefix"))
+        }
     }
 
     async fn list_pod_sandbox(
@@ -435,7 +445,8 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("ListContainers", &request);
 
-        // If there's a filter ID for a given runtime, use it.
+        // If there's a filter ID with a runtime prefix,
+        // use it to eliminate like half the work.
         if let Some(ref mut filter) = &mut request.filter {
             if filter.id.starts_with(OCI_PREFIX) {
                 filter.id = String::from(&filter.id[OCI_PREFIX.len()..]);
@@ -484,7 +495,7 @@ impl RuntimeService for VimanaCriService {
             self.0.get_pod(
                 &pod_name,
                 &None,
-                &Vec::new(),
+                &Vec::default(),
                 &cri_container_status,
                 &mut container_status,
             );
@@ -1017,6 +1028,39 @@ fn cri_pod_sandbox(name: &PodName, pod: &Pod) -> v1::PodSandbox {
         labels: pod.labels.clone(),
         annotations: pod.annotations.clone(),
     }
+}
+
+/// Convert the internal pod to a CRI-API [v1::PodSandboxStatus] to return in `PodSandboxStatus`.
+/// Also return the container status, if there is one
+/// (as either an empty vector or a singleton vector).
+fn cri_pod_sandbox_status(
+    name: &PodName,
+    pod: &Pod,
+) -> (v1::PodSandboxStatus, Vec<v1::ContainerStatus>) {
+    (
+        v1::PodSandboxStatus {
+            id: workd_prefix(name),
+            metadata: Some(pod.pod_sandbox_metadata.clone()),
+            state: v1::PodSandboxState::SandboxReady as i32,
+            created_at: pod.pod_created_at,
+            network: Some(v1::PodSandboxNetworkStatus {
+                ip: pod.ip_address.allocated.address.to_string(),
+                additional_ips: Vec::default(),
+            }),
+            linux: None,
+            labels: pod.labels.clone(),
+            annotations: pod.annotations.clone(),
+            runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
+        },
+        match pod.state {
+            PodState::Initiated => Vec::default(),
+            PodState::Created
+            | PodState::Starting
+            | PodState::Running
+            | PodState::Stopped
+            | PodState::Removed => vec![cri_container_status(name, pod)],
+        },
+    )
 }
 
 /// Convert the internal pod to a CRI-API [v1::ContainerStatus] to return in `ContainerStatus`.

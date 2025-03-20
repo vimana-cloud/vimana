@@ -10,7 +10,7 @@ use axum::routing::method_routing::post;
 use futures::future::Shared;
 use futures::FutureExt;
 use http::{Request as HttpRequest, Response as HttpResponse};
-use tokio::task::spawn;
+use tokio::task::{spawn, AbortHandle};
 use tonic::body::BoxBody;
 use tonic::codec::{Codec as TonicCodec, EnabledCompressionEncodings};
 use tonic::metadata::KeyAndValueRef;
@@ -28,6 +28,9 @@ use error::{log_error_status, log_warn, Result};
 use metadata_proto::work::runtime::Field;
 use names::ComponentName;
 
+/// gRPC pods always use this arbitrarily chosen port for networking.
+pub(crate) const GRPC_PORT: u16 = 80;
+
 /// Initializes pods in the background.
 ///
 /// Unlike regular asynchronous functions,
@@ -41,7 +44,7 @@ pub struct PodInitializer {
 /// Pod initialization starts asynchronously during `RunPodSandbox`,
 /// then may be completed by another thread during `StartContainer`,
 /// so it must use a [`Shared`] future.
-pub type PodFuture<T> = Shared<Pin<Box<dyn Future<Output = Result<T>> + Send>>>;
+pub type SharedResultFuture<T> = Shared<Pin<Box<dyn Future<Output = Result<T>> + Send>>>;
 
 impl PodInitializer {
     pub fn new(registry: String, max_cache_capacity: u64, wasmtime: &WasmEngine) -> Self {
@@ -52,7 +55,11 @@ impl PodInitializer {
 
     /// Initialize a new gRPC pod for the named component using a background task.
     /// A gRPC pod is represented by a Tonic [`Routes`] object that implements it.
-    pub fn grpc(&self, wasmtime: &WasmEngine, name: Arc<ComponentName>) -> PodFuture<Arc<Routes>> {
+    pub fn grpc(
+        &self,
+        wasmtime: &WasmEngine,
+        name: Arc<ComponentName>,
+    ) -> (SharedResultFuture<Arc<Routes>>, AbortHandle) {
         // Complete all work in a background task so it can proceed without polling.
         let task = spawn(initialize_grpc(
             wasmtime.clone(),
@@ -60,15 +67,21 @@ impl PodInitializer {
             name.clone(),
         ));
 
+        // In case we need to abort initialization for some external reason.
+        let abort = task.abort_handle();
+
         // Only potential join errors have to be handled in the foreground.
-        task.map(move |recv_result| {
-            recv_result.map_err(
-                // Background task join error.
-                log_error_status!("initialize-grpc-join", name.as_ref()),
-            )?
-        })
-        .boxed()
-        .shared()
+        let future = task
+            .map(move |recv_result| {
+                recv_result.map_err(
+                    // Background task join error.
+                    log_error_status!("initialize-grpc-join", name.as_ref()),
+                )?
+            })
+            .boxed()
+            .shared();
+
+        (future, abort)
     }
 }
 
