@@ -191,6 +191,10 @@ export default defineConfig({
     // Get rid of the `.html` suffix in URLs.
     cleanUrls: "without-subfolders",
 
+    vite: {
+        publicDir: "docs/public",
+    },
+
     head: [
         // Global style for Mermaid diagrams that responds to the light / dark toggle.
         ["link", { rel: "stylesheet", type: "text/css", href: "/mermaid.css" }],
