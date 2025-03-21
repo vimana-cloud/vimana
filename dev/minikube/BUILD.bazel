@@ -1,6 +1,6 @@
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
-load(":platform-executable.bzl", "platform_executable")
+load("//dev:platform-binary.bzl", "platform_binary")
 
 # Name of some registry we can push / pull images to / from.
 local_registry = "localhost:5000"
@@ -15,7 +15,9 @@ kicbase_tag = "latest"
 
 kicbase_local_repo = local_registry + "/" + kicbase_image_name + ":" + kicbase_tag
 
-# Start a Vimana-enabled minikube cluster locally.
+# Start a Vimana-enabled minikube cluster locally
+# with the latest build of `workd` from source.
+# If Minikube is already running, shut it down first.
 sh_binary(
     name = "restart",
     srcs = ["restart.sh"],
@@ -37,7 +39,7 @@ sh_binary(
     ],
 )
 
-# If there's a running minikube cluster started by `:start`,
+# If there's a running minikube cluster started by `:restart`,
 # this action uploads a fresh build of `workd` to the running kicbase container
 # then restarts the daemon.
 sh_binary(
@@ -74,12 +76,17 @@ pkg_tar(
         ":workd-x86_64-linux",
         # We need a more modern version of `crictl` than the one that ships with Kicbase by default.
         "@rules_k8s//:crictl-x86_64-linux",
+        # Standard `host-local` IPAM CNI plugin.
+        "@rules_k8s//:host-local-x86_64-linux",
     ],
+    # Bazel downloader adds the `.exe` suffix no matter what the execution platform is.
     remap_paths = {
         "/workd.kicbase.service": "/etc/systemd/system/workd.service",
         "/workd-x86_64-linux": "/usr/bin/workd",
-        # Bazel downloader adds the `.exe` suffix no matter what the execution platform is.
+        # Override these things that should already be on the image,
+        # because we want specific versions.
         "/crictl-x86_64-linux.exe": "/usr/bin/crictl",
+        "/host-local-x86_64-linux.exe": "/opt/cni/bin/host-local",
     },
 )
 
@@ -96,16 +103,8 @@ oci_load(
     repo_tags = [kicbase_image_name + ":" + kicbase_tag],
 )
 
-platform_executable(
+platform_binary(
     name = "workd-x86_64-linux",
-    platform = ":x86_64-linux",
+    platform = "//dev:x86_64-linux-musl",
     target = "//work/runtime:workd",
-)
-
-platform(
-    name = "x86_64-linux",
-    constraint_values = [
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-    ],
 )

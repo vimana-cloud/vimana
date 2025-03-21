@@ -8,6 +8,8 @@ bazel_dep(name = "googleapis", version = "0.0.0-20240819-fe8ba054a")
 bazel_dep(name = "grpc", version = "1.69.0")
 bazel_dep(name = "platforms", version = "0.0.11")
 bazel_dep(name = "protobuf", version = "29.2")
+bazel_dep(name = "toolchains_musl", version = "0.1.20")
+bazel_dep(name = "rules_foreign_cc", version = "0.14.0")
 bazel_dep(name = "rules_go", version = "0.53.0")
 bazel_dep(name = "rules_nodejs", version = "6.3.0")
 bazel_dep(name = "rules_oci", version = "2.0.1")
@@ -27,7 +29,7 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "6c3b2f660858d64285696b660648a8b964084604",
+    commit = "31007e7c02c670fa14246d15c37679d96bfea264",
     remote = "git@github.com:vimana-cloud/rules_k8s.git",
 )
 
@@ -41,14 +43,47 @@ use_repo(switched_rules, "com_google_googleapis_imports")
 
 # Rust setup:
 
+RUST_EDITION = "2021"
+
+# Must use nightly to take advantage of experimental features (`#![feature]`).
+RUST_VERSION = "nightly/2025-03-18"
+
+# Make sure we have a toolchain that can cross-compile to x86-64 / Linux / musl.
+# https://github.com/bazelbuild/rules_rust/blob/0.59.1/examples/musl_cross_compiling/MODULE.bazel
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
-    edition = "2021",
-    extra_target_triples = ["x86_64-unknown-linux-musl"],
+    edition = RUST_EDITION,
+    versions = [RUST_VERSION],
+)
+rust.repository_set(
+    name = "rust_linux_x86_64",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-unknown-linux-gnu",
+    target_compatible_with = [
+        "//dev:unknown",
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_triple = "x86_64-unknown-linux-gnu",
+    versions = [RUST_VERSION],
+)
+rust.repository_set(
+    name = "rust_linux_x86_64",
+    target_compatible_with = [
+        "//dev:musl",
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
 )
 use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
+
+toolchains_musl = use_extension("@toolchains_musl//:toolchains_musl.bzl", "toolchains_musl")
+toolchains_musl.config(
+    extra_target_compatible_with = ["//dev:musl"],
+)
 
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 crate.spec(
@@ -225,8 +260,82 @@ crate.annotation(
     crate = "protoc-gen-tonic",
     gen_binaries = ["protoc-gen-tonic"],
 )
+
+# https://github.com/bazelbuild/rules_rust/issues/1519#issuecomment-2459048249
+crate.annotation(
+    crate = "openssl-sys",
+    build_script_data = [
+        "@openssl//:gen-dir",
+    ],
+    build_script_env = {
+        "OPENSSL_NO_VENDOR": "1",
+        "OPENSSL_LIB_DIR": "$(location @openssl//:gen-dir)/lib64",
+        "OPENSSL_INCLUDE_DIR": "$(location @openssl//:gen-dir)/include",
+        "OPENSSL_STATIC": "1",
+    },
+)
+
 crate.from_specs()
 use_repo(crate, "crates")
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# https://github.com/openssl/openssl/releases
+OPENSSL_VERSION = "3.4.0"
+
+OPENSSL_INTEGRITY = "sha384-S1P9c57l6dNhdNDxF0E9FWYmhCLgHYFGVjTblHALonDjf3WMBzPKzmU/R19YCfSo"
+
+# Download a pre-built OpenSSL distribution
+# because cross-compiling into Rust code with Bazel is hard.
+http_archive(
+    name = "openssl",
+    # https://github.com/bazelbuild/rules_rust/issues/1519#issuecomment-2459048249
+    build_file_content = """
+load("@rules_foreign_cc//foreign_cc:defs.bzl", "configure_make")
+
+filegroup(
+    name = "all-srcs",
+    srcs = glob(["**"]),
+)
+
+configure_make(
+    name = "openssl",
+    args = ["-j16"],
+    configure_command = "config",
+    configure_in_place = True,
+    configure_options = [
+        "no-comp",
+        "no-idea",
+        "no-weak-ssl-ciphers",
+        "no-shared",
+        "-fPIC",
+    ],
+    lib_name = "openssl",
+    lib_source = ":all-srcs",
+    out_lib_dir = "lib64",
+    out_static_libs = ["libssl.a"],
+    targets = [
+        "build_libs",
+        "install_dev",
+    ],
+)
+
+filegroup(
+    name = "gen-dir",
+    srcs = [":openssl"],
+    output_group = "gen_dir",
+    visibility = ["//visibility:public"],
+)
+""",
+    integrity = OPENSSL_INTEGRITY,
+    strip_prefix = "openssl-{version}".format(version = OPENSSL_VERSION),
+    url = "https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz".format(
+        version = OPENSSL_VERSION,
+    ),
+)
+
+# Make the `@openssl` HTTP archive repo visibile for the annotation on the `openssl-sys` crate.
+inject_repo(crate, "openssl")
 
 # Go setup:
 

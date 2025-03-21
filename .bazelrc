@@ -1,5 +1,2 @@
 # Prevent bazel from creating noisy `bazel-out/` etc. symlinks.
 build --experimental_convenience_symlinks=ignore
-
-# Must use nightly to take advantage of experimental features (`#![feature]`).
-build --@rules_rust//rust/toolchain/channel=nightly

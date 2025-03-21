@@ -35,7 +35,7 @@ kubectl="$3"
 workd="$4"
 
 function _minikube {
-  # Very leaky abstraction :(
+  # Leaky abstraction :(
   # but this seems to be the only way
   # to get minikube to use the packaged kubectl binary.
   # See `@rules_k8s//:minikube`.

@@ -1,9 +1,8 @@
 //! IP address management.
 
-use std::io::Write;
+use std::io::{pipe, PipeReader, Write};
 use std::mem::drop;
 use std::net::IpAddr;
-use std::pipe::{pipe, PipeReader};
 use std::process::Command;
 use std::sync::Arc;
 
