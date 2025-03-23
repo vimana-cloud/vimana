@@ -53,6 +53,13 @@ RUST_VERSION = "nightly/2025-03-18"
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = RUST_EDITION,
+    sha256s = {
+        "2025-03-18/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz": "b55983bf3bcdd04d2f344535886c857ad13725332831c48f7de758cb6d27fc01",
+        "2025-03-18/clippy-nightly-x86_64-unknown-linux-gnu.tar.xz": "3a9785a2206a4fdeafdb5ebef95a83e7c10200ab4e3dc91f3bfc2be84174aa32",
+        "2025-03-18/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz": "68c38009d1042018bdd5e5a7d7edd8b04bfb70add44007c2208f9b45f72715e8",
+        "2025-03-18/llvm-tools-nightly-x86_64-unknown-linux-gnu.tar.xz": "0685edcaead504dcf5071d076affb0d87887000f504b3217a1a5bea2059a9c26",
+        "2025-03-18/rust-std-nightly-x86_64-unknown-linux-musl.tar.xz": "b9699deee3ab0b508ad1d8924ebee2a8dbf26b84b56e4c66da8beca55e8e7517",
+    },
     versions = [RUST_VERSION],
 )
 rust.repository_set(
@@ -263,7 +270,6 @@ crate.annotation(
 
 # https://github.com/bazelbuild/rules_rust/issues/1519#issuecomment-2459048249
 crate.annotation(
-    crate = "openssl-sys",
     build_script_data = [
         "@openssl//:gen-dir",
     ],
@@ -273,8 +279,8 @@ crate.annotation(
         "OPENSSL_INCLUDE_DIR": "$(location @openssl//:gen-dir)/include",
         "OPENSSL_STATIC": "1",
     },
+    crate = "openssl-sys",
 )
-
 crate.from_specs()
 use_repo(crate, "crates")
 

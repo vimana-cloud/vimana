@@ -6,6 +6,7 @@ mod scalar;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Write};
 use std::mem::{transmute, ManuallyDrop};
+use std::ptr::fn_addr_eq;
 use std::sync::Arc;
 
 use metadata_proto::work::runtime::Field;
@@ -142,17 +143,17 @@ impl Drop for Merger {
         // Mergers are dropped when a container shuts down (infrequently)
         // so we can exhaustively check against the known compound encoding functions
         // to figure out which type-specific data to drop.
-        if self.merge == message_inner_merge
-            || self.merge == message_outer_merge
-            || self.merge == message_repeated_merge
+        if fn_addr_eq(self.merge, message_inner_merge as MergeFn)
+            || fn_addr_eq(self.merge, message_outer_merge as MergeFn)
+            || fn_addr_eq(self.merge, message_repeated_merge as MergeFn)
         {
             unsafe { ManuallyDrop::drop(&mut self.compound.subfields) }
-        } else if self.merge == enum_explicit_merge
-            || self.merge == enum_implicit_merge
-            || self.merge == enum_repeated_merge
+        } else if fn_addr_eq(self.merge, enum_explicit_merge as MergeFn)
+            || fn_addr_eq(self.merge, enum_implicit_merge as MergeFn)
+            || fn_addr_eq(self.merge, enum_repeated_merge as MergeFn)
         {
             unsafe { ManuallyDrop::drop(&mut self.compound.enum_variants) }
-        } else if self.merge == oneof_variant_merge {
+        } else if fn_addr_eq(self.merge, oneof_variant_merge as MergeFn) {
             unsafe { ManuallyDrop::drop(&mut self.compound.oneof_variant) }
         }
     }

@@ -6,6 +6,7 @@ mod scalar;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Write};
 use std::mem::ManuallyDrop;
+use std::ptr::fn_addr_eq;
 use std::sync::Arc;
 
 use metadata_proto::work::runtime::Field;
@@ -134,18 +135,18 @@ impl Drop for Encoder {
         // Encoders are dropped when a container shuts down (infrequently)
         // so we can exhaustively check against the known compound encoding functions
         // to figure out which hash map needs to get dropped.
-        if self.encode == compound::message_outer_encode
-            || self.encode == compound::message_inner_encode
-            || self.encode == compound::message_repeated_encode
-            || self.encode == compound::oneof_encode
+        if fn_addr_eq(self.encode, compound::message_outer_encode as EncodeFn)
+            || fn_addr_eq(self.encode, compound::message_inner_encode as EncodeFn)
+            || fn_addr_eq(self.encode, compound::message_repeated_encode as EncodeFn)
+            || fn_addr_eq(self.encode, compound::oneof_encode as EncodeFn)
         {
             unsafe {
                 ManuallyDrop::drop(&mut self.compound.subfields);
             }
-        } else if self.encode == compound::enum_explicit_encode
-            || self.encode == compound::enum_implicit_encode
-            || self.encode == compound::enum_packed_encode
-            || self.encode == compound::enum_expanded_encode
+        } else if fn_addr_eq(self.encode, compound::enum_explicit_encode as EncodeFn)
+            || fn_addr_eq(self.encode, compound::enum_implicit_encode as EncodeFn)
+            || fn_addr_eq(self.encode, compound::enum_packed_encode as EncodeFn)
+            || fn_addr_eq(self.encode, compound::enum_expanded_encode as EncodeFn)
         {
             unsafe {
                 ManuallyDrop::drop(&mut self.compound.variants);

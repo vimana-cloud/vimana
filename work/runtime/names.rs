@@ -13,10 +13,8 @@
 //! - [`ComponentName`]
 //! - [`PodName`]
 #![feature(portable_simd)]
-#![feature(core_intrinsics)]
 
 use std::fmt::{Display, Formatter, Result as FmtResult, Write};
-use std::intrinsics::{likely, unlikely};
 use std::simd::cmp::SimdPartialOrd;
 use std::simd::{simd_swizzle, u8x16, u8x32};
 use std::str;
@@ -142,21 +140,19 @@ impl DomainUuid {
     pub fn parse(uuid: &str) -> Result<Self> {
         // The hex-encoded UUID string must be 32 bytes long
         // (1 logical nibble per hex-encoded byte).
-        if unlikely(uuid.len() < 32) {
+        if uuid.len() < 32 {
             return Err(Status::invalid_argument("domain-uuid-too-short"));
         }
-        if unlikely(uuid.len() > 32) {
+        if uuid.len() > 32 {
             return Err(Status::invalid_argument("domain-uuid-too-long"));
         }
         let hex_bytes = u8x32::from_slice(uuid.as_bytes());
 
         // Check that nothing is outside the range `[0-f]` or inside `[9-a]`.
-        if unlikely(
-            hex_bytes.simd_lt(u8x32::splat(b'0')).any()
-                || hex_bytes.simd_gt(u8x32::splat(b'f')).any()
-                || (hex_bytes.simd_gt(u8x32::splat(b'9')) & hex_bytes.simd_lt(u8x32::splat(b'a')))
-                    .any(),
-        ) {
+        if hex_bytes.simd_lt(u8x32::splat(b'0')).any()
+            || hex_bytes.simd_gt(u8x32::splat(b'f')).any()
+            || (hex_bytes.simd_gt(u8x32::splat(b'9')) & hex_bytes.simd_lt(u8x32::splat(b'a'))).any()
+        {
             return Err(Status::invalid_argument("domain-uuid-invalid-characters"));
         }
 
@@ -223,7 +219,7 @@ impl ServiceName {
         S: Into<String>,
     {
         let service = service.into();
-        if likely(is_valid_service_name(&service)) {
+        if is_valid_service_name(&service) {
             Ok(Self { domain, service })
         } else {
             Err(Status::invalid_argument("invalid-service-name"))
@@ -254,7 +250,7 @@ impl ComponentName {
         V: Into<String>,
     {
         let version = version.into();
-        if likely(is_valid_version(&version)) {
+        if is_valid_version(&version) {
             Ok(Self {
                 service: ServiceName::new(domain, service)?,
                 version,

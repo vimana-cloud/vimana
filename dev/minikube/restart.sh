@@ -49,8 +49,8 @@ function _minikube {
   "$minikube_wrapper" "$minikube_bin" "$kubectl" "$@"
 }
 
-# If minikube is already running, delete it so we can start fresh.
-_minikube status &>/dev/null && _minikube delete
+# Try to delete any running minikube cluster so we can start fresh.
+_minikube delete
 # If there is a running container called "minikube",
 # remove it so minikube doesn't get confused.
 docker rm minikube 2> /dev/null

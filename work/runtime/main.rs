@@ -7,8 +7,6 @@
 //!   fields requests from Ingress to all hosted services.
 //! - Unix `/run/vimana/workd.sock`
 //!   handles orchestration requests from Kubelet.
-#![feature(async_closure)]
-#![feature(anonymous_pipe)]
 
 mod containers;
 mod cri;
