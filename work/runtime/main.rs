@@ -52,22 +52,27 @@ struct Args {
     /// Path to the Unix-domain socket
     /// on which the work node runtime listens for CRI requests from the Kubelet.
     /// This should probably be '/run/vimana/workd.sock'.
+    #[arg(long, value_name = "PATH")]
     incoming: String,
 
     /// Path to the Unix-domain socket
     /// to which the requests for OCI pods and images are forwarded.
+    #[arg(long, value_name = "PATH")]
     downstream: String,
 
     /// URL base of the container registry (scheme, host, optional port)
     /// for non-OCI containers.
+    #[arg(long, value_name = "URL")]
     registry: String,
-
-    /// Name of the network interface to use (e.g. `eth0`).
-    network_interface: String,
 
     /// Path to a CNI plugin binary to handle IPAM,
     /// such as [`host-local`](https://www.cni.dev/plugins/current/ipam/host-local/).
+    #[arg(long, value_name = "PATH")]
     ipam_plugin: String,
+
+    /// Name of the network interface to use (e.g. `eth0`).
+    #[arg(long, value_name = "NAME")]
+    network_interface: String,
 
     /// Maximum size (in bytes, approximate) of the local in-memory cache
     /// for compiled containers.

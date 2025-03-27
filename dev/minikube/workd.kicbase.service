@@ -8,7 +8,7 @@ After=containerd.service
 
 [Service]
 Type=exec
-ExecStart=workd /run/vimana/workd.sock /run/containerd/containerd.sock http://host.minikube.internal:5000 eth0 /opt/cni/bin/host-local
+ExecStart=workd --incoming=/run/vimana/workd.sock --downstream=/run/containerd/containerd.sock --registry=http://host.minikube.internal:5000 --ipam-plugin=/opt/cni/bin/host-local --network-interface=eth0
 
 [Install]
 WantedBy=multi-user.target

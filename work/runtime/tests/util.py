@@ -229,12 +229,17 @@ def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int) -> tuple[Popen, st
     socket = _tmpName()
     registry = f'http://localhost:{imageRegistryPort}'
     networkInterface = 'lo'  # Loopback device.
-    process = Popen(
-        [_workd_path, socket, ociRuntimeSocket, registry, networkInterface, _ipam_path],
-        # Open a line-buffered text-mode pipe for stdout
-        # and convert all CR/LF sequences to plain LF.
-        stdout=PIPE, text=True, bufsize=1,
-    )
+    command = [
+        _workd_path,
+        f'--incoming={socket}',
+        f'--downstream={ociRuntimeSocket}',
+        f'--registry={registry}',
+        f'--ipam-plugin={_ipam_path}',
+        f'--network-interface={networkInterface}',
+    ]
+    # Open a line-buffered text-mode pipe for stdout
+    # and convert all CR/LF sequences to plain LF.
+    process = Popen(command, stdout=PIPE, text=True, bufsize=1)
     return (process, socket)
 
 def startImageRegistry() -> tuple[HTTPServer, int]:
