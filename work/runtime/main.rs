@@ -7,6 +7,7 @@
 //!   fields requests from Ingress to all hosted services.
 //! - Unix `/run/vimana/workd.sock`
 //!   handles orchestration requests from Kubelet.
+#![feature(array_chunks)]
 
 mod containers;
 mod cri;
@@ -41,8 +42,10 @@ use api_proto::runtime::v1::image_service_server::ImageServiceServer;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
 use cri::{VimanaCriService, CONTAINER_RUNTIME_NAME, CONTAINER_RUNTIME_VERSION};
+use ipam::Ipam;
 use state::WorkRuntime;
 
+// TODO: Figure out if caching is even a good idea.
 /// Cache up to 1 GiB by default (meassured in KiB).
 const DEFAULT_CONTAINER_CACHE_MAX_CAPACITY: u64 = 1024 * 1024;
 
@@ -73,6 +76,13 @@ struct Args {
     /// Name of the network interface to use (e.g. `eth0`).
     #[arg(long, value_name = "NAME")]
     network_interface: String,
+
+    // TODO: This must be coordinated with the downstream runtime
+    //   to avoid IP address collisions.
+    /// Exclusive subnet for all IP addresses that can be allocated to pods on this node
+    /// (e.g. `10.0.1.0/24` or `fc00:0001::/32`).
+    #[arg(long, value_name = "CIDR")]
+    pod_ips: String,
 
     /// Maximum size (in bytes, approximate) of the local in-memory cache
     /// for compiled containers.
@@ -108,6 +118,8 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     let oci_image_client = ImageServiceClient::new(oci_channel.clone());
     let oci_runtime_client = RuntimeServiceClient::new(oci_channel);
 
+    let ipam = Ipam::host_local(args.ipam_plugin, &args.pod_ips);
+
     // systemd sends SIGTERM to stop services, CTRL+C sends SIGINT.
     // Listen for those to shut down the servers somewhat gracefully.
     let mut sigterm = signal(SignalKind::terminate())
@@ -130,7 +142,7 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         oci_runtime_client,
         oci_image_client,
         args.network_interface,
-        args.ipam_plugin,
+        ipam,
         shutdown_rx.shared(),
     )?);
 

@@ -176,22 +176,17 @@ impl WorkRuntime {
         oci_runtime: RuntimeServiceClient<Channel>,
         oci_image: ImageServiceClient<Channel>,
         network_interface: String,
-        ipam_path: String,
+        ipam: Ipam,
         shutdown: Shared<oneshot::Receiver<()>>,
     ) -> StdResult<Self, WasmError> {
         let wasmtime = Self::default_engine()?;
         let pod_store = PodInitializer::new(registry, max_container_cache_capacity, &wasmtime);
-        // `fc00::/7` is the entire private address block for IPv6, analogous to `10.0.0.0/8` for IPv4.
-        // TODO: Ensure each node uses a non-overlapping block,
-        //   e.g. `fc00::0001/32`, `fc00::0002/32`, etc. for nodes 1, 2, etc.
-        //   That means figuring out how to get a unique ID for each node.
-        let pod_cidr = "fc00::/7";
         Ok(Self {
             wasmtime,
             pods: LockFreeConcurrentHashMap::new(),
             next_pod_id: AtomicUsize::new(0),
             pod_store,
-            ipam: Ipam::host_local(ipam_path, pod_cidr),
+            ipam,
             network_interface,
             shutdown,
             oci_runtime: AsyncMutex::new(oci_runtime),

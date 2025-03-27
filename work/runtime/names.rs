@@ -29,6 +29,15 @@ const DOMAIN_SEPARATOR: char = ':';
 const VERSION_SEPARATOR: char = '@';
 const POD_ID_SEPARATOR: char = '#';
 
+// SIMD constants used for parsing / unparsing domain UUIDs:
+const SIXTEEN_16: u8x16 = u8x16::splat(16);
+const NINE_32: u8x32 = u8x32::splat(9);
+const ASCII_A_32: u8x32 = u8x32::splat(b'a');
+const ASCII_F_32: u8x32 = u8x32::splat(b'f');
+const ASCII_ZERO_32: u8x32 = u8x32::splat(b'0');
+const ASCII_NINE_32: u8x32 = u8x32::splat(b'9');
+const ASCII_A_FROM_TEN_32: u8x32 = u8x32::splat(b'a' - 10);
+
 pub type PodId = usize;
 
 /// Permissively [parses](Self::parse) a service / version name:
@@ -149,9 +158,9 @@ impl DomainUuid {
         let hex_bytes = u8x32::from_slice(uuid.as_bytes());
 
         // Check that nothing is outside the range `[0-f]` or inside `[9-a]`.
-        if hex_bytes.simd_lt(u8x32::splat(b'0')).any()
-            || hex_bytes.simd_gt(u8x32::splat(b'f')).any()
-            || (hex_bytes.simd_gt(u8x32::splat(b'9')) & hex_bytes.simd_lt(u8x32::splat(b'a'))).any()
+        if hex_bytes.simd_lt(ASCII_ZERO_32).any()
+            || hex_bytes.simd_gt(ASCII_F_32).any()
+            || (hex_bytes.simd_gt(ASCII_NINE_32) & hex_bytes.simd_lt(ASCII_A_32)).any()
         {
             return Err(Status::invalid_argument("domain-uuid-invalid-characters"));
         }
@@ -161,8 +170,8 @@ impl DomainUuid {
         // and subtracting ASCII '0' from all other bytes.
         let nibbles = hex_bytes
             - hex_bytes
-                .simd_gt(u8x32::splat(b'9'))
-                .select(u8x32::splat(b'a' - 10), u8x32::splat(b'0'));
+                .simd_gt(ASCII_NINE_32)
+                .select(ASCII_A_FROM_TEN_32, ASCII_ZERO_32);
 
         // Deinterleave the nibbles of each logical byte.
         let lower_nibbles = simd_swizzle!(
@@ -176,17 +185,23 @@ impl DomainUuid {
 
         // Recombine the nibbles of each logical byte.
         Ok(Self {
-            uuid: lower_nibbles + (upper_nibbles * u8x16::splat(16)),
+            uuid: lower_nibbles + (upper_nibbles * SIXTEEN_16),
         })
+    }
+
+    pub fn new(bytes: &[u8; 16]) -> Self {
+        Self {
+            uuid: u8x16::from_array(*bytes),
+        }
     }
 }
 
 impl Display for DomainUuid {
+    /// Format the domain UUID as a 32-character hex-encoded string.
     /// Inverse of [`DomainUuid::parse`].
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        let sixteen = u8x16::splat(16);
-        let upper_nibbles = self.uuid / sixteen;
-        let lower_nibbles = self.uuid % sixteen;
+        let upper_nibbles = self.uuid / SIXTEEN_16;
+        let lower_nibbles = self.uuid % SIXTEEN_16;
         let nibbles = simd_swizzle!(
             upper_nibbles,
             lower_nibbles,
@@ -197,8 +212,8 @@ impl Display for DomainUuid {
         );
         let hex_bytes = nibbles
             + nibbles
-                .simd_gt(u8x32::splat(9))
-                .select(u8x32::splat(b'a' - 10), u8x32::splat(b'0'));
+                .simd_gt(NINE_32)
+                .select(ASCII_A_FROM_TEN_32, ASCII_ZERO_32);
         let array = hex_bytes.as_array();
         let uuid = unsafe { str::from_utf8_unchecked(array) };
         formatter.write_str(uuid)

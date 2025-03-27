@@ -213,6 +213,10 @@ crate.spec(
     version = "1.0.217",
 )
 crate.spec(
+    package = "sha2",
+    version = "0.10.8",
+)
+crate.spec(
     features = ["std"],
     package = "serde_json",
     version = "1.0.140",

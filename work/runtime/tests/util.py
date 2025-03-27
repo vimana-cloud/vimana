@@ -229,6 +229,7 @@ def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int) -> tuple[Popen, st
     socket = _tmpName()
     registry = f'http://localhost:{imageRegistryPort}'
     networkInterface = 'lo'  # Loopback device.
+    podIps = 'fc00:0001::/32'
     command = [
         _workd_path,
         f'--incoming={socket}',
@@ -236,6 +237,7 @@ def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int) -> tuple[Popen, st
         f'--registry={registry}',
         f'--ipam-plugin={_ipam_path}',
         f'--network-interface={networkInterface}',
+        f'--pod-ips={podIps}',
     ]
     # Open a line-buffered text-mode pipe for stdout
     # and convert all CR/LF sequences to plain LF.
