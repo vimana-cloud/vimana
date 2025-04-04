@@ -31,7 +31,7 @@ py_library(
     data = [
         ":ipam",
         "//work/runtime:workd",
-        "@rules_k8s//:vimana-push",
+        "//bootstrap:push-image",
     ],
     deps = [
         ":cri-api-py-grpc",

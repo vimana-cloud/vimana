@@ -75,7 +75,7 @@ _workd_path = 'work/runtime/workd'
 # Path to the `host-local` IPAM emulator.
 _ipam_path = 'work/runtime/tests/ipam'
 # Path to the `vimana-push` binary which uploads Wasm containers to the registry.
-_vimana_push_path = '../rules_k8s+/vimana-push'
+_push_image_path = 'bootstrap/push-image'
 
 # Generally wait up to 5 seconds for things to happen asynchronously.
 _timeout = timedelta(seconds=5)
@@ -173,7 +173,7 @@ class WorkdTester:
             metadata:  Path to serialized gRPC service metadata file.
         """
         command = [
-            _vimana_push_path,
+            _push_image_path,
             f'http://localhost:{self._imageRegistryPort}',
             domain,
             service,
