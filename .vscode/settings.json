@@ -1,5 +1,10 @@
 {
     "editor.formatOnSave": true,
+    "editor.renderFinalNewline": "off",
+    "files.insertFinalNewline": true,
+    "[bash]": {
+        "editor.tabSize": 2
+    },
     "bazel.buildifierExecutable": "@buildtools//:buildifier",
     "bazel.buildifierFixOnFormat": true,
     "bazel.enableCodeLens": true
