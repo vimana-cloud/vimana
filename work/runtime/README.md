@@ -58,30 +58,6 @@ Control plane traffic, on the other hand,
 must make do with a 2-layer lookup in order to actual find an individual container,
 first looking up the 
 
-### Container Lifecycle
-
-<!-- TODO: These traffic patterns are still conjecture. Confirm with e2e tests. -->
-
-```mermaid
-sequenceDiagram
-    kubelet ->> workd: RunPodSandbox(metadata)
-    workd -->> kubelet: Ok(pod-sandbox-id)
-    kubelet ->> workd: CreateContainer(pod-sandbox-id, component-name)
-    workd -->> kubelet: Ok(container-id)
-    kubelet ->> workd: StartContainer(container-id)
-    workd -->> kubelet: Ok
-    Note left of workd: Container is running …
-
-    kubelet ->> workd: StopContainer(container-id)
-    workd -->> kubelet: Ok
-    kubelet ->> workd: RemoveContainer(container-id)
-    workd -->> kubelet: Ok
-    kubelet ->> workd: StopPodSandbox(pod-sandbox-id)
-    workd -->> kubelet: Ok
-    kubelet ->> workd: RemovePodSandbox(pod-sandbox-id)
-    workd -->> kubelet: Ok
-```
-
 ### Kubectl commands
 
 ```bash
