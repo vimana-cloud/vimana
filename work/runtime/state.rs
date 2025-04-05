@@ -73,26 +73,30 @@ pub(crate) struct WorkRuntime {
 /// Although, other lifecycles are theoretically possible.
 ///
 /// Each transition typically maps to an RPC in the CRI API.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// Enum discriminants are explicit because they must be reliably ordered and dense
+/// so we can binary-search slices of them during listing.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
 pub(crate) enum PodState {
     /// A pod after initialization with `RunPodSandbox` but before `CreateContainer`.
-    Initiated,
+    Initiated = 0,
 
     /// A pod after creating the container with `CreateContainer` but before `StartContainer`.
-    Created,
+    Created = 1,
 
     /// This trasition occurs immediately at the start of `StartContainer`
     /// to act as a sort of mutex before starting up a background task.
-    Starting,
+    Starting = 2,
 
     /// A pod after starting the container with `StartContainer`.
-    Running,
+    Running = 3,
 
     /// After calling `StopContainer` but before removal.
-    Stopped,
+    Stopped = 4,
 
     /// After calling `RemoveContainer` but before `RemovePodSandbox`.
-    Removed,
+    Removed = 5,
 }
 
 /// All information known about a pod / container pair
@@ -284,6 +288,7 @@ impl WorkRuntime {
         match pods.compute(pod_name.pod, |entry| match entry {
             Some((_, pod)) => match &pod.state {
                 PodState::Initiated => {
+                    eprintln!("CreateContainer Succeeding");
                     let mut pod = pod.clone();
                     pod.state = PodState::Created;
                     pod.container_metadata = container_metadata.clone();
@@ -291,11 +296,12 @@ impl WorkRuntime {
                     pod.container_created_at = now();
                     Operation::Insert(pod)
                 }
-                PodState::Created => {
+                PodState::Created | PodState::Starting | PodState::Running => {
                     // Support idempotency if the parameters are exactly the same.
                     if pod.container_metadata == *container_metadata
                         && pod.environment == *environment
                     {
+                        eprintln!("Idempotent CreateContainer");
                         Operation::Abort(None)
                     } else {
                         // Cannot re-create the container with a different environment.
@@ -304,12 +310,24 @@ impl WorkRuntime {
                         )))
                     }
                 }
-                state => {
-                    log_error!("create-container-bad-state", &pod_name.component, state);
-                    Operation::Abort(Some(Status::failed_precondition(
-                        "create-container-bad-state",
-                    )))
-                }
+                //PodState::Starting => {
+                //    eprintln!("create-container-already-starting");
+                //    Operation::Abort(Some(Status::failed_precondition(
+                //        "create-container-already-starting",
+                //    )))
+                //}
+                //PodState::Running => {
+                //    eprintln!("create-container-already-running");
+                //    Operation::Abort(Some(Status::failed_precondition(
+                //        "create-container-already-running",
+                //    )))
+                //}
+                PodState::Stopped => Operation::Abort(Some(Status::failed_precondition(
+                    "create-container-already-stopped",
+                ))),
+                PodState::Removed => Operation::Abort(Some(Status::failed_precondition(
+                    "create-container-already-removed",
+                ))),
             },
             None => Operation::Abort(Some(Status::failed_precondition(
                 "create-container-pod-not-found",
@@ -348,6 +366,7 @@ impl WorkRuntime {
             Some((_, pod)) => match &pod.state {
                 PodState::Created => match pod.routes.peek() {
                     Some(Ok(_)) => {
+                        eprintln!("StartContainer Succeeding");
                         // The server is ready! Now we just have to bind to a socket and start it.
                         // Effectively lock a mutex on it by transitioning to *starting*.
                         // All other paths end in abortion.
@@ -360,11 +379,13 @@ impl WorkRuntime {
                         Operation::Abort(StartContainerAbort::Error(init_error.clone()))
                     }
                     None => {
+                        eprintln!("StartContainer Waiting");
                         // Still initializing; await the future then retry.
                         Operation::Abort(StartContainerAbort::Waiting(pod.routes.clone()))
                     }
                 },
                 PodState::Starting | PodState::Running => {
+                    eprintln!("Idempotent StartContainer");
                     // Support idempotency.
                     Operation::Abort(StartContainerAbort::Done)
                 }
@@ -473,69 +494,70 @@ impl WorkRuntime {
     pub(crate) fn get_pod<T, F>(
         &self,
         name: &PodName,
-        state: &Option<PodSandboxStateValue>,
         labels: &Vec<(&String, &String)>,
+        states: &[PodState],
         transform: &F,
         results: &mut Vec<T>,
     ) where
         F: Fn(&PodName, &Pod) -> T,
     {
         if let Some(controller) = self.pods.pin().get(&name.pod) {
-            Self::match_pod(&name.pod, controller, state, labels, transform, results);
+            Self::match_pod(&name.pod, controller, labels, states, transform, results);
         }
     }
 
-    /// List all the pods that match the given state (if provided) and labels.
+    /// List all the pods that match the given labels and states.
+    /// See [`match_pod`](Self::match_pod) for matching details.
     /// Push results into the provided vector.
     ///
     /// Currently implemented by searching the pod map exhaustively (*O(n)*).
     /// YAGNIndices?
     pub(crate) fn list_pods<T, F>(
         &self,
-        state: &Option<PodSandboxStateValue>,
         labels: &Vec<(&String, &String)>,
+        states: &[PodState],
         transform: &F,
         results: &mut Vec<T>,
     ) where
         F: Fn(&PodName, &Pod) -> T,
     {
         for (id, controller) in self.pods.pin().iter() {
-            Self::match_pod(id, controller, state, labels, transform, results);
+            Self::match_pod(id, controller, labels, states, transform, results);
         }
     }
 
     /// Logic common to [`Self::get_pod`] and [`Self::list_pods`].
     ///
     /// Check if the given pod (represented by `pod_id` and `pod`)
-    /// matches the given filter conditions (`state` and `labels`).
-    /// If so, convert it to a CRI API [`PodSandbox`]
-    /// and append it to `results`
+    /// matches the given filter conditions (`labels` and `states`).
+    /// `states` match either if the slice is empty or it includes the pod's state.
+    /// `states` must be ordered.
+    /// `labels` match if every label is found on the pod.
+    ///
+    /// If the pod matches, append it to `results`,
     /// after passing it through `transform`.
     #[inline(always)]
     fn match_pod<T, F>(
         pod_id: &PodId,
         pod: &Pod,
-        state: &Option<PodSandboxStateValue>,
         labels: &Vec<(&String, &String)>,
+        states: &[PodState],
         transform: &F,
         results: &mut Vec<T>,
     ) where
         F: Fn(&PodName, &Pod) -> T,
     {
-        // If state is unspecified, or specifically 'ready',
-        // then the state filter always passes because pods are always ready
-        // (containers might not be).
-        // Otherwise, the whole filter always fails
-        // because conditions are composed with AND.
-        if state.map_or(true, |state_value| {
-            state_value.state == PodSandboxState::SandboxReady as i32
-        }) && labels.iter().all(|(key, value)| {
-            // Look up each key, which must be present,
-            // and check that the value matches as well.
-            pod.labels
-                .get(*key)
-                .map_or(false, |actual| actual == *value)
-        }) {
+        // As a special case, an empty `states` slice matches all states.
+        // Both states and labels must match.
+        if (states.is_empty() || states.binary_search(&pod.state).is_ok())
+            && labels.iter().all(|(key, value)| {
+                // Look up each key, which must be present,
+                // and check that the value matches as well.
+                pod.labels
+                    .get(*key)
+                    .map_or(false, |actual| actual == *value)
+            })
+        {
             // This clone is not strictly necessary
             // (it effectively means double-cloning the service name).
             // We just need something `Display` that behaves like a `PodName`.

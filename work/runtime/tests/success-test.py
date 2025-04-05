@@ -285,8 +285,9 @@ class SuccessTest(TestCase):
         )
 
         podSandboxId = response.pod_sandbox_id
+        containerName = f'{domain}-container-name'
         containerMetadata = ContainerMetadata(
-            name=f'{domain}-container-name',
+            name=containerName,
             attempt=1,
         )
         imageSpec = ImageSpec(
@@ -326,7 +327,10 @@ class SuccessTest(TestCase):
         self.assertEqual(response.status.image_ref, 'TODO')
         self.assertEqual(response.status.reason, 'TODO')
         self.assertEqual(response.status.message, 'TODO')
-        self.assertEqual(response.status.labels, labels)
+        self.assertEqual(
+            response.status.labels,
+            labels | {'io.kubernetes.container.name' : containerName},
+        )
         self.assertEqual(len(response.status.annotations), 0)
         self.assertEqual(len(response.status.mounts), 0)
         self.assertEqual(response.status.log_path, '')

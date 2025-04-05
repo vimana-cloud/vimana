@@ -1,24 +1,27 @@
-load("@rules_k8s//:resource.bzl", "k8s_secret_tls", "k8s_vimana_component", "k8s_vimana_domain")
 load("@rules_k8s//:test.bzl", "k8s_cluster_test")
 load("@rules_python//python:py_binary.bzl", "py_binary")
+load("//bootstrap:bootstrap.bzl", "bootstrap", "component", "domain", "service")
 
-k8s_vimana_domain(
-    name = "adder-bootstrap",
-    aliases = ["addmegood.net"],
+bootstrap(
+    name = "walkthrough-bootstrap",
     cluster_registry = "host.minikube.internal:5000",
-    id = "00000000000000000000000000000001",
-    registry = "http://localhost:5000",
-    services = {
-        "foo.bar.AdderService": [
-            k8s_vimana_component(
-                name = "adder-push-container",
-                metadata = "//work/runtime/tests/components:adder-metadata",
-                module = "//work/runtime/tests/components:adder-c",
-                version = "1.0.0",
-                weight = 100,
-            ),
-        ],
+    domains = {
+        "00000000000000000000000000000001": domain(
+            aliases = ["api.vimana.host"],
+            services = {
+                "foo.bar.AdderService": service(
+                    components = {
+                        "1.0.0": component(
+                            name = "adder-push",
+                            metadata = "//work/runtime/tests/components:adder-metadata",
+                            module = "//work/runtime/tests/components:adder-c",
+                        ),
+                    },
+                ),
+            },
+        ),
     },
+    registry = "http://localhost:5000",
 )
 
 k8s_cluster_test(
@@ -27,16 +30,13 @@ k8s_cluster_test(
         "api.vimana.host": "127.0.0.1",
     },
     objects = [
-        ":adder-bootstrap",
-        ":tls-api-vimana-host",
-        #"//api/v1:deploy.yaml",
-        "//cluster:deploy.yaml",
+        ":walkthrough-bootstrap",
     ],
     port_forward = {
         "svc/vimana-gateway-istio": ["61803:443"],
     },
     setup = [
-        ":adder-push-container",
+        ":adder-push",
     ],
     test = ":walkthrough",
 )
@@ -44,14 +44,11 @@ k8s_cluster_test(
 py_binary(
     name = "walkthrough",
     srcs = ["walkthrough.py"],
+    data = [
+        ":walkthrough-bootstrap",
+    ],
     deps = [
         "//work/runtime/tests/components:adder-py-grpc",
         "//work/runtime/tests/components:adder-py-pb2",
     ],
-)
-
-k8s_secret_tls(
-    name = "tls-api-vimana-host",
-    cert = "//dev/tls:api.vimana.host.cert",
-    key = "//dev/tls:api.vimana.host.key",
 )

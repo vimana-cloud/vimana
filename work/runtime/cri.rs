@@ -45,10 +45,31 @@ const OCI_PREFIX: &str = "O:";
 /// Prefix used to differentiate Vimana pods / containers.
 const WORKD_PREFIX: &str = "W:";
 
-// These labels must be present on every pod and container using the Vimana handler.
+/// Pod states matching [`v1::ContainerState::ContainerUnknown`] = 3,
+const POD_STATES_CONTAINER_UNKNOWN: [PodState; 1] = [PodState::Initiated];
+/// Pod states matching [`v1::ContainerState::ContainerCreated`] = 0,
+const POD_STATES_CONTAINER_CREATED: [PodState; 2] = [PodState::Created, PodState::Starting];
+/// Pod states matching [`v1::ContainerState::ContainerRunning`] = 1,
+const POD_STATES_CONTAINER_RUNNING: [PodState; 1] = [PodState::Running];
+/// Pod states matching [`v1::ContainerState::ContainerExited`] = 2,
+const POD_STATES_CONTAINER_EXITED: [PodState; 2] = [PodState::Stopped, PodState::Removed];
+/// Counter-intuitively, the empty slice means "match all states".
+const POD_STATES_ALL: [PodState; 0] = [];
+
+// These labels must be present on every pod and container using the Vimana handler:
+
 const LABEL_DOMAIN_KEY: &str = "vimana.host/domain";
 const LABEL_SERVICE_KEY: &str = "vimana.host/service";
 const LABEL_VERSION_KEY: &str = "vimana.host/version";
+
+// Required conditions for [`v1::StatusResponse`]:
+
+const CONDITION_RUNTIME_READY: &str = "RuntimeReady";
+const CONDITION_NETWORK_READY: &str = "NetworkReady";
+
+/// This K8s system label must be populated on [container statuses](v1::ContainerStatus).
+/// It is derived from the container metadata, so it is effectively redundant.
+const K8S_CONTAINER_NAME_LABEL: &str = "io.kubernetes.container.name";
 
 /// Wrapper around [WorkRuntime] that can implement [RuntimeService] and [ImageService]
 /// without running afoul of Rust's rules on foreign types / traits.
@@ -232,14 +253,15 @@ impl RuntimeService for VimanaCriService {
                 // TODO: Also intercept and prefix container IDs.
                 .map(map_oci_prefix!(status, id))
         });
+        log_object_real("PodSandboxStatus", &request);
 
         if request.pod_sandbox_id.starts_with(WORKD_PREFIX) {
             let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
             let mut pod_sandbox_status = Vec::with_capacity(1);
             self.0.get_pod(
                 &pod_name,
-                &None,
                 &Vec::default(),
+                &POD_STATES_ALL,
                 &cri_pod_sandbox_status,
                 &mut pod_sandbox_status,
             );
@@ -282,7 +304,7 @@ impl RuntimeService for VimanaCriService {
             }
         }
 
-        // Otherwise, we have to combine the results of both runtimes
+        // Otherwise, combine the results of both runtimes
         // to get a complete picture of all pod sandboxes.
         self.list_pod_sandbox_downstream(Request::new(request.clone()))
             .await
@@ -304,7 +326,7 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::CreateContainerRequest>,
     ) -> TonicResult<v1::CreateContainerResponse> {
         let mut request = r.into_inner();
-        log_object("CreateContainer", &request);
+        log_object("CreateContainer", &request.pod_sandbox_id);
 
         intercept_prefix!(request.pod_sandbox_id, {
             self.0
@@ -315,31 +337,32 @@ impl RuntimeService for VimanaCriService {
                 .await
                 .map(map_oci_prefix!(container_id))
         });
+        log_object_real("CreateContainer", &request.pod_sandbox_id);
 
         let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
         let config = request.config.unwrap_or_default();
-        let component = component_name_from_labels(&config.labels)?;
+        //let component = component_name_from_labels(&config.labels)?;
 
         // While redundant, the component name from the container's labels
         // must match the component name extracted from the pod ID and image ID.
-        if component != pod_name.component {
-            return Err(Status::invalid_argument(
-                "create-container-labels-pod-mismatch",
-            ));
-        }
+        //if component != pod_name.component {
+        //    return Err(Status::invalid_argument(
+        //        "create-container-labels-pod-mismatch",
+        //    ));
+        //}
 
         // Check that the image spec also matches the labels / pod name.
         // In fact, the whole `ImageSpec` is essentially determined by the component name.
         let image_spec = config.image.unwrap_or_default();
-        if image_spec.image != pod_name.component.to_string() {
-            return Err(Status::invalid_argument(
-                "create-container-labels-image-mismatch",
-            ));
-        }
+        //if image_spec.image != pod_name.component.to_string() {
+        //    return Err(Status::invalid_argument(
+        //        "create-container-labels-image-mismatch",
+        //    ));
+        //}
         // YAGNI: multiple handlers
-        if image_spec.runtime_handler != CONTAINER_RUNTIME_NAME {
-            return Err(Status::invalid_argument("create-container-invalid-runtime"));
-        }
+        //if image_spec.runtime_handler != CONTAINER_RUNTIME_NAME {
+        //    return Err(Status::invalid_argument("create-container-invalid-runtime"));
+        //}
         // No particular reason there can't be annotations or a user specified image;
         // just keeping a minimum API surface while we figure things out.
         if !image_spec.annotations.is_empty() {
@@ -347,11 +370,11 @@ impl RuntimeService for VimanaCriService {
                 "create-container-image-annotations",
             ));
         }
-        if !image_spec.user_specified_image.is_empty() {
-            return Err(Status::invalid_argument(
-                "create-container-user-specified-image",
-            ));
-        }
+        //if !image_spec.user_specified_image.is_empty() {
+        //    return Err(Status::invalid_argument(
+        //        "create-container-user-specified-image",
+        //    ));
+        //}
 
         let mut environment = HashMap::with_capacity(config.envs.len());
         for key_value in config.envs.iter() {
@@ -375,7 +398,7 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::StartContainerRequest>,
     ) -> TonicResult<v1::StartContainerResponse> {
         let mut request = r.into_inner();
-        log_object("StartContainer", &request);
+        log_object("StartContainer", &request.container_id);
 
         intercept_prefix!(request.container_id, {
             self.0
@@ -385,6 +408,7 @@ impl RuntimeService for VimanaCriService {
                 .start_container(Request::new(request))
                 .await
         });
+        log_object_real("StartContainer", &request.container_id);
 
         let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
 
@@ -457,8 +481,9 @@ impl RuntimeService for VimanaCriService {
             }
         }
 
-        // Otherwise, we have to combine the results with the downstream runtime.
-        self.list_containers_downstream(Request::new(request.clone()))
+        // Otherwise, combine the results with the downstream runtime.
+        let r = self
+            .list_containers_downstream(Request::new(request.clone()))
             .await
             .and_then(|mut downstream_result| {
                 self.list_containers_upstream(request)
@@ -469,7 +494,9 @@ impl RuntimeService for VimanaCriService {
                             .append(&mut upstream_result.into_inner().containers);
                         downstream_result
                     })
-            })
+            });
+        eprintln!("LISTCONTAINERS: {r:?}");
+        return r;
     }
 
     async fn container_status(
@@ -477,7 +504,7 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ContainerStatusRequest>,
     ) -> TonicResult<v1::ContainerStatusResponse> {
         let mut request = r.into_inner();
-        log_object("ContainerStatus", &request);
+        log_object("ContainerStatus", &request.container_id);
 
         intercept_prefix!(request.container_id, {
             self.0
@@ -488,14 +515,15 @@ impl RuntimeService for VimanaCriService {
                 .await
                 .map(map_oci_prefix!(status, id))
         });
+        log_object_real("ContainerStatus", &request.container_id);
 
         if request.container_id.starts_with(WORKD_PREFIX) {
             let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
             let mut container_status = Vec::with_capacity(1);
             self.0.get_pod(
                 &pod_name,
-                &None,
                 &Vec::default(),
+                &POD_STATES_ALL,
                 &cri_container_status,
                 &mut container_status,
             );
@@ -713,13 +741,52 @@ impl RuntimeService for VimanaCriService {
         let request = r.into_inner();
         log_object("Status", &request);
 
-        // TODO: Also merge in stats about the upstream system!
-        self.0
+        // These are the only 2 required conditions.
+        let mut runtimeReadyCondition = v1::RuntimeCondition {
+            r#type: String::from(CONDITION_RUNTIME_READY),
+            status: true,
+            reason: String::default(),
+            message: String::default(),
+        };
+        let mut networkReadyCondition = v1::RuntimeCondition {
+            r#type: String::from(CONDITION_NETWORK_READY),
+            status: true,
+            reason: String::default(),
+            message: String::default(),
+        };
+
+        // TODO: Populate these with non-placeholder information.
+        let mut info = HashMap::default();
+        let mut runtime_handlers = Vec::default();
+
+        match self
+            .0
             .oci_runtime
             .lock()
             .await
-            .status(Request::new(request))
+            .status(Request::new(request.clone()))
             .await
+        {
+            Ok(downstream_response) => {
+                let downstream_response = downstream_response.into_inner();
+                // TODO: Adjust upstream conditions based on downstream conditions.
+                info.extend(downstream_response.info);
+                runtime_handlers.extend(downstream_response.runtime_handlers);
+            }
+            Err(downstream_error) => todo!(),
+        }
+
+        eprintln!("RUNTIME HANDLERS: {runtime_handlers:?}");
+        eprintln!("INFO: {info:?}");
+
+        Ok(Response::new(v1::StatusResponse {
+            status: Some(v1::RuntimeStatus {
+                conditions: vec![runtimeReadyCondition, networkReadyCondition],
+            }),
+            info,
+            runtime_handlers,
+            features: None,
+        }))
     }
 
     async fn checkpoint_container(
@@ -810,7 +877,7 @@ impl ImageService for VimanaCriService {
         r: Request<v1::ListImagesRequest>,
     ) -> TonicResult<v1::ListImagesResponse> {
         let request = r.into_inner();
-        log_object("ListImages", &request);
+        log_object_real("ListImages", &request);
 
         let filter = request.clone().filter.unwrap_or_default();
         let spec = filter.image.unwrap_or_default();
@@ -937,33 +1004,40 @@ impl VimanaCriService {
         // Collect the required labels as a vector for easier iteration.
         let labels: Vec<(&String, &String)> = filter.label_selector.iter().collect();
 
-        // Filter ID, if present, can speed things up a lot.
-        if filter.id.len() > 0 {
-            // I believe the ID must match exactly,
-            // but that's not entirely clear from the documentation,
-            // which just says "ID of the sandbox".
-            if let Ok(pod_name) = Name::parse(&filter.id).pod() {
-                // If it's a complete, parseable pod name (after the prefix),
-                // look it up and return it, if the other conditions are met.
-                self.0.get_pod(
-                    &pod_name,
-                    &filter.state,
+        // The state always matches if it's either unspecified or 'ready'.
+        // Pod sandboxes are never unready.
+        let state_matches_ready = filter.state.map_or(true, |state| {
+            state.state == v1::PodSandboxState::SandboxReady as i32
+        });
+        if state_matches_ready {
+            // Filter ID, if present, can speed things up a lot.
+            if filter.id.len() > 0 {
+                // I believe the ID must match exactly,
+                // but that's not entirely clear from the documentation,
+                // which just says "ID of the sandbox".
+                if let Ok(pod_name) = Name::parse(&filter.id).pod() {
+                    // If it's a complete, parseable pod name (after the prefix),
+                    // look it up and return it, if the other conditions are met.
+                    self.0.get_pod(
+                        &pod_name,
+                        &labels,
+                        &POD_STATES_ALL,
+                        &cri_pod_sandbox,
+                        &mut response.items,
+                    );
+                }
+                // Otherwise, the whole filter fails to match anything,
+                // because all conditions are required and the ID condition is impossible.
+            } else {
+                // If the ID filter is absent,
+                // search exhaustively based on the state and labels filters.
+                self.0.list_pods(
                     &labels,
+                    &POD_STATES_ALL,
                     &cri_pod_sandbox,
                     &mut response.items,
                 );
             }
-            // Otherwise, the whole filter fails to match anything,
-            // because all conditions are required and the ID condition is impossible.
-        } else {
-            // If the ID filter is absent,
-            // search exhaustively based on the state and labels filters.
-            self.0.list_pods(
-                &filter.state,
-                &labels,
-                &cri_pod_sandbox,
-                &mut response.items,
-            );
         }
 
         Ok(Response::new(response))
@@ -972,10 +1046,50 @@ impl VimanaCriService {
     /// Perform sandbox listing in the workd runtime.
     fn list_containers_upstream(
         &self,
-        _r: v1::ListContainersRequest,
+        request: v1::ListContainersRequest,
     ) -> TonicResult<v1::ListContainersResponse> {
-        // TODO: Something real.
-        Ok(Response::new(v1::ListContainersResponse::default()))
+        let mut response = v1::ListContainersResponse::default();
+
+        // Every condition in the filter is composed with AND.
+        // The default filter if none is provided has no conditions (always passes).
+        let filter = request.filter.unwrap_or_default();
+        // Collect the required labels as a vector for easier iteration.
+        let labels: Vec<(&String, &String)> = filter.label_selector.iter().collect();
+
+        let matching_states: &[PodState] = filter
+            .state
+            .map_or(&POD_STATES_ALL, cri_container_state_to_pod_states);
+
+        // Filter ID, if present, can speed things up a lot.
+        if filter.id.len() > 0 {
+            // I believe the ID must match exactly,
+            // but that's not entirely clear from the documentation,
+            // which just says "ID of the container".
+            if let Ok(pod_name) = Name::parse(&filter.id).pod() {
+                // If it's a complete, parseable pod name (after the prefix),
+                // look it up and return it, if the other conditions are met.
+                self.0.get_pod(
+                    &pod_name,
+                    &labels,
+                    matching_states,
+                    &cri_container,
+                    &mut response.containers,
+                );
+            }
+            // Otherwise, the whole filter fails to match anything,
+            // because all conditions are required and the ID condition is impossible.
+        } else {
+            // If the ID filter is absent,
+            // search exhaustively based on the state and labels filters.
+            self.0.list_pods(
+                &labels,
+                matching_states,
+                &cri_container,
+                &mut response.containers,
+            );
+        }
+
+        Ok(Response::new(response))
     }
 
     /// Invoke the downstream OCI runtime with the given request as-is.
@@ -1030,6 +1144,23 @@ fn cri_pod_sandbox(name: &PodName, pod: &Pod) -> v1::PodSandbox {
     }
 }
 
+/// Convert the internal pod to a CRI-API [v1::Container] to return in `ListContainers`.
+fn cri_container(name: &PodName, pod: &Pod) -> v1::Container {
+    let id = workd_prefix(name);
+    v1::Container {
+        id: id.clone(),
+        pod_sandbox_id: id,
+        metadata: pod.container_metadata.clone(),
+        image: None, // TODO
+        image_ref: String::from("TODO"),
+        state: pod_state_to_cri_container_state(pod.state.clone()) as i32,
+        created_at: pod.container_created_at,
+        labels: pod.labels.clone(),
+        annotations: pod.annotations.clone(),
+        image_id: String::from("TODO"),
+    }
+}
+
 /// Convert the internal pod to a CRI-API [v1::PodSandboxStatus] to return in `PodSandboxStatus`.
 /// Also return the container status, if there is one
 /// (as either an empty vector or a singleton vector).
@@ -1065,15 +1196,19 @@ fn cri_pod_sandbox_status(
 
 /// Convert the internal pod to a CRI-API [v1::ContainerStatus] to return in `ContainerStatus`.
 fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
+    // Labels must be generally identical between pods and containers,
+    // however containers have an additional system label that must be set.
+    let mut labels = pod.labels.clone();
+    if let Some(metadata) = &pod.container_metadata {
+        labels.insert(
+            String::from(K8S_CONTAINER_NAME_LABEL),
+            metadata.name.clone(),
+        );
+    }
     v1::ContainerStatus {
         id: workd_prefix(name),
         metadata: pod.container_metadata.clone(),
-        state: match pod.state {
-            PodState::Initiated => v1::ContainerState::ContainerUnknown,
-            PodState::Created | PodState::Starting => v1::ContainerState::ContainerCreated,
-            PodState::Running => v1::ContainerState::ContainerRunning,
-            PodState::Stopped | PodState::Removed => v1::ContainerState::ContainerExited,
-        } as i32,
+        state: pod_state_to_cri_container_state(pod.state.clone()) as i32,
         created_at: pod.container_created_at,
         started_at: pod.container_started_at,
         finished_at: pod.container_finished_at,
@@ -1088,8 +1223,8 @@ fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
         image_ref: String::from("TODO"),
         reason: String::from("TODO"),
         message: String::from("TODO"),
-        // Labels and annotations must be identical between pods and containers.
-        labels: pod.labels.clone(),
+        labels,
+        // Annotations must be identical between pods and containers,
         annotations: pod.annotations.clone(),
         // Vimana containers never have volume mounts.
         mounts: Vec::default(),
@@ -1100,6 +1235,32 @@ fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
         image_id: String::from("TODO"),
         // Wasm modules do not use user-based privileges.
         user: None,
+    }
+}
+
+const CONTAINER_STATE_CREATED_VALUE: i32 = v1::ContainerState::ContainerCreated as i32;
+const CONTAINER_STATE_RUNNING_VALUE: i32 = v1::ContainerState::ContainerRunning as i32;
+const CONTAINER_STATE_EXITED_VALUE: i32 = v1::ContainerState::ContainerExited as i32;
+const CONTAINER_STATE_UNKNOWN_VALUE: i32 = v1::ContainerState::ContainerUnknown as i32;
+
+fn cri_container_state_to_pod_states(state: v1::ContainerStateValue) -> &'static [PodState] {
+    match state.state {
+        CONTAINER_STATE_CREATED_VALUE => &POD_STATES_CONTAINER_CREATED,
+        CONTAINER_STATE_RUNNING_VALUE => &POD_STATES_CONTAINER_RUNNING,
+        CONTAINER_STATE_EXITED_VALUE => &POD_STATES_CONTAINER_EXITED,
+        CONTAINER_STATE_UNKNOWN_VALUE => &POD_STATES_CONTAINER_UNKNOWN,
+        // This fallback should be impossible
+        // (unless the set of possible enum values expands).
+        _ => &POD_STATES_ALL,
+    }
+}
+
+fn pod_state_to_cri_container_state(state: PodState) -> v1::ContainerState {
+    match state {
+        PodState::Initiated => v1::ContainerState::ContainerUnknown,
+        PodState::Created | PodState::Starting => v1::ContainerState::ContainerCreated,
+        PodState::Running => v1::ContainerState::ContainerRunning,
+        PodState::Stopped | PodState::Removed => v1::ContainerState::ContainerExited,
     }
 }
 
@@ -1124,5 +1285,12 @@ fn component_name_from_labels(labels: &HashMap<String, String>) -> Result<Compon
 }
 
 fn log_object<R: Debug>(name: &str, request: R) {
+    //let s = format!("{request:?}");
+    //let contains = s.contains("W:");
+    //eprintln!("[{name}] {contains:?}");
     eprintln!("[{name}] {request:?}");
+}
+
+fn log_object_real<R: Debug>(name: &str, request: R) {
+    //eprintln!("[{name}] {request:?}");
 }

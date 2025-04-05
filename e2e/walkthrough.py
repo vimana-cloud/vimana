@@ -1,15 +1,25 @@
+""" A basic E2E test that walks through most of Vimana's functionality. """
+
+from os import environ
 from unittest import TestCase, main
+
+import grpc
+
+from work.runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
+from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
+
+# https://github.com/grpc/grpc/blob/v1.71.0/doc/environment_variables.md
+environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'e2e/walkthrough-bootstrap.root.cert'
 
 class TestStringMethods(TestCase):
 
     def test_upper(self):
-        assert 5 == 0
-        # 'localhost:50051'
-        #api = Client.get_by_endpoint('api.vimana.host:61803')
-        #assert api.service_names == ['helloworld.Greeter']
-        #request_data = {'name': 'sinsky'}
-        #say_hello_response = api.request('helloworld.Greeter', 'SayHello', request_data)
-        #self.assertEqual(say_hello_response, {'message': 'Hello sinsky!'})
+        channel = grpc.secure_channel('api.vimana.host:61803', grpc.ssl_channel_credentials())
+        client = AdderServiceStub(channel)
+
+        response = client.AddFloats(AddFloatsRequest(x=3.5, y=-1.2))
+
+        assert response == AddFloatsResponse(result=2.3)
 
 if __name__ == '__main__':
     main()
