@@ -10,11 +10,11 @@ The following words have precise meaning(s):
    The platform does not control these domains,
    but can provision TLS certificates for them.
 
-##### Canonical Domain
+#### Canonical Domain
 1. A platform-controlled DNS domain
    of the form `<uuid>.app.vimana.host`.
 
-##### Cluster
+#### Cluster
 1. An [Envoy `Cluster`] comprising
    a set of [work nodes](#work-node)
    capable of serving a particular [service version](#version).
@@ -22,34 +22,34 @@ The following words have precise meaning(s):
    and so can be included in many different such clusters.
 2. A [K8s cluster] orchestrating a Vimana [zone](#zone).
 
-##### Component<a id="version"></a><a id="implementation"></a>
+#### Component
 1. A concrete version of a [service](#service),
-   defined by an exact service Proto definition
+   defined by a Protobuf service
    and a Wasm component that implements it.
    Identified by a [service name](#service) plus a version string.
    Corresponds to an [Envoy `Cluster`].
    - *aka* **version**, **implementation**
    - *eg* `example.com:foo.Bar@1.2.3`
 
-##### Control plane
+#### Control plane
 1. All HTTP / gRPC traffic that is *not* [data plane](#data-plane).
    Generally, anything serving a K8s or Envoy API.
 
-##### Data plane
+#### Data plane
 1. All HTTP / gRPC traffic
    destined to be served by a user component on a [work node](#work-node).
 
-##### Domain
+#### Domain
 1. Identifies a customer organization.
    Corresponds to a DNS domain.
    - *eg* `example.com`
 
-##### Ingress node
+#### Ingress node
 1. A [k8s node] running Envoy
    that receives downstream client traffic
    and forwards it to an appropriate [work node](#work-node).
 
-##### Provider
+#### Provider
 1. An organization providing infrastructure.
    A datacenter owner.
    Real providers, like `aws`, `gcp`, and `azure`,
@@ -58,13 +58,13 @@ The following words have precise meaning(s):
    can only identify regions,
    being composed of zones from real providers.
 
-##### Region
+#### Region
 1. A geographically constrained group of [zones](#zone)
    within a real or composite [provider](#provider).
    Corresponds to the `region` of an [Envoy `Locality`]
    - *eg* `all/eu`
 
-##### Service
+#### Service
 1. A named RPC service, defined by a service Proto definition
    that may evolve over time but should adhere to [best practices]
    and strive for backwards compatibility.
@@ -73,10 +73,10 @@ The following words have precise meaning(s):
    - *eg* `example.com:foo.Bar`,
      `com.example.Bar` (domain assumed to be reversed package name)
 
-##### Work node
+#### Work node
 1. A [K8s node] responsible for running service [implementations](#version).
 
-##### Zone
+#### Zone
 1. An independent [K8s cluster] running deployed [services](#service)
    at the finest grain of geographic specificity.
    Corresponds to a [provider's](#provider) "zone"
