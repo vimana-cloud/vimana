@@ -20,12 +20,26 @@ on a single port.
 
 ## State
 
-The runtime 
+Each pod is represented by a state machine.
+The runtime maintains a strict 1-to-1 relationship between containers and pods,
+which simplifies the possible state transitions.
+That also means "pod" and "container" are somewhat interchangeable terms.
+
+```mermaid
+stateDiagram
+    [*] --> Initiated : RunPodSandbox
+    Initiated --> Created : CreateContainer
+    Initiated --> Stopped : StopPodSandbox
+    Created --> Starting : StartContainer
+    Created --> Stopped : StopContainer /<br />StopPodSandbox
+    Starting --> Running
+    Starting --> Stopped : StopContainer /<br />StopPodSandbox
+    Running --> Stopped : StopContainer /<br />StopPodSandbox
+    Stopped --> [*] : RemovePodSandbox
+```
 
 Work nodes keep track of running containers
-in a single global in-memory structure called the pod pool
-(this runtime maintains a 1-to-1 relationship between containers and pods,
-which is not necessarily the case for other K8s container runtimes).
+in a single global in-memory structure called the pod pool.
 
 ### Resource Heirarchy
 

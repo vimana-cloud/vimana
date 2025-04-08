@@ -22,7 +22,7 @@ The following words have precise meaning(s):
    and so can be included in many different such clusters.
 2. A [K8s cluster] orchestrating a Vimana [zone](#zone).
 
-##### Component <a id="version"></a><a id="implementation"></a>
+##### Component<a id="version"></a><a id="implementation"></a>
 1. A concrete version of a [service](#service),
    defined by an exact service Proto definition
    and a Wasm component that implements it.
