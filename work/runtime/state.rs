@@ -1,7 +1,7 @@
 //! State machine used by the CRI service to manage pods.
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -238,15 +238,17 @@ impl WorkRuntime {
         // Start initializing the pod immediately in a background task.
         let (routes, abort_routes) = self.pod_store.grpc(&self.wasmtime, component_name.clone());
 
-        // TODO: This blocks. Can it not?
-        let ip_address = self
-            .ipam
-            .address(&pod_name)
-            .and_then(|allocated| allocated.add(&self.network_interface))
-            .map_err(|error| {
-                abort_routes.abort();
-                error
-            })?;
+        let ip_address = match self.ipam.address(&pod_name).await {
+            Ok(allocated) => allocated.add(&self.network_interface).await,
+            Err(error) => Err(error),
+        }
+        .map_err(|error| {
+            // TODO:
+            //   Does aborting here also abort clones
+            //   (like pre-fetching due to `PullImage`)? Is that what we want?
+            abort_routes.abort();
+            error
+        })?;
 
         let pod = Pod {
             state: PodState::Initiated,
@@ -579,8 +581,7 @@ enum StartContainerAbort {
 }
 
 // Return non-leap nanoseconds since 1970-01-01 00:00:00 UTC+0 as `i64`.
-// Return zero if executed before 1970.
-// May wrap around in 2262.
+// Return zero if executed before 1970. Wraps around in 2262.
 pub(crate) fn now() -> i64 {
     (SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

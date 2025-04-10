@@ -253,7 +253,6 @@ impl RuntimeService for VimanaCriService {
                 // TODO: Also intercept and prefix container IDs.
                 .map(map_oci_prefix!(status, id))
         });
-        log_object_real("PodSandboxStatus", &request);
 
         if request.pod_sandbox_id.starts_with(WORKD_PREFIX) {
             let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
@@ -337,7 +336,6 @@ impl RuntimeService for VimanaCriService {
                 .await
                 .map(map_oci_prefix!(container_id))
         });
-        log_object_real("CreateContainer", &request.pod_sandbox_id);
 
         let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
         let config = request.config.unwrap_or_default();
@@ -408,7 +406,6 @@ impl RuntimeService for VimanaCriService {
                 .start_container(Request::new(request))
                 .await
         });
-        log_object_real("StartContainer", &request.container_id);
 
         let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
 
@@ -495,7 +492,6 @@ impl RuntimeService for VimanaCriService {
                         downstream_result
                     })
             });
-        eprintln!("LISTCONTAINERS: {r:?}");
         return r;
     }
 
@@ -515,7 +511,6 @@ impl RuntimeService for VimanaCriService {
                 .await
                 .map(map_oci_prefix!(status, id))
         });
-        log_object_real("ContainerStatus", &request.container_id);
 
         if request.container_id.starts_with(WORKD_PREFIX) {
             let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
@@ -877,7 +872,7 @@ impl ImageService for VimanaCriService {
         r: Request<v1::ListImagesRequest>,
     ) -> TonicResult<v1::ListImagesResponse> {
         let request = r.into_inner();
-        log_object_real("ListImages", &request);
+        log_object("ListImages", &request);
 
         let filter = request.clone().filter.unwrap_or_default();
         let spec = filter.image.unwrap_or_default();
@@ -1285,12 +1280,9 @@ fn component_name_from_labels(labels: &HashMap<String, String>) -> Result<Compon
 }
 
 fn log_object<R: Debug>(name: &str, request: R) {
-    //let s = format!("{request:?}");
-    //let contains = s.contains("W:");
-    //eprintln!("[{name}] {contains:?}");
-    eprintln!("[{name}] {request:?}");
+    //eprintln!("[{name}] {request:?}");
 }
 
 fn log_object_real<R: Debug>(name: &str, request: R) {
-    //eprintln!("[{name}] {request:?}");
+    eprintln!("[{name}] {request:?}");
 }
