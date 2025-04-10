@@ -1170,7 +1170,7 @@ fn cri_pod_sandbox_status(
             state: v1::PodSandboxState::SandboxReady as i32,
             created_at: pod.pod_created_at,
             network: Some(v1::PodSandboxNetworkStatus {
-                ip: pod.ip_address.allocated.address.to_string(),
+                ip: pod.ip_address.to_string(),
                 additional_ips: Vec::default(),
             }),
             linux: None,

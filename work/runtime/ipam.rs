@@ -1,5 +1,6 @@
 //! IP address management.
 
+use std::fmt::Display;
 use std::io::{pipe, PipeReader, Write};
 use std::mem::drop;
 use std::net::IpAddr;
@@ -40,14 +41,12 @@ struct IpamInner {
     config: Vec<u8>,
 }
 
-/// An allocated IP address.
+/// An allocated and activated IP address.
 ///
-/// The address is not associated with any network interfaces.
-/// It is not useful until added to an interface with [`add`](Self::add).
-///
-/// The address is automatically de-allocated on drop.
+/// Allocating the address excludes other pods from allocating the same address.
+/// Activating it makes it available on the network interface.
 #[derive(Clone)]
-pub(crate) struct AllocatedIpAddress {
+pub(crate) struct IpAddress {
     /// IPAM client used to allocate this IP address.
     ipam: Ipam,
 
@@ -59,17 +58,6 @@ pub(crate) struct AllocatedIpAddress {
 
     /// Pod name associated with the IP address.
     pod_name: PodName,
-}
-
-/// An active IP address that has been added to a network interface.
-///
-/// It is automatically removed from the network interface,
-/// then [de-allocated](AllocatedIpAddress) from the IPAM system,
-/// on drop.
-#[derive(Clone)]
-pub(crate) struct ActiveIpAddress {
-    /// An allocated IP address.
-    pub(crate) allocated: AllocatedIpAddress,
 
     /// Network interface name, e.g. `eth0`.
     interface: String,
@@ -98,7 +86,7 @@ impl Ipam {
     }
 
     /// Allocate and return a fresh IP address.
-    pub(crate) async fn address(&self, pod_name: &PodName) -> Result<AllocatedIpAddress> {
+    pub(crate) async fn address(&self, pod_name: &PodName, interface: &str) -> Result<IpAddress> {
         let output = self.run_plugin_command("ADD", pod_name).await?;
 
         let result: IpamAddResult = from_slice(&output).map_err(log_error_status!(
@@ -133,19 +121,28 @@ impl Ipam {
             &pod_name.component
         ))?;
 
-        Ok(AllocatedIpAddress {
+        // If activating the address on the interface fails,
+        // de-allocate it so it can be re-used.
+        if let Err(error) = ip_addr(
+            "add",
+            &address,
+            prefix_length,
+            interface,
+            &pod_name.component,
+        )
+        .await
+        {
+            let _ = self.run_plugin_command("DEL", pod_name).await;
+            return Err(error);
+        }
+
+        Ok(IpAddress {
             ipam: self.clone(),
             address,
             prefix_length,
             pod_name: pod_name.clone(),
+            interface: String::from(interface),
         })
-    }
-
-    /// De-allocate the IP address associated with the given pod.
-    async fn delete(&self, pod_name: &PodName) -> Result<()> {
-        // The `DEL` command does not produce any output on success.
-        self.run_plugin_command("DEL", pod_name).await?;
-        Ok(())
     }
 
     /// Boilerplate to run an IPAM CNI plugin command.
@@ -191,26 +188,48 @@ impl Ipam {
         writer
             .write_all(&self.0.config)
             .map_err(log_error_status!("ipam-pipe-write", component_name))?;
-        drop(writer); // Flush and close the pipe.
+        drop(writer); // Flush the pipe.
         Ok(reader)
     }
 }
 
-impl AllocatedIpAddress {
-    /// Add the allocated IP address to a network interface, making it routable.
-    pub(crate) async fn add(self, interface: &str) -> Result<ActiveIpAddress> {
+impl IpAddress {
+    /// Deactivate the IP address on its network interface.
+    /// It will no longer be able to receive traffic,
+    /// but the address will not be available for re-use.
+    pub(crate) async fn deactivate(&self) -> Result<()> {
         ip_addr(
-            "add",
+            "del",
             &self.address,
             self.prefix_length,
-            interface,
+            &self.interface,
             &self.pod_name.component,
         )
         .await?;
-        Ok(ActiveIpAddress {
-            allocated: self,
-            interface: String::from(interface),
-        })
+        log_info!(
+            "ipam-deactivate-success",
+            &self.pod_name.component,
+            &self.address
+        );
+        Ok(())
+    }
+
+    /// De-allocate the address for re-use by other pods.
+    /// It must be [deactivated](Self::deactivate) before being de-allocated.
+    pub(crate) async fn deallocate(&self) -> Result<()> {
+        self.ipam.run_plugin_command("DEL", &self.pod_name).await?;
+        log_info!(
+            "ipam-deallocate-success",
+            &self.pod_name.component,
+            self.address
+        );
+        Ok(())
+    }
+}
+
+impl Display for IpAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.address.fmt(f)
     }
 }
 
@@ -254,54 +273,7 @@ fn ipam_container_id(pod: &PodName) -> String {
     let mut chunks = hash.array_chunks::<16>();
     let lower = DomainUuid::new(chunks.next().unwrap());
     let upper = DomainUuid::new(chunks.next().unwrap());
-    format!("{}{}", lower, upper)
-}
-
-impl Drop for AllocatedIpAddress {
-    fn drop(&mut self) {
-        let ipam = self.ipam.clone();
-        let pod_name = self.pod_name.clone();
-        let address = self.address;
-        spawn(async move {
-            if let Err(error) = ipam.delete(&pod_name).await {
-                // The error would have already been logged in `run_plugin_command`.
-                // Log again here to indicate that it occurred during drop,
-                // which we would want to see in the logs.
-                // It can't be propagated up the call stack from `drop` anyway.
-                log_error!("ipam-deallocate", &pod_name.component, error);
-            } else {
-                log_info!("ipam-deallocate-success", &pod_name.component, address);
-            }
-        });
-    }
-}
-
-impl Drop for ActiveIpAddress {
-    fn drop(&mut self) {
-        let address = self.allocated.address;
-        let prefix_length = self.allocated.prefix_length;
-        let pod_name = self.allocated.pod_name.clone();
-        let interface = self.interface.clone();
-        spawn(async move {
-            if let Err(error) = ip_addr(
-                "del",
-                &address,
-                prefix_length,
-                &interface,
-                &pod_name.component,
-            )
-            .await
-            {
-                // The error would have already been logged in `ip_addr`.
-                // Log again here to indicate that it occurred during drop,
-                // which we would want to see in the logs.
-                // It can't be propagated up the call stack from `drop` anyway.
-                log_error!("ipam-deactivate", &pod_name.component, error);
-            } else {
-                log_info!("ipam-deactivate-success", &pod_name.component, address);
-            }
-        });
-    }
+    format!("{lower}{upper}")
 }
 
 /// Used to parse the JSON result of the IPAM plugin for the `ADD` command.

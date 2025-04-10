@@ -1,7 +1,7 @@
 //! State machine used by the CRI service to manage pods.
 
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -20,7 +20,7 @@ use tonic::transport::{Error as ServerError, Server};
 use tonic::Status;
 use wasmtime::{Config as WasmConfig, Engine as WasmEngine, Error as WasmError};
 
-use crate::ipam::{ActiveIpAddress, Ipam};
+use crate::ipam::{IpAddress, Ipam};
 use crate::pods::{PodInitializer, SharedResultFuture, GRPC_PORT};
 use api_proto::runtime::v1::image_service_client::ImageServiceClient;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
@@ -110,7 +110,7 @@ pub(crate) struct Pod {
     pub(crate) state: PodState,
 
     /// Pod IP address.
-    pub(crate) ip_address: ActiveIpAddress,
+    pub(crate) ip_address: IpAddress,
 
     /// Canonical name of the component that will run in this pod (used for logs).
     pub(crate) component_name: Arc<ComponentName>,
@@ -238,17 +238,17 @@ impl WorkRuntime {
         // Start initializing the pod immediately in a background task.
         let (routes, abort_routes) = self.pod_store.grpc(&self.wasmtime, component_name.clone());
 
-        let ip_address = match self.ipam.address(&pod_name).await {
-            Ok(allocated) => allocated.add(&self.network_interface).await,
-            Err(error) => Err(error),
-        }
-        .map_err(|error| {
-            // TODO:
-            //   Does aborting here also abort clones
-            //   (like pre-fetching due to `PullImage`)? Is that what we want?
-            abort_routes.abort();
-            error
-        })?;
+        let ip_address = self
+            .ipam
+            .address(&pod_name, &self.network_interface)
+            .await
+            .map_err(|error| {
+                // TODO:
+                //   Does aborting here also abort clones
+                //   (like pre-fetching due to `PullImage`)? Is that what we want?
+                abort_routes.abort();
+                error
+            })?;
 
         let pod = Pod {
             state: PodState::Initiated,
@@ -416,7 +416,7 @@ impl WorkRuntime {
                 debug_assert!(pod.state == PodState::Starting);
                 let routes = pod.routes.peek().clone().unwrap().clone().unwrap();
 
-                let address = SocketAddr::new(pod.ip_address.allocated.address, GRPC_PORT);
+                let address = SocketAddr::new(pod.ip_address.address, GRPC_PORT);
                 // TODO: Revisit implications of nodelay.
                 let nodelay = true;
                 // TODO: Revisit implications of keepalive.
