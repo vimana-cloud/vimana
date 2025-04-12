@@ -11,9 +11,9 @@ from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
 # https://github.com/grpc/grpc/blob/v1.71.0/doc/environment_variables.md
 environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'e2e/walkthrough-bootstrap.root.cert'
 
-class TestStringMethods(TestCase):
+class Walkthough(TestCase):
 
-    def test_upper(self):
+    def test_WIP(self):
         channel = grpc.secure_channel('api.vimana.host:61803', grpc.ssl_channel_credentials())
         client = AdderServiceStub(channel)
 

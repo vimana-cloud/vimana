@@ -3,7 +3,7 @@
 from unittest import TestCase, main
 from ipaddress import IPv6Address, ip_address
 
-import grpc
+from grpc import insecure_channel, RpcError, StatusCode
 
 from work.runtime.tests.util import WorkdTester, ipHostName
 from work.runtime.tests.api_pb2 import (
@@ -20,6 +20,10 @@ from work.runtime.tests.api_pb2 import (
     ImageSpec,
     KeyValue,
     StartContainerRequest,
+    StopContainerRequest,
+    RemoveContainerRequest,
+    StopPodSandboxRequest,
+    RemovePodSandboxRequest,
     ListPodSandboxRequest,
     PodSandboxFilter,
     ContainerStatusRequest,
@@ -94,7 +98,12 @@ class SuccessTest(TestCase):
         )
 
         podSandboxId = response.pod_sandbox_id
-        self.assertTrue(podSandboxId.startswith('W:'))
+        expectedIdPrefix = f'W:{domain}:{service}@{version}#'
+        self.assertTrue(podSandboxId.startswith(expectedIdPrefix))
+        try:
+            int(podSandboxId[len(expectedIdPrefix):])
+        except ValueError:
+            self.fail('Pod sandbox ID must end with a pod ID (integer)')
 
         response = self.tester.runtimeService.PodSandboxStatus(
             PodSandboxStatusRequest(pod_sandbox_id=podSandboxId),
@@ -124,14 +133,42 @@ class SuccessTest(TestCase):
         self.assertEqual(response.container_id, podSandboxId)
 
         self.tester.runtimeService.StartContainer(
-            StartContainerRequest(container_id=response.container_id),
+            StartContainerRequest(container_id=podSandboxId),
         )
 
         # Finally, try exercising the data plane.
-        client = AdderServiceStub(grpc.insecure_channel(f'{ipHostName(ipAddress)}:80'))
+        client = AdderServiceStub(insecure_channel(f'{ipHostName(ipAddress)}:80'))
         response = client.AddFloats(AddFloatsRequest(x=3.5, y=-1.2))
 
         self.assertEqual(response, AddFloatsResponse(result=2.3))
+
+        self.tester.runtimeService.StopContainer(
+            StopContainerRequest(container_id=podSandboxId, timeout=1),
+        )
+
+        try:
+            client.AddFloats(AddFloatsRequest(x=3.5, y=-1.2))
+        except RpcError as error:
+            self.assertEqual(error.code(), StatusCode.UNAVAILABLE)
+        else:
+            self.fail('Expected the server to be unavailable after stopping the container')
+
+        # This is a no-op but we'll exercise it anyway.
+        self.tester.runtimeService.RemoveContainer(
+            RemoveContainerRequest(container_id=podSandboxId),
+        )
+
+        # TODO: Verify that the IP address is not yet freed.
+
+        self.tester.runtimeService.StopPodSandbox(
+            StopPodSandboxRequest(pod_sandbox_id=podSandboxId),
+        )
+
+        # TODO: Verify that the IP address is freed.
+
+        self.tester.runtimeService.RemovePodSandbox(
+            RemovePodSandboxRequest(pod_sandbox_id=podSandboxId),
+        )
 
     def test_ListPodSandbox(self):
         # Use an isolated runtime instance so we don't get random shit in our list results.
@@ -189,9 +226,8 @@ class SuccessTest(TestCase):
             response = tester.runtimeService.ListPodSandbox(ListPodSandboxRequest())
 
             self.assertEqual(len(response.items), 2)
-            # Results could be returned in any order.
-            # Since a collection of 2 items only has 2 possible orderings,
-            # just check the first item.
+            # Results could be returned in any order,
+            # but a collection of 2 items only has 2 possible orders.
             fooIndex = 0 if response.items[0].id == fooSandboxId else 1
             barIndex = 1 - fooIndex
             self.assertEqual(response.items[fooIndex].id, fooSandboxId)
@@ -267,6 +303,10 @@ class SuccessTest(TestCase):
             module = 'work/runtime/tests/components/adder-c.component.wasm',
             metadata = 'work/runtime/tests/components/adder.binpb',
         )
+        # Set different labels on the pod vs. the container
+        # so we can verify that the correct set is returned.
+        podLabels = labels | {'only-for-pod': 'uh huh'}
+        containerLabels = labels | {'only-for-container': 'fersher'}
 
         response = self.tester.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
@@ -279,7 +319,7 @@ class SuccessTest(TestCase):
                         attempt=6,
                     ),
                     hostname='simple-pod-hostname',
-                    labels=labels,
+                    labels=podLabels,
                 ),
             ),
         )
@@ -301,7 +341,7 @@ class SuccessTest(TestCase):
                 config=ContainerConfig(
                     metadata=containerMetadata,
                     image=imageSpec,
-                    labels=labels,
+                    labels=containerLabels,
                 ),
             ),
         )
@@ -327,16 +367,15 @@ class SuccessTest(TestCase):
         self.assertEqual(response.status.image_ref, 'TODO')
         self.assertEqual(response.status.reason, 'TODO')
         self.assertEqual(response.status.message, 'TODO')
-        self.assertEqual(
-            response.status.labels,
-            labels | {'io.kubernetes.container.name' : containerName},
-        )
+        self.assertEqual(response.status.labels, containerLabels)
         self.assertEqual(len(response.status.annotations), 0)
         self.assertEqual(len(response.status.mounts), 0)
         self.assertEqual(response.status.log_path, '')
         self.assertEqual(response.status.resources, ContainerResources())
         self.assertEqual(response.status.image_id, 'TODO')
         self.assertEqual(response.status.user, ContainerUser())
+
+    # TODO: Test a container that's stopped then re-started without stopping the pod.
 
 if __name__ == '__main__':
     main()

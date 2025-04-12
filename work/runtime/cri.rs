@@ -18,13 +18,14 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
-
-use tokio_stream::wrappers::ReceiverStream;
-use tonic::{async_trait, Request, Response, Status};
+use std::time::Duration;
 
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_server::ImageService;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
+use serde::Serialize;
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::{async_trait, Request, Response, Status};
 
 use crate::state::{now, Pod, PodState};
 use crate::WorkRuntime;
@@ -45,15 +46,15 @@ const OCI_PREFIX: &str = "O:";
 /// Prefix used to differentiate Vimana pods / containers.
 const WORKD_PREFIX: &str = "W:";
 
-/// Pod states matching [`v1::ContainerState::ContainerUnknown`] = 3,
+/// Pod states matching [`v1::ContainerState::ContainerUnknown`].
 const POD_STATES_CONTAINER_UNKNOWN: [PodState; 1] = [PodState::Initiated];
-/// Pod states matching [`v1::ContainerState::ContainerCreated`] = 0,
+/// Pod states matching [`v1::ContainerState::ContainerCreated`].
 const POD_STATES_CONTAINER_CREATED: [PodState; 2] = [PodState::Created, PodState::Starting];
-/// Pod states matching [`v1::ContainerState::ContainerRunning`] = 1,
+/// Pod states matching [`v1::ContainerState::ContainerRunning`].
 const POD_STATES_CONTAINER_RUNNING: [PodState; 1] = [PodState::Running];
-/// Pod states matching [`v1::ContainerState::ContainerExited`] = 2,
-const POD_STATES_CONTAINER_EXITED: [PodState; 2] = [PodState::Stopped, PodState::Removed];
-/// Counter-intuitively, the empty slice means "match all states".
+/// Pod states matching [`v1::ContainerState::ContainerExited`].
+const POD_STATES_CONTAINER_EXITED: [PodState; 1] = [PodState::Stopped];
+/// Somewhat counter-intuitively, the empty slice means "match all states".
 const POD_STATES_ALL: [PodState; 0] = [];
 
 // These labels must be present on every pod and container using the Vimana handler:
@@ -66,10 +67,6 @@ const LABEL_VERSION_KEY: &str = "vimana.host/version";
 
 const CONDITION_RUNTIME_READY: &str = "RuntimeReady";
 const CONDITION_NETWORK_READY: &str = "NetworkReady";
-
-/// This K8s system label must be populated on [container statuses](v1::ContainerStatus).
-/// It is derived from the container metadata, so it is effectively redundant.
-const K8S_CONTAINER_NAME_LABEL: &str = "io.kubernetes.container.name";
 
 /// Wrapper around [WorkRuntime] that can implement [RuntimeService] and [ImageService]
 /// without running afoul of Rust's rules on foreign types / traits.
@@ -97,12 +94,12 @@ macro_rules! intercept_prefix {
 
 #[inline(always)]
 fn oci_prefix<S: Display>(id: S) -> String {
-    format!("{OCI_PREFIX}{}", id)
+    format!("{OCI_PREFIX}{id}")
 }
 
 #[inline(always)]
 fn workd_prefix<S: Display>(id: S) -> String {
-    format!("{WORKD_PREFIX}{}", id)
+    format!("{WORKD_PREFIX}{id}")
 }
 
 /// Inserts the OCI prefix in front of the string that lives at the end of the ID path.
@@ -214,7 +211,13 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        todo!()
+        let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
+        let free_address = true;
+        self.0
+            .stop_pod(pod_name, Duration::ZERO, free_address)
+            .await?;
+
+        Ok(Response::new(v1::StopPodSandboxResponse {}))
     }
 
     async fn remove_pod_sandbox(
@@ -233,7 +236,10 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        todo!()
+        let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
+        self.0.delete_pod(pod_name)?;
+
+        Ok(Response::new(v1::RemovePodSandboxResponse {}))
     }
 
     async fn pod_sandbox_status(
@@ -250,8 +256,14 @@ impl RuntimeService for VimanaCriService {
                 .await
                 .pod_sandbox_status(Request::new(request))
                 .await
-                // TODO: Also intercept and prefix container IDs.
-                .map(map_oci_prefix!(status, id))
+                .map(|mut result| {
+                    let response = result.get_mut();
+                    insert_oci_prefix!(response, status, id);
+                    for container_status in response.containers_statuses.iter_mut() {
+                        insert_oci_prefix!(container_status, id);
+                    }
+                    result
+                })
         });
 
         if request.pod_sandbox_id.starts_with(WORKD_PREFIX) {
@@ -382,8 +394,13 @@ impl RuntimeService for VimanaCriService {
         // The CRI API has separate steps for creating pods and creating containers,
         // but a component pod is inseparable from its single container,
         // so "pods" and containers are created simultaneously.
-        self.0
-            .create_container(&pod_name, &config.metadata, &environment)?;
+        self.0.create_container(
+            &pod_name,
+            &config.metadata,
+            &config.labels,
+            &config.annotations,
+            &environment,
+        )?;
 
         Ok(Response::new(v1::CreateContainerResponse {
             // Containers and their pod sandboxes share IDs.
@@ -396,7 +413,7 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::StartContainerRequest>,
     ) -> TonicResult<v1::StartContainerResponse> {
         let mut request = r.into_inner();
-        log_object("StartContainer", &request.container_id);
+        log_object("StartContainer", &request);
 
         intercept_prefix!(request.container_id, {
             self.0
@@ -408,15 +425,7 @@ impl RuntimeService for VimanaCriService {
         });
 
         let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
-
-        if let Some(future) = self.0.start_container(pod_name.clone())? {
-            let _ = future.await;
-            if let Some(_) = self.0.start_container(pod_name)? {
-                // This would be a very strange case
-                // where the shared future is not peekable after awaiting it.
-                return Err(Status::internal("pod-initialization-concurrency"));
-            }
-        }
+        self.0.start_container(pod_name).await?;
 
         Ok(Response::new(v1::StartContainerResponse {}))
     }
@@ -437,7 +446,12 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        todo!()
+        let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
+        let timeout = Duration::from_secs(request.timeout.try_into().unwrap_or(0));
+        let free_address = false;
+        self.0.stop_pod(pod_name, timeout, free_address).await?;
+
+        Ok(Response::new(v1::StopContainerResponse {}))
     }
 
     async fn remove_container(
@@ -456,7 +470,11 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        todo!()
+        // RemoveContainer is a no-op.
+        // According to the CRI API contract,
+        // the container should have already been stopped by `StopContainer`.
+        // Nothing else changes until `RemovePodSandbox`.
+        Ok(Response::new(v1::RemoveContainerResponse {}))
     }
 
     async fn list_containers(
@@ -737,13 +755,13 @@ impl RuntimeService for VimanaCriService {
         log_object("Status", &request);
 
         // These are the only 2 required conditions.
-        let mut runtimeReadyCondition = v1::RuntimeCondition {
+        let mut runtime_ready_condition = v1::RuntimeCondition {
             r#type: String::from(CONDITION_RUNTIME_READY),
             status: true,
             reason: String::default(),
             message: String::default(),
         };
-        let mut networkReadyCondition = v1::RuntimeCondition {
+        let mut network_ready_condition = v1::RuntimeCondition {
             r#type: String::from(CONDITION_NETWORK_READY),
             status: true,
             reason: String::default(),
@@ -768,7 +786,10 @@ impl RuntimeService for VimanaCriService {
                 info.extend(downstream_response.info);
                 runtime_handlers.extend(downstream_response.runtime_handlers);
             }
-            Err(downstream_error) => todo!(),
+            Err(downstream_error) => {
+                // The downstream runtime must function.
+                return Err(downstream_error);
+            }
         }
 
         eprintln!("RUNTIME HANDLERS: {runtime_handlers:?}");
@@ -776,7 +797,7 @@ impl RuntimeService for VimanaCriService {
 
         Ok(Response::new(v1::StatusResponse {
             status: Some(v1::RuntimeStatus {
-                conditions: vec![runtimeReadyCondition, networkReadyCondition],
+                conditions: vec![runtime_ready_condition, network_ready_condition],
             }),
             info,
             runtime_handlers,
@@ -1134,8 +1155,8 @@ fn cri_pod_sandbox(name: &PodName, pod: &Pod) -> v1::PodSandbox {
         // The rest are just cloned from the controller:
         metadata: Some(pod.pod_sandbox_metadata.clone()),
         created_at: pod.pod_created_at,
-        labels: pod.labels.clone(),
-        annotations: pod.annotations.clone(),
+        labels: pod.pod_labels.clone(),
+        annotations: pod.pod_annotations.clone(),
     }
 }
 
@@ -1150,8 +1171,8 @@ fn cri_container(name: &PodName, pod: &Pod) -> v1::Container {
         image_ref: String::from("TODO"),
         state: pod_state_to_cri_container_state(pod.state.clone()) as i32,
         created_at: pod.container_created_at,
-        labels: pod.labels.clone(),
-        annotations: pod.annotations.clone(),
+        labels: pod.container_labels.clone(),
+        annotations: pod.container_annotations.clone(),
         image_id: String::from("TODO"),
     }
 }
@@ -1174,32 +1195,21 @@ fn cri_pod_sandbox_status(
                 additional_ips: Vec::default(),
             }),
             linux: None,
-            labels: pod.labels.clone(),
-            annotations: pod.annotations.clone(),
+            labels: pod.pod_labels.clone(),
+            annotations: pod.pod_annotations.clone(),
             runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
         },
         match pod.state {
             PodState::Initiated => Vec::default(),
-            PodState::Created
-            | PodState::Starting
-            | PodState::Running
-            | PodState::Stopped
-            | PodState::Removed => vec![cri_container_status(name, pod)],
+            PodState::Created | PodState::Starting | PodState::Running | PodState::Stopped => {
+                vec![cri_container_status(name, pod)]
+            }
         },
     )
 }
 
 /// Convert the internal pod to a CRI-API [v1::ContainerStatus] to return in `ContainerStatus`.
 fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
-    // Labels must be generally identical between pods and containers,
-    // however containers have an additional system label that must be set.
-    let mut labels = pod.labels.clone();
-    if let Some(metadata) = &pod.container_metadata {
-        labels.insert(
-            String::from(K8S_CONTAINER_NAME_LABEL),
-            metadata.name.clone(),
-        );
-    }
     v1::ContainerStatus {
         id: workd_prefix(name),
         metadata: pod.container_metadata.clone(),
@@ -1218,9 +1228,8 @@ fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
         image_ref: String::from("TODO"),
         reason: String::from("TODO"),
         message: String::from("TODO"),
-        labels,
-        // Annotations must be identical between pods and containers,
-        annotations: pod.annotations.clone(),
+        labels: pod.container_labels.clone(),
+        annotations: pod.container_annotations.clone(),
         // Vimana containers never have volume mounts.
         mounts: Vec::default(),
         // Logging happens entirely via OTLP, not files.
@@ -1255,7 +1264,7 @@ fn pod_state_to_cri_container_state(state: PodState) -> v1::ContainerState {
         PodState::Initiated => v1::ContainerState::ContainerUnknown,
         PodState::Created | PodState::Starting => v1::ContainerState::ContainerCreated,
         PodState::Running => v1::ContainerState::ContainerRunning,
-        PodState::Stopped | PodState::Removed => v1::ContainerState::ContainerExited,
+        PodState::Stopped => v1::ContainerState::ContainerExited,
     }
 }
 

@@ -10,10 +10,9 @@ use serde::Deserialize;
 use serde_json::{from_slice, json, to_vec};
 use sha2::{Digest, Sha256};
 use tokio::process::Command;
-use tokio::task::spawn;
 use tonic::Status;
 
-use error::{log_error, log_error_status, log_info, Result};
+use error::{log_error_status, log_info, Result};
 use names::{ComponentName, DomainUuid, PodName};
 
 /// CNI plugin API version.

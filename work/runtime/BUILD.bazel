@@ -76,10 +76,7 @@ rust_test(
     crate = ":names",
 )
 
-exports_files(
-    ["metadata.proto"],
-    visibility = ["//visibility:public"],
-)
+exports_files(["metadata.proto"])
 
 proto_library(
     name = "metadata-proto",
