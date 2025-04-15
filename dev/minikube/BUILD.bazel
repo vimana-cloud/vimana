@@ -49,10 +49,10 @@ sh_binary(
         "$(rootpath @rules_k8s//:minikube)",
         "$(rootpath @rules_k8s//:minikube-bin)",
         "$(rootpath @rules_k8s//:kubectl)",
-        "$(rootpath //work/runtime:workd)",
+        "$(rootpath :workd-x86_64-linux)",
     ],
     data = [
-        "//work/runtime:workd",
+        ":workd-x86_64-linux",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
         "@rules_k8s//:minikube-bin",

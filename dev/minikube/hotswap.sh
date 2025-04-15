@@ -43,8 +43,8 @@ function _minikube {
 }
 
 # If minikube is not currently running, abort.
-_minikube status &>/dev/null || {
-  echo >&2 -e "${red}Error$reset minikube is not running. Try ${bold}bazel run //dev/minikube:start$reset"
+_minikube status > /dev/null 2> /dev/null || {
+  echo >&2 -e "${red}Error$reset minikube is not running. Try ${bold}bazel run //dev/minikube:restart$reset"
   exit 1
 }
 
