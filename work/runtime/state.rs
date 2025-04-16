@@ -810,6 +810,30 @@ impl WorkRuntime {
         }
     }
 
+    /// List all the pods that match the given labels and readiness.
+    /// Labels matches if every specified label is found on the pod.
+    /// If readiness is `false`, only [killed](PodState::Killed) pods match.
+    /// If readiness is `true`, only non-killed pods match.
+    /// If readiness is `None`, all pods match.
+    ///
+    /// Push results into the provided vector after transforming them with `transform`.
+    ///
+    /// Currently implemented by searching the pod map exhaustively (*O(n)*).
+    /// YAGNIndices?
+    pub(crate) fn list_pods<T, F>(
+        &self,
+        labels: &Vec<(&String, &String)>,
+        readiness: Option<bool>,
+        transform: &F,
+        results: &mut Vec<T>,
+    ) where
+        F: Fn(&PodName, &Pod) -> T,
+    {
+        for (id, pod) in self.pods.pin().iter() {
+            Self::match_pod(*id, pod, labels, None, transform, results);
+        }
+    }
+
     /// Like [`Self::list_pods`],
     /// but with the added `name` condition for exact match by ID.
     /// Skips the exhaustive search and adds at most 1 pod to results.
@@ -818,22 +842,60 @@ impl WorkRuntime {
         &self,
         name: &PodName,
         labels: &Vec<(&String, &String)>,
-        states: &[PodState],
+        readiness: Option<bool>,
         transform: &F,
         results: &mut Vec<T>,
     ) where
         F: Fn(&PodName, &Pod) -> T,
     {
         if let Some(pod) = self.pods.pin().get(&name.pod) {
-            Self::match_pod(
-                name.pod,
-                pod,
-                &pod.pod_labels,
-                labels,
-                states,
-                transform,
-                results,
-            );
+            Self::match_pod(name.pod, pod, labels, readiness, transform, results);
+        }
+    }
+
+    /// Logic common to [`get_pod`](Self::get_pod) and [`list_pods`](Self::list_pods).
+    #[inline(always)]
+    fn match_pod<T, F>(
+        pod_id: PodId,
+        pod: &Pod,
+        labels: &Vec<(&String, &String)>,
+        readiness: Option<bool>,
+        transform: &F,
+        results: &mut Vec<T>,
+    ) where
+        F: Fn(&PodName, &Pod) -> T,
+    {
+        // If readiness is unspecified, all states match.
+        if readiness.map_or(true, |ready| {
+            // Either readiness must be desired, or the pod must be killed (but not both).
+            ready ^ (pod.state == PodState::Killed)
+        }) && Self::match_labels(&pod.pod_labels, labels)
+        {
+            let name = PodName::new(pod.component_name.as_ref().clone(), pod_id);
+            eprintln!("matching: {name}");
+            results.push(transform(&name, pod));
+        }
+    }
+
+    /// List all the containers that match the given labels and states.
+    /// Labels matches if every specified label is found on the pod.
+    /// States match if the pod's state is a member of `states`.
+    ///
+    /// Push results into the provided vector after transforming them with `transform`.
+    ///
+    /// Currently implemented by searching the pod map exhaustively (*O(n)*).
+    /// YAGNIndices?
+    pub(crate) fn list_containers<T, F>(
+        &self,
+        labels: &Vec<(&String, &String)>,
+        states: &[PodState],
+        transform: &F,
+        results: &mut Vec<T>,
+    ) where
+        F: Fn(&PodName, &Pod) -> T,
+    {
+        for (id, pod) in self.pods.pin().iter() {
+            Self::match_container(*id, pod, labels, states, transform, results);
         }
     }
 
@@ -852,108 +914,36 @@ impl WorkRuntime {
         F: Fn(&PodName, &Pod) -> T,
     {
         if let Some(pod) = self.pods.pin().get(&name.pod) {
-            Self::match_pod(
-                name.pod,
-                pod,
-                &pod.container_labels,
-                labels,
-                states,
-                transform,
-                results,
-            );
+            Self::match_container(name.pod, pod, labels, states, transform, results);
         }
     }
 
-    /// List all the pods that match the given labels and states.
-    /// See [`match_pod`](Self::match_pod) for matching details.
-    /// Push results into the provided vector.
-    ///
-    /// Currently implemented by searching the pod map exhaustively (*O(n)*).
-    /// YAGNIndices?
-    pub(crate) fn list_pods<T, F>(
-        &self,
-        labels: &Vec<(&String, &String)>,
-        states: &[PodState],
-        transform: &F,
-        results: &mut Vec<T>,
-    ) where
-        F: Fn(&PodName, &Pod) -> T,
-    {
-        for (id, pod) in self.pods.pin().iter() {
-            Self::match_pod(
-                *id,
-                pod,
-                &pod.pod_labels,
-                labels,
-                states,
-                transform,
-                results,
-            );
-        }
-    }
-
-    /// List all the containers that match the given labels and states.
-    /// See [`match_pod`](Self::match_pod) for matching details.
-    /// Push results into the provided vector.
-    ///
-    /// Currently implemented by searching the pod map exhaustively (*O(n)*).
-    /// YAGNIndices?
-    pub(crate) fn list_containers<T, F>(
-        &self,
-        labels: &Vec<(&String, &String)>,
-        states: &[PodState],
-        transform: &F,
-        results: &mut Vec<T>,
-    ) where
-        F: Fn(&PodName, &Pod) -> T,
-    {
-        for (id, pod) in self.pods.pin().iter() {
-            Self::match_pod(
-                *id,
-                pod,
-                &pod.container_labels,
-                labels,
-                states,
-                transform,
-                results,
-            );
-        }
-    }
-
-    /// Logic common to [`get_pod`](Self::get_pod), [`get_container`](Self::get_container),
-    /// [`list_pods`](Self::list_pods), and [`list_containers`](Self::list_containers).
-    ///
-    /// Check if the given pod (represented by `pod_id`, `pod`, and `labels`)
-    /// matches the given filter conditions (`expected_labels` and `expected_states`).
-    /// States matche either if the slice is empty or it includes the pod's state.
-    /// Labels matches if every expected label is found in `labels`.
-    ///
-    /// If the pod matches, append it to `results`,
-    /// after passing it through `transform`.
+    /// Logic common to [`get_container`](Self::get_container)
+    /// and [`list_containers`](Self::list_containers).
     #[inline(always)]
-    fn match_pod<T, F>(
+    fn match_container<T, F>(
         pod_id: PodId,
         pod: &Pod,
-        labels: &HashMap<String, String>,
-        expected_labels: &Vec<(&String, &String)>,
-        expected_states: &[PodState],
+        labels: &Vec<(&String, &String)>,
+        states: &[PodState],
         transform: &F,
         results: &mut Vec<T>,
     ) where
         F: Fn(&PodName, &Pod) -> T,
     {
-        // As a special case, an empty `expected_states` slice matches all states.
-        if (expected_states.is_empty() || expected_states.contains(&pod.state))
-            && expected_labels.iter().all(|(key, value)| {
-                // Look up each key, which must be present, and check that the value matches.
-                labels.get(*key).map_or(false, |actual| actual == *value)
-            })
-        {
-            // This clone is not strictly necessary
-            // We just need something `Display` that looks like a `PodName`.
+        if states.contains(&pod.state) && Self::match_labels(&pod.container_labels, labels) {
             let name = PodName::new(pod.component_name.as_ref().clone(), pod_id);
             results.push(transform(&name, pod));
         }
+    }
+
+    /// Return `true` iff every label in `expected` is present in `actual`.
+    #[inline(always)]
+    fn match_labels(actual: &HashMap<String, String>, expected: &Vec<(&String, &String)>) -> bool {
+        expected.iter().all(|(key, value)| {
+            // Look up each key, which must be present, and check that the value matches.
+            actual.get(*key).map_or(false, |actual| actual == *value)
+        })
     }
 }
 

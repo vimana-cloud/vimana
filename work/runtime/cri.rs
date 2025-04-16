@@ -54,15 +54,12 @@ const POD_STATES_CONTAINER_RUNNING: [PodState; 1] = [PodState::Running];
 /// Pod states matching [`v1::ContainerState::ContainerExited`].
 const POD_STATES_CONTAINER_EXITED: [PodState; 3] =
     [PodState::Stopped, PodState::Removed, PodState::Killed];
-/// Somewhat counter-intuitively, the empty slice means "match all states".
-const POD_STATES_ALL: [PodState; 0] = [];
-const POD_STATES_RUNNING: [PodState; 6] = [
-    PodState::Initiated,
+/// All pod states for which a container "exists".
+const POD_STATES_CONTAINER_ALL: [PodState; 4] = [
     PodState::Created,
     PodState::Starting,
     PodState::Running,
     PodState::Stopped,
-    PodState::Removed,
 ];
 
 // These labels must be present on every pod and container using the Vimana handler:
@@ -277,7 +274,7 @@ impl RuntimeService for VimanaCriService {
             self.0.get_pod(
                 &name,
                 &Vec::default(),
-                &POD_STATES_ALL,
+                None,
                 &cri_pod_sandbox_status,
                 &mut pod_sandbox_status,
             );
@@ -536,10 +533,10 @@ impl RuntimeService for VimanaCriService {
         if request.container_id.starts_with(WORKD_PREFIX) {
             let name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
             let mut container_status = Vec::with_capacity(1);
-            self.0.get_pod(
+            self.0.get_container(
                 &name,
                 &Vec::default(),
-                &POD_STATES_ALL, // TODO: Should not be ALL
+                &POD_STATES_CONTAINER_ALL,
                 &cri_container_status,
                 &mut container_status,
             );
@@ -1019,42 +1016,35 @@ impl VimanaCriService {
         let filter = request.filter.unwrap_or_default();
         // Collect the required labels as a vector for easier iteration.
         let labels: Vec<(&String, &String)> = filter.label_selector.iter().collect();
+        let readiness = filter
+            .state
+            .map(|state| state.state == v1::PodSandboxState::SandboxReady as i32);
+        eprintln!("filter.state {:?}", filter.state);
+        eprintln!("readiness {:?}", readiness);
 
-        // The state always matches if it's either unspecified or 'ready'.
-        // Pod sandboxes are never unready.
-        // TODO: Revisit this.
-        let state_matches_ready = filter.state.map_or(true, |state| {
-            state.state == v1::PodSandboxState::SandboxReady as i32
-        });
-        if state_matches_ready {
-            // Filter ID, if present, can speed things up a lot.
-            if filter.id.len() > 0 {
-                // I believe the ID must match exactly,
-                // but that's not entirely clear from the documentation,
-                // which just says "ID of the sandbox".
-                if let Ok(name) = Name::parse(&filter.id).pod() {
-                    // If it's a complete, parseable pod name (after the prefix),
-                    // look it up and return it, if the other conditions are met.
-                    self.0.get_pod(
-                        &name,
-                        &labels,
-                        &POD_STATES_RUNNING,
-                        &cri_pod_sandbox,
-                        &mut response.items,
-                    );
-                }
-                // Otherwise, the whole filter fails to match anything,
-                // because all conditions are required and the ID condition is impossible.
-            } else {
-                // If the ID filter is absent,
-                // search exhaustively based on the state and labels filters.
-                self.0.list_pods(
+        // Filter ID, if present, can speed things up a lot.
+        if filter.id.len() > 0 {
+            // I believe the ID must match exactly,
+            // but that's not entirely clear from the documentation,
+            // which just says "ID of the sandbox".
+            if let Ok(name) = Name::parse(&filter.id).pod() {
+                // If it's a complete, parseable pod name (after the prefix),
+                // look it up and return it, if the other conditions are met.
+                self.0.get_pod(
+                    &name,
                     &labels,
-                    &POD_STATES_RUNNING,
+                    readiness,
                     &cri_pod_sandbox,
                     &mut response.items,
                 );
             }
+            // Otherwise, the whole filter fails to match anything,
+            // because all conditions are required and the ID condition is impossible.
+        } else {
+            // If the ID filter is absent,
+            // search exhaustively based on the state and labels filters.
+            self.0
+                .list_pods(&labels, readiness, &cri_pod_sandbox, &mut response.items);
         }
 
         Ok(Response::new(response))
@@ -1072,10 +1062,9 @@ impl VimanaCriService {
         let filter = request.filter.unwrap_or_default();
         // Collect the required labels as a vector for easier iteration.
         let labels: Vec<(&String, &String)> = filter.label_selector.iter().collect();
-
         let matching_states: &[PodState] = filter
             .state
-            .map_or(&POD_STATES_ALL, cri_container_state_to_pod_states);
+            .map_or(&POD_STATES_CONTAINER_ALL, cri_container_state_to_pod_states);
 
         // Filter ID, if present, can speed things up a lot.
         if filter.id.len() > 0 {
@@ -1085,7 +1074,7 @@ impl VimanaCriService {
             if let Ok(name) = Name::parse(&filter.id).pod() {
                 // If it's a complete, parseable pod name (after the prefix),
                 // look it up and return it, if the other conditions are met.
-                self.0.get_pod(
+                self.0.get_container(
                     &name,
                     &labels,
                     matching_states,
@@ -1098,7 +1087,7 @@ impl VimanaCriService {
         } else {
             // If the ID filter is absent,
             // search exhaustively based on the state and labels filters.
-            self.0.list_pods(
+            self.0.list_containers(
                 &labels,
                 matching_states,
                 &cri_container,
@@ -1189,7 +1178,7 @@ fn cri_pod_sandbox_status(
         v1::PodSandboxStatus {
             id: workd_prefix(name),
             metadata: Some(pod.pod_sandbox_metadata.clone()),
-            state: v1::PodSandboxState::SandboxReady as i32,
+            state: pod_state_to_cri_pod_state(pod.state) as i32,
             created_at: pod.pod_created_at,
             network: Some(v1::PodSandboxNetworkStatus {
                 ip: pod.ip_address.to_string(),
@@ -1243,6 +1232,18 @@ fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
     }
 }
 
+fn pod_state_to_cri_pod_state(state: PodState) -> v1::PodSandboxState {
+    match state {
+        PodState::Initiated
+        | PodState::Created
+        | PodState::Starting
+        | PodState::Running
+        | PodState::Stopped
+        | PodState::Removed => v1::PodSandboxState::SandboxReady,
+        PodState::Killed => v1::PodSandboxState::SandboxNotready,
+    }
+}
+
 const CONTAINER_STATE_CREATED_VALUE: i32 = v1::ContainerState::ContainerCreated as i32;
 const CONTAINER_STATE_RUNNING_VALUE: i32 = v1::ContainerState::ContainerRunning as i32;
 const CONTAINER_STATE_EXITED_VALUE: i32 = v1::ContainerState::ContainerExited as i32;
@@ -1256,7 +1257,7 @@ fn cri_container_state_to_pod_states(state: v1::ContainerStateValue) -> &'static
         CONTAINER_STATE_UNKNOWN_VALUE => &POD_STATES_CONTAINER_UNKNOWN,
         // This fallback should be impossible
         // (unless the set of possible enum values expands).
-        _ => &POD_STATES_ALL,
+        _ => &POD_STATES_CONTAINER_ALL,
     }
 }
 
