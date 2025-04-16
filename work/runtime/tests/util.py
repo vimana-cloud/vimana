@@ -80,6 +80,24 @@ _push_image_path = 'bootstrap/push-image'
 # Generally wait up to 5 seconds for things to happen asynchronously.
 _timeout = timedelta(seconds=5)
 
+class WorkdTestCase(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # A single, long-running runtime instance is available to all tests.
+        # Otherwise, any test that requires isolation can simply spin up it's own `WorkdTester`.
+        cls.tester = WorkdTester().__enter__()
+        # Set up convenient aliases for fields in `tester`.
+        cls.runtimeService = cls.tester.runtimeService
+        cls.setupImage = cls.tester.setupImage
+
+    @classmethod
+    def tearDownClass(cls):
+        # Shut down the various servers and subprocesses.
+        cls.tester.__exit__(None, None, None)
+
+    def tearDown(self):
+        self.tester.printWorkdLogs(self)
+
 class WorkdTester:
     """ Manager for the system under test.
 

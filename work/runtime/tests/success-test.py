@@ -1,11 +1,11 @@
 """ 'Happy path' unit tests. """
 
-from unittest import TestCase, main
+from unittest import main
 from ipaddress import IPv6Address, ip_address
 
 from grpc import insecure_channel, RpcError, StatusCode
 
-from work.runtime.tests.util import WorkdTester, ipHostName
+from work.runtime.tests.util import WorkdTestCase, WorkdTester, ipHostName
 from work.runtime.tests.api_pb2 import (
     VersionRequest,
     RunPodSandboxRequest,
@@ -34,26 +34,12 @@ from work.runtime.tests.api_pb2 import (
 from work.runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
 from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
 
-class SuccessTest(TestCase):
-    @classmethod
-    def setUpClass(cls):
-        # A single, long-running runtime instance is available to all tests.
-        # Any test that requires isolation can simply spin up it's own `WorkdTester`
-        # (see `test_ListPodSandbox` for example).
-        cls.tester = WorkdTester().__enter__()
-
-    @classmethod
-    def tearDownClass(cls):
-        # Shut down the various servers and subprocesses.
-        cls.tester.__exit__(None, None, None)
-
-    def tearDown(self):
-        self.tester.printWorkdLogs(self)
+class SuccessTest(WorkdTestCase):
 
     def test_Version(self):
         request = VersionRequest()
 
-        response = self.tester.runtimeService.Version(request)
+        response = self.runtimeService.Version(request)
 
         self.assertEqual(response.runtime_name, 'workd')
         self.assertEqual(response.runtime_api_version, 'v1')
@@ -62,26 +48,26 @@ class SuccessTest(TestCase):
     def test_RunPodSandbox_NoHandlerToOci(self):
         request = RunPodSandboxRequest()
 
-        response = self.tester.runtimeService.RunPodSandbox(request)
+        response = self.runtimeService.RunPodSandbox(request)
 
         self.assertTrue(response.pod_sandbox_id.startswith('O:'))
 
     def test_RunPodSandbox_DefaultHandlerToOci(self):
         request = RunPodSandboxRequest(runtime_handler='something')
 
-        response = self.tester.runtimeService.RunPodSandbox(request)
+        response = self.runtimeService.RunPodSandbox(request)
 
         self.assertTrue(response.pod_sandbox_id.startswith('O:'))
 
     def test_SimpleContainerLifecycle(self):
-        domain, service, version, componentName, labels = self.tester.setupImage(
+        domain, service, version, componentName, labels = self.setupImage(
             service = 'package.Serviss',
             version = '1.2.3-fureal',
             module = 'work/runtime/tests/components/adder-c.component.wasm',
             metadata = 'work/runtime/tests/components/adder.binpb',
         )
 
-        response = self.tester.runtimeService.RunPodSandbox(
+        response = self.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
                 runtime_handler='workd',
                 config=PodSandboxConfig(
@@ -105,13 +91,13 @@ class SuccessTest(TestCase):
         except ValueError:
             self.fail('Pod sandbox ID must end with a pod ID (integer)')
 
-        response = self.tester.runtimeService.PodSandboxStatus(
+        response = self.runtimeService.PodSandboxStatus(
             PodSandboxStatusRequest(pod_sandbox_id=podSandboxId),
         )
 
         ipAddress = ip_address(response.status.network.ip)
 
-        response = self.tester.runtimeService.CreateContainer(
+        response = self.runtimeService.CreateContainer(
             CreateContainerRequest(
                 pod_sandbox_id=podSandboxId,
                 config=ContainerConfig(
@@ -132,7 +118,7 @@ class SuccessTest(TestCase):
         # The pod should always have the same ID as its one container.
         self.assertEqual(response.container_id, podSandboxId)
 
-        self.tester.runtimeService.StartContainer(
+        self.runtimeService.StartContainer(
             StartContainerRequest(container_id=podSandboxId),
         )
 
@@ -142,7 +128,7 @@ class SuccessTest(TestCase):
 
         self.assertEqual(response, AddFloatsResponse(result=2.3))
 
-        self.tester.runtimeService.StopContainer(
+        self.runtimeService.StopContainer(
             StopContainerRequest(container_id=podSandboxId, timeout=1),
         )
 
@@ -154,19 +140,19 @@ class SuccessTest(TestCase):
             self.fail('Expected the server to be unavailable after stopping the container')
 
         # This is a no-op but we'll exercise it anyway.
-        self.tester.runtimeService.RemoveContainer(
+        self.runtimeService.RemoveContainer(
             RemoveContainerRequest(container_id=podSandboxId),
         )
 
         # TODO: Verify that the IP address is not yet freed.
 
-        self.tester.runtimeService.StopPodSandbox(
+        self.runtimeService.StopPodSandbox(
             StopPodSandboxRequest(pod_sandbox_id=podSandboxId),
         )
 
         # TODO: Verify that the IP address is freed.
 
-        self.tester.runtimeService.RemovePodSandbox(
+        self.runtimeService.RemovePodSandbox(
             RemovePodSandboxRequest(pod_sandbox_id=podSandboxId),
         )
 
@@ -297,7 +283,7 @@ class SuccessTest(TestCase):
             self.assertEqual(len(response.items), 0)
 
     def test_ContainerStatus(self):
-        domain, service, version, componentName, labels = self.tester.setupImage(
+        domain, service, version, componentName, labels = self.setupImage(
             service = 'some.Service',
             version = '1.2.3',
             module = 'work/runtime/tests/components/adder-c.component.wasm',
@@ -308,7 +294,7 @@ class SuccessTest(TestCase):
         podLabels = labels | {'only-for-pod': 'uh huh'}
         containerLabels = labels | {'only-for-container': 'fersher'}
 
-        response = self.tester.runtimeService.RunPodSandbox(
+        response = self.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
                 runtime_handler='workd',
                 config=PodSandboxConfig(
@@ -335,7 +321,7 @@ class SuccessTest(TestCase):
             runtime_handler='workd',
         )
 
-        response = self.tester.runtimeService.CreateContainer(
+        response = self.runtimeService.CreateContainer(
             CreateContainerRequest(
                 pod_sandbox_id=podSandboxId,
                 config=ContainerConfig(
@@ -348,7 +334,7 @@ class SuccessTest(TestCase):
 
         containerId = response.container_id
 
-        response = self.tester.runtimeService.ContainerStatus(
+        response = self.runtimeService.ContainerStatus(
             ContainerStatusRequest(container_id=containerId),
         )
 
