@@ -1,45 +1,90 @@
 # Work Node Runtime
 
-The work runtime implements the K8s [Container Runtime Interface] (CRI)
+The Work runtime implements the K8s [Container Runtime Interface] (CRI)
 to coordinate running containers with the control plane,
-while also listening on UDP port 443 (the data plane)
-for gRPC traffic over HTTP/3,
-and routing those incoming requests to the running containers.
+while also listening on on various IP addresses
+for gRPC traffic over HTTP/3 (the data plane).
 
 [Container Runtime Interface]: https://kubernetes.io/docs/concepts/architecture/cri/
 
-## Control Plane
+## Pods and Containers
 
-Communication with the control plane happens via the CRI.
+Unlike more general container runtimes,
+the Work runtime maintains a strict 1-to-1 relationship between pods and containers:
 
-## Data Plane
+- Each pod can have at most a single container.
+- The container's ID is equal to its pod sandbox's ID.
+- The container's image is pre-determined by its pod sandbox's Vimana labels.
 
-The data plane server is a customized gRPC server implementation
-that can serve arbitrarily many heterogeneous services
-on a single port.
+Thus, a pod / container pair is treated as a unit with a finite number of states.
+The term "pod" may sometimes be used to refer to an entire pod / container unit.
 
-## State
+### State
 
-Each pod is represented by a state machine.
-The runtime maintains a strict 1-to-1 relationship between containers and pods,
-which simplifies the possible state transitions.
-That also means "pod" and "container" are somewhat interchangeable terms.
+Work nodes keep track of running pods
+in a single global in-memory associative array called the pod pool,
+keyed by the pod / container ID.
+
+Each pod can be in one of 7 states:
+
+- `Initiated` - The pod has labels, annotations, and an allocated IP address.
+- `Created` - The container has labels, annotations, and environment variables.
+  All labels beginning with `vimana.host/` must be identical between the pod / container labels.
+- `Starting` - Kubelet has requested to start the container,
+  but the runtime is still waiting for the server to be ready.
+  The pod will automatically transition to `Running` once the server is ready.
+- `Running` - The server is listening and ready to receive data plane traffic.
+- `Stopped` - The server has been shut down,
+  but it could be re-started on the pod's IP address.
+- `Removed` - Functionally equivalent to `Stopped`,
+  except the container could be re-created
+  with new labels, annotations, or environment variables.
+- `Killed` - The pod is no longer usable.
+  It's IP address has been freed for re-use by other pods.
+
+Pod state evolves in response to CRI methods according to a state machine:
 
 ```mermaid
 stateDiagram
     [*] --> Initiated : RunPodSandbox
     Initiated --> Created : CreateContainer
-    Initiated --> Stopped : StopPodSandbox
+    Initiated --> Killed : StopPodSandbox
     Created --> Starting : StartContainer
-    Created --> Stopped : StopContainer /<br />StopPodSandbox
+    Created --> Killed : StopPodSandbox
     Starting --> Running
-    Starting --> Stopped : StopContainer /<br />StopPodSandbox
-    Running --> Stopped : StopContainer /<br />StopPodSandbox
-    Stopped --> [*] : RemovePodSandbox
+    Starting --> Stopped : StopContainer
+    Starting --> Killed : StopPodSandbox
+    Running --> Stopped : StopContainer
+    Running --> Killed : StopPodSandbox
+    Stopped --> Starting : StartContainer
+    Stopped --> Removed : RemoveContainer
+    Stopped --> Killed : StopPodSandbox
+    Removed --> Created : CreateContainer
+    Removed --> Killed : StopPodSandbox
+    Killed --> [*] : RemovePodSandbox
 ```
 
-Work nodes keep track of running containers
-in a single global in-memory structure called the pod pool.
+Here's the same state machine illustrated as a table:
+
+| To →<br />↓ From | `Initiated` | `Created` | `Starting` | `Running` | `Stopped` | `Removed` | `Killed` | ∅ |
+|:----------------:|:-----------:|:---------:|:----------:|:---------:|:---------:|:---------:|:--------:|:-:|
+|      **∅**       |      ✔      |           |            |           |           |           |          |   |
+| **`Initiated`**  |             |     ✔     |     ✘      |           |     ✘     |     ✘     |    ✔     |   |
+|  **`Created`**   |             |     ↻     |     ✔      |           |     ✘     |     ✘     |    ✔     |   |
+|  **`Starting`**  |             |     ✘     |     ↻      |     ✔     |     ✔     |     ✘     |    ✔     |   |
+|  **`Running`**   |             |     ✘     |     ↻      |           |     ✔     |     ✘     |    ✔     |   |
+|  **`Stopped`**   |             |     ✘     |     ✔      |           |     ↻     |     ✔     |    ✔     |   |
+|  **`Removed`**   |             |     ✔     |     ✘      |           |     ✘     |     ↻     |    ✔     |   |
+|   **`Killed`**   |             |     ✘     |     ✘      |           |     ✘     |     ✘     |    ↻     | ✔ |
+
+- ✔ represents a valid state transition.
+- ✘ represents an error.
+- ↻ indicates that idempotency is supported as long as all parameters are unchanged.
+  Changing any parameter
+  (*e.g.* invoking `CreateContainer` twice with different environment variables),
+  would result in an error.
+- A blank square indicates that the transition is impossible.
+- ∅ means the pod does not exist.
 
 ### Resource Heirarchy
 

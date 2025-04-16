@@ -29,6 +29,8 @@ use api_proto::runtime::v1::{ContainerMetadata, PodSandboxMetadata};
 use error::{log_error, log_error_status, log_info, log_warn, Result};
 use names::{ComponentName, PodId, PodName};
 
+const VIMANA_LABEL_PREFIX: &str = "vimana.host/";
+
 /// Global runtime state for a work node.
 pub(crate) struct WorkRuntime {
     /// Global Wasm engine to run hosted services.
@@ -73,7 +75,8 @@ pub(crate) struct WorkRuntime {
 /// and most transitions must be idempotent.
 ///
 /// Each transition typically maps to an RPC in the CRI API.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+/// See [`README.md`](README.md) for more details.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum PodState {
     /// A pod after initialization with `RunPodSandbox` but before `CreateContainer`.
     Initiated,
@@ -89,9 +92,14 @@ pub(crate) enum PodState {
     /// The pod is reachable by on the data plane while in this state.
     Running,
 
-    /// After calling `StopContainer` or `StopPodSandbox` but before `RemovePodSandbox`.
-    /// Note that `RemoveContainer` is ignored.
+    /// After `StopContainer` but before `RemoveContainer`.
     Stopped,
+
+    /// After `RemoveContainer` but before `StopPodSandbox`.
+    Removed,
+
+    /// After `StopPodSandbox` but before `RemovePodSandbox`.
+    Killed,
 }
 
 /// All information known about a pod / container pair
@@ -272,16 +280,28 @@ impl WorkRuntime {
     /// converting it to a [created](PodController::Created) controller.
     pub(crate) fn create_container(
         &self,
-        pod_name: &PodName,
+        name: &PodName,
         container_metadata: &Option<ContainerMetadata>,
         labels: &HashMap<String, String>,
         annotations: &HashMap<String, String>,
         environment: &HashMap<String, String>,
     ) -> Result<()> {
         let pods = self.pods.pin();
-        match pods.compute(pod_name.pod, |entry| match entry {
-            Some((_, pod)) => match &pod.state {
-                PodState::Initiated => {
+        match pods.compute(name.pod, |entry| match entry {
+            Some((_, pod)) => match pod.state {
+                PodState::Initiated | PodState::Removed => {
+                    // Make sure all the labels that begin with `vimana.host/`
+                    // are the same between the pod labels and container labels.
+                    //if let Some(error) =
+                    //    check_vimana_labels(labels, &pod.pod_labels, "extra-container-labels", name)
+                    //{
+                    //    Operation::Abort(Some(error))
+                    //} else if let Some(error) =
+                    //    check_vimana_labels(&pod.pod_labels, labels, "extra-pod-labels", name)
+                    //{
+                    //    Operation::Abort(Some(error))
+                    //} else {
+                    // The Vimana labels match. Transition to `Created`.
                     let mut pod = pod.clone();
                     pod.state = PodState::Created;
                     pod.container_metadata = container_metadata.clone();
@@ -290,39 +310,39 @@ impl WorkRuntime {
                     pod.environment = environment.clone();
                     pod.container_created_at = now();
                     Operation::Insert(pod)
+                    //}
                 }
-                PodState::Created | PodState::Starting | PodState::Running => {
+                PodState::Created => {
                     // Support idempotency if the parameters are exactly the same.
                     if pod.container_metadata == *container_metadata
+                        && pod.container_labels == *labels
+                        && pod.container_annotations == *annotations
                         && pod.environment == *environment
                     {
-                        log_info!(
-                            "create-container-idempotent",
-                            &pod_name.component,
-                            pod.state
-                        );
+                        log_info!("create-container-idempotent", &name.component, pod.state);
                         Operation::Abort(None)
                     } else {
                         // Cannot re-create the container with a different environment.
-                        Operation::Abort(Some(Status::failed_precondition(
+                        Operation::Abort(Some(log_error_status!(
                             "container-already-created",
-                        )))
+                            &name.component
+                        )(())))
                     }
                 }
-                PodState::Stopped => Operation::Abort(Some(Status::failed_precondition(
-                    "create-container-already-stopped",
-                ))),
+                PodState::Starting | PodState::Running | PodState::Stopped | PodState::Killed => {
+                    Operation::Abort(Some(log_error_status!(
+                        "create-container-bad-state",
+                        &name.component
+                    )(pod.state)))
+                }
             },
-            None => Operation::Abort(Some(Status::failed_precondition(
-                "create-container-pod-not-found",
-            ))),
+            None => Operation::Abort(Some(log_error_status!(
+                "create-container-not-found",
+                &name.component
+            )(()))),
         }) {
             Compute::Updated { old: _, new: _ } => {
-                log_info!(
-                    "create-container-success",
-                    &pod_name.component,
-                    pod_name.pod
-                );
+                log_info!("create-container-success", &name.component, name.pod);
                 Ok(())
             }
             Compute::Aborted(None) => Ok(()),
@@ -342,18 +362,15 @@ impl WorkRuntime {
     /// then spawn the background task to run the server,
     /// then convert it to a [running](PodState::Running) controller
     /// (to mark it as complete).
-    pub(crate) async fn start_container(&self, pod_name: PodName) -> Result<()> {
-        if let Some(future) = self.start_container_without_wait(pod_name.clone())? {
+    pub(crate) async fn start_container(&self, name: &PodName) -> Result<()> {
+        if let Some(future) = self.start_container_without_wait(name)? {
             // Indicates the server was not yet ready. Await it before trying again.
             let _ = future.await;
-            if self
-                .start_container_without_wait(pod_name.clone())?
-                .is_some()
-            {
+            if self.start_container_without_wait(name)?.is_some() {
                 // This should never happen because we already know the server was ready.
                 return Err(log_error_status!(
                     "start-container-impossible-unready",
-                    &pod_name.component
+                    &name.component
                 )(()));
             }
         }
@@ -367,12 +384,12 @@ impl WorkRuntime {
     /// [1]: https://users.rust-lang.org/t/future-is-not-send-as-this-value-is-used-across-an-await-but-i-drop-the-value-before-the-await/57574
     fn start_container_without_wait(
         &self,
-        pod_name: PodName,
+        name: &PodName,
     ) -> Result<Option<SharedResultFuture<Arc<Routes>>>> {
         let pods = self.pods.pin();
-        match pods.compute(pod_name.pod, |entry| match entry {
-            Some((_, pod)) => match &pod.state {
-                PodState::Created => match pod.routes.peek() {
+        match pods.compute(name.pod, |entry| match entry {
+            Some((_, pod)) => match pod.state {
+                PodState::Created | PodState::Stopped => match pod.routes.peek() {
                     Some(Ok(_)) => {
                         // The server is ready! Now just bind to a socket and start it.
                         // Claim responsibility for doing so by transitioning to *starting*.
@@ -388,49 +405,35 @@ impl WorkRuntime {
                     }
                     None => {
                         // Still initializing; await the future then retry.
-                        log_info!(
-                            "starting-container-waiting",
-                            &pod_name.component,
-                            pod_name.pod
-                        );
+                        log_info!("starting-container-waiting", &name.component, name.pod);
                         Operation::Abort(StartContainerAbort::Waiting(pod.routes.clone()))
                     }
                 },
                 PodState::Starting | PodState::Running => {
-                    // I *think* idempotency is desirable here.
-                    log_info!(
-                        "starting-container-idempotent",
-                        &pod_name.component,
-                        pod_name.pod
-                    );
+                    log_info!("starting-container-idempotent", &name.component, name.pod);
                     Operation::Abort(StartContainerAbort::Done)
                 }
-                PodState::Initiated | PodState::Stopped => {
+                PodState::Initiated | PodState::Removed | PodState::Killed => {
                     // Unexpected Kubelet behavior.
                     Operation::Abort(StartContainerAbort::Error(log_error_status!(
                         "starting-container-bad-state",
-                        &pod_name.component
-                    )(&pod.state)))
+                        &name.component
+                    )(pod.state)))
                 }
             },
             None => {
                 // Unexpected Kubelet behavior.
-                Operation::Abort(StartContainerAbort::Error(Status::not_found(
+                Operation::Abort(StartContainerAbort::Error(log_error_status!(
                     "starting-container-not-found",
-                )))
+                    &name.component
+                )(())))
             }
         }) {
             Compute::Updated {
                 old: _,
                 new: (_, pod),
             } => {
-                log_info!(
-                    "starting-container-success",
-                    &pod_name.component,
-                    pod_name.pod
-                );
-
-                let address = SocketAddr::new(pod.ip_address.address, GRPC_PORT);
+                log_info!("starting-container-success", &name.component, name.pod);
 
                 // The only code path that results in `Compute::Updated`
                 // should have verified that the routes are ready and OK.
@@ -440,7 +443,7 @@ impl WorkRuntime {
                     .clone()
                     .ok_or(Status::internal("start-container-impossible"))?
                     .clone()?;
-
+                let address = SocketAddr::new(pod.ip_address.address, GRPC_PORT);
                 // TODO: Revisit implications of nodelay.
                 let nodelay = true;
                 // TODO: Revisit implications of keepalive.
@@ -451,22 +454,25 @@ impl WorkRuntime {
                         // If the pod is still `Starting`,
                         // "unlock" its state by setting it back to `Created`
                         // before propagating the bind error.
-                        pods.compute(pod_name.pod, |entry| match entry {
+                        pods.compute(name.pod, |entry| match entry {
                             Some((_, existing_pod)) => match &existing_pod.state {
                                 PodState::Starting => {
                                     let mut pod = existing_pod.clone();
                                     pod.state = PodState::Created;
                                     Operation::Insert(pod)
                                 }
-                                // The pod may have been stopped by another task.
+                                // The pod may have been stopped or killed by another task.
                                 // Leave it that way.
-                                PodState::Stopped => Operation::Abort(()),
-                                // Any other state would be considered an error.
+                                PodState::Stopped | PodState::Killed => Operation::Abort(()),
+                                // These transitions would be unexpected logic errors.
                                 // Leave it that way anyway.
-                                PodState::Initiated | PodState::Created | PodState::Running => {
+                                PodState::Initiated
+                                | PodState::Created
+                                | PodState::Running
+                                | PodState::Removed => {
                                     log_error!(
-                                        "started-container-error-bad-state",
-                                        &pod_name.component,
+                                        "started-container-bind-error-bad-state",
+                                        &name.component,
                                         &existing_pod.state
                                     );
                                     Operation::Abort(())
@@ -474,14 +480,14 @@ impl WorkRuntime {
                             },
                             None => {
                                 log_error!(
-                                    "started-container-error-removed",
-                                    &pod_name.component,
+                                    "started-container-bind-error-not-found",
+                                    &name.component,
                                     ()
                                 );
                                 Operation::Abort(())
                             }
                         });
-                        Err(log_error_status!("bind-grpc-port", &pod_name.component)(
+                        Err(log_error_status!("bind-grpc-port", &name.component)(
                             bind_error,
                         ))
                     },
@@ -519,50 +525,40 @@ impl WorkRuntime {
                         // Now update the pod map again,
                         // making sure this pod's state has not changed since we set it to `Starting`.
                         // That would indicate that the "mutex" did not function properly.
-                        match pods.compute(pod_name.pod, |entry| match entry {
+                        match pods.compute(name.pod, |entry| match entry {
                             Some((_, existing_pod)) => match &existing_pod.state {
                                 PodState::Starting => Operation::Insert(pod.clone()),
                                 PodState::Initiated
                                 | PodState::Created
                                 | PodState::Running
-                                | PodState::Stopped => {
-                                    log_error!(
-                                        "started-container-mutex-bad-state",
-                                        &pod_name.component,
-                                        &existing_pod.state
-                                    );
-                                    Operation::Abort("started-container-mutex-bad-state")
-                                }
+                                | PodState::Stopped
+                                | PodState::Removed
+                                | PodState::Killed => Operation::Abort(log_error_status!(
+                                    "started-container-bad-state",
+                                    &name.component
+                                )(
+                                    &existing_pod.state
+                                )),
                             },
-                            None => Operation::Abort("started-container-mutex-removed"),
+                            None => Operation::Abort(log_error_status!(
+                                "started-container-not-found",
+                                &name.component
+                            )(())),
                         }) {
                             Compute::Updated { old: _, new: _ } => {
-                                log_info!(
-                                    "started-container-success",
-                                    &pod_name.component,
-                                    pod_name.pod
-                                );
+                                log_info!("started-container-success", &name.component, name.pod);
                                 Ok(None)
                             }
-                            Compute::Aborted(reason) => {
+                            Compute::Aborted(error) => {
                                 // If there was some sort of synchronization error,
-                                // Abort the running server in the background.
-                                // It shouldn't have received any traffic yet.
-                                spawn(async move {
-                                    if let Some(killer) = pod.killer.take() {
-                                        killer.kill_with_timeout(Duration::ZERO).await;
-                                    }
-                                });
-                                Err(Status::internal(reason))
+                                // kill the server; it shouldn't have received any traffic yet.
+                                pod.killer.take().map(ContainerKiller::forcefully_abort);
+                                Err(error)
                             }
                             _ => {
                                 // Logically impossible (all possible compute outcomes are handled).
                                 // Might as well clean up if this happens, though.
-                                spawn(async move {
-                                    if let Some(killer) = pod.killer.take() {
-                                        killer.kill_with_timeout(Duration::ZERO).await;
-                                    }
-                                });
+                                pod.killer.take().map(ContainerKiller::forcefully_abort);
                                 Err(Status::internal("started-container-impossible"))
                             }
                         }
@@ -579,144 +575,237 @@ impl WorkRuntime {
         }
     }
 
-    /// Stop a running container / pod by killing the running server (if necessary)
-    /// and transitioning the pod to [`Stopped`](PodState::Stopped).
+    /// Stop a running container by killing the running server
+    /// and transitioning the state to [`ContainerStopped`](PodState::ContainerStopped).
     /// Attempts graceful server shutdown at first,
     /// waiting at most `timeout` before forcefully aborting.
-    /// If `free_address` is `true`, also frees the pod's IP address.
-    pub(crate) async fn stop_pod(
-        &self,
-        pod_name: PodName,
-        timeout: Duration,
-        free_address: bool,
-    ) -> Result<()> {
-        if let Some((killer, ip_address)) =
-            self.stop_pod_without_wait(pod_name.clone(), free_address)?
-        {
-            // Make sure to kill the container before freeing the IP address.
+    pub(crate) async fn stop_container(&self, name: &PodName, timeout: Duration) -> Result<()> {
+        if let Some(killer) = self.stop_container_without_wait(name)? {
             if !killer.kill_with_timeout(timeout).await {
                 log_warn!(
-                    "stop-pod-killed-forcefully",
-                    &pod_name.component,
-                    pod_name.pod
+                    "stop-container-stopped-forcefully",
+                    &name.component,
+                    name.pod
                 );
-            }
-            if free_address {
-                let _ = ip_address.deactivate().await?;
-                let _ = ip_address.deallocate().await?;
             }
         }
         Ok(())
     }
 
-    /// See [`stop_pod`](Self::stop_pod).
+    /// See [`stop_container`](Self::stop_container).
     ///
     /// Similar to [`start_container_without_wait`](Self::start_container_without_wait),
     /// This function only exists to implement the state change synchronously.
-    fn stop_pod_without_wait(
-        &self,
-        pod_name: PodName,
-        free_address: bool,
-    ) -> Result<Option<(ContainerKiller, IpAddress)>> {
+    ///
+    /// Returns the container's [killer](ContainerKiller)
+    /// if the container was previously in [running](PodState::Running)
+    /// and had not yet been killed.
+    /// Returns `None` otherwise (such as if `StopContainer` was invoked twice).
+    fn stop_container_without_wait(&self, name: &PodName) -> Result<Option<ContainerKiller>> {
         let mut prior_state = PodState::Running;
         let pods = self.pods.pin();
-        match pods.compute(pod_name.pod, |entry| match entry {
-            Some((_, pod)) => match &pod.state {
-                PodState::Initiated
-                | PodState::Created
-                | PodState::Starting
-                | PodState::Running => {
-                    // If the pod was previously `Running`, then we have to kill it.
-                    // If it was previously `Starting`, then `start_container` has to kill it.
-                    // Otherwise, stopping the pod is as simple as updating the state.
+        match pods.compute(name.pod, |entry| match entry {
+            Some((_, pod)) => match pod.state {
+                PodState::Starting | PodState::Running => {
                     let mut pod = pod.clone();
                     prior_state = pod.state;
                     pod.state = PodState::Stopped;
                     Operation::Insert(pod)
                 }
                 PodState::Stopped => {
-                    log_info!("stop-pod-idempotent", &pod_name.component, pod.state);
-                    if free_address {
-                        let ip_address = pod.ip_address.clone();
-                        spawn(async move {
-                            // TODO: Think harder about failure modes here.
-                            let _ = ip_address.deactivate().await;
-                            let _ = ip_address.deallocate().await;
-                        });
-                    }
+                    log_info!("stop-container-idempotent", &name.component, pod.state);
                     Operation::Abort(None)
                 }
+                PodState::Initiated | PodState::Created | PodState::Removed | PodState::Killed => {
+                    Operation::Abort(Some(log_error_status!(
+                        "stop-container-bad-state",
+                        &name.component
+                    )(pod.state)))
+                }
             },
-            None => Operation::Abort(Some("stop-pod-not-found")),
+            None => Operation::Abort(Some(log_error_status!(
+                "stop-container-not-found",
+                &name.component
+            )(()))),
         }) {
             Compute::Updated {
                 old: _,
                 new: (_, pod),
             } => {
-                log_info!("stop-pod-success", &pod_name.component, pod_name.pod);
+                log_info!("stop-container-success", &name.component, name.pod);
                 if prior_state == PodState::Running {
+                    // If the pod was previously `Running`, then we have to kill it.
                     if let Some(killer) = pod.killer.take() {
-                        // The container must be killed before the IP address is freed.
-                        Ok(Some((killer, pod.ip_address.clone())))
+                        Ok(Some(killer))
                     } else {
-                        // The only way to kill a running pod should be through this function,
-                        // so this situation should be logically impossible.
+                        // This situation should be logically impossible.
                         Err(log_error_status!(
-                            "stop-pod-killer-impossible",
-                            &pod_name.component
-                        )(pod_name.pod))
+                            "stop-container-no-killer",
+                            &name.component
+                        )(name.pod))
                     }
                 } else {
-                    // Since the pod was not previously running, we don't have to kill it,
-                    // but we may have to free the IP address (if one is active).
-                    if free_address {
-                        let ip_address = pod.ip_address.clone();
-                        spawn(async move {
-                            // TODO: Think harder about failure modes here.
-                            let _ = ip_address.deactivate().await;
-                            let _ = ip_address.deallocate().await;
-                        });
-                    }
+                    // Otherwise, there's nothing to kill
+                    // (if it was previously `Starting`, then `start_container` has to kill it).
                     Ok(None)
                 }
             }
             Compute::Aborted(None) => Ok(None),
-            Compute::Aborted(Some(reason)) => Err(Status::internal(reason)),
+            Compute::Aborted(Some(error)) => Err(error),
             _ => {
                 // Logically impossible (all possible compute outcomes are handled).
-                Err(Status::internal("stop-pod-impossible"))
+                Err(Status::internal("stop-container-impossible"))
             }
         }
     }
 
-    pub(crate) fn delete_pod(&self, pod_name: PodName) -> Result<()> {
+    pub(crate) fn remove_container(&self, name: &PodName) -> Result<()> {
         let pods = self.pods.pin();
-        match pods.compute(pod_name.pod, |entry| match entry {
-            Some((_, pod)) => match &pod.state {
+        match pods.compute(name.pod, |entry| match entry {
+            Some((_, pod)) => match pod.state {
+                PodState::Stopped => {
+                    // If the pod was previously `Running`, then we have to stop it.
+                    // If it was previously `Starting`, then `start_container` has to stop it.
+                    // Otherwise, killing the pod is as simple as updating the state.
+                    let mut pod = pod.clone();
+                    pod.state = PodState::Removed;
+                    Operation::Insert(pod)
+                }
+                PodState::Removed => {
+                    log_info!("remove-container-idempotent", &name.component, ());
+                    Operation::Abort(None)
+                }
                 PodState::Initiated
                 | PodState::Created
                 | PodState::Starting
-                | PodState::Running => {
-                    // The CRI API contract promises
+                | PodState::Running
+                | PodState::Killed => Operation::Abort(Some(log_error_status!(
+                    "remove-container-bad-state",
+                    &name.component
+                )(pod.state))),
+            },
+            None => Operation::Abort(Some(log_error_status!(
+                "remove-container-not-found",
+                &name.component
+            )(()))),
+        }) {
+            Compute::Updated {
+                old: _,
+                new: (_, _),
+            } => {
+                log_info!("remove-container-success", &name.component, name.pod);
+                Ok(())
+            }
+            Compute::Aborted(None) => Ok(()),
+            Compute::Aborted(Some(error)) => Err(error),
+            _ => {
+                // Logically impossible (all possible compute outcomes are handled).
+                Err(Status::internal("remove-container-impossible"))
+            }
+        }
+    }
+
+    /// Stop a running container / pod by killing the running server (if necessary)
+    /// and transitioning the pod to [`Stopped`](PodState::Stopped).
+    /// Attempts graceful server shutdown at first,
+    /// waiting at most `timeout` before forcefully aborting.
+    /// If `free_address` is `true`, also frees the pod's IP address.
+    pub(crate) async fn kill_pod(&self, name: &PodName) -> Result<()> {
+        if let Some((killer, ip_address)) = self.kill_pod_without_wait(name)? {
+            // If the pod must be killed, do that before freeing the IP address.
+            if let Some(killer) = killer.take() {
+                // Give it a courtesy second to shut down gracefully.
+                if !killer.kill_with_timeout(Duration::from_secs(1)).await {
+                    log_warn!("kill-pod-stopped-forcefully", &name.component, name.pod);
+                }
+            }
+            let _ = ip_address.deactivate().await?;
+            let _ = ip_address.deallocate().await?;
+        }
+        Ok(())
+    }
+
+    /// See [`kill_pod`](Self::kill_pod).
+    ///
+    /// Similar to [`start_container_without_wait`](Self::start_container_without_wait),
+    /// This function only exists to implement the state change synchronously.
+    fn kill_pod_without_wait(
+        &self,
+        name: &PodName,
+    ) -> Result<Option<(SingleUse<ContainerKiller>, IpAddress)>> {
+        let mut prior_state = PodState::Removed;
+        let pods = self.pods.pin();
+        match pods.compute(name.pod, |entry| match entry {
+            Some((_, pod)) => match pod.state {
+                PodState::Initiated
+                | PodState::Created
+                | PodState::Starting
+                | PodState::Running
+                | PodState::Stopped
+                | PodState::Removed => {
+                    // If the pod was previously `Running`, then we have to stop it.
+                    // If it was previously `Starting`, then `start_container` has to stop it.
+                    // Otherwise, killing the pod is as simple as updating the state.
+                    let mut pod = pod.clone();
+                    prior_state = pod.state;
+                    pod.state = PodState::Killed;
+                    Operation::Insert(pod)
+                }
+                PodState::Killed => {
+                    log_info!("kill-pod-idempotent", &name.component, name.pod);
+                    Operation::Abort(None)
+                }
+            },
+            None => Operation::Abort(Some(log_error_status!(
+                "kill-pod-not-found",
+                &name.component
+            )(()))),
+        }) {
+            Compute::Updated {
+                old: _,
+                new: (_, pod),
+            } => {
+                log_info!("kill-pod-success", &name.component, name.pod);
+                Ok(Some((pod.killer.clone(), pod.ip_address.clone())))
+            }
+            Compute::Aborted(None) => Ok(None),
+            Compute::Aborted(Some(error)) => Err(error),
+            _ => {
+                // Logically impossible (all possible compute outcomes are handled).
+                Err(Status::internal("kill-pod-impossible"))
+            }
+        }
+    }
+
+    pub(crate) fn delete_pod(&self, name: &PodName) -> Result<()> {
+        let pods = self.pods.pin();
+        match pods.compute(name.pod, |entry| match entry {
+            Some((_, pod)) => match pod.state {
+                PodState::Initiated
+                | PodState::Created
+                | PodState::Starting
+                | PodState::Running
+                | PodState::Stopped
+                | PodState::Removed => {
+                    // The CRI API promises
                     // that `StopPodSandbox` is called before `RemovePodSandbox`,
                     // so this should be impossible.
-                    Operation::Abort(log_error_status!(
-                        "delete-pod-bad-state",
-                        &pod_name.component
-                    )(&pod.state))
+                    Operation::Abort(log_error_status!("delete-pod-bad-state", &name.component)(
+                        pod.state,
+                    ))
                 }
-                PodState::Stopped => Operation::Remove,
+                PodState::Killed => Operation::Remove,
             },
             None => Operation::Abort(Status::internal("delete-pod-not-found")),
         }) {
             Compute::Removed(_, _) => {
-                log_info!("delete-pod-success", &pod_name.component, pod_name.pod);
+                log_info!("delete-pod-success", &name.component, name.pod);
                 Ok(())
             }
             Compute::Aborted(error) => Err(error),
             _ => {
                 // Logically impossible (all possible compute outcomes are handled).
-                Err(Status::internal("stop-pod-impossible"))
+                Err(Status::internal("delete-pod-impossible"))
             }
         }
     }
@@ -868,6 +957,30 @@ impl WorkRuntime {
     }
 }
 
+/// If `left` contains any entries
+/// where the key starts with [`VIMANA_LABEL_PREFIX`]
+/// and the entry does not exist with the same value in `right`,
+/// log that difference as an error with `error_tag` and return [`Err`].
+/// Otherwise, return [`Ok`].
+fn check_vimana_labels(
+    left: &HashMap<String, String>,
+    right: &HashMap<String, String>,
+    error_tag: &'static str,
+    name: &PodName,
+) -> Option<Status> {
+    let unmatched: Vec<(&String, &String)> = left
+        .iter()
+        .filter(|(key, value)| {
+            key.starts_with(VIMANA_LABEL_PREFIX) && right.get(*key) != Some(value)
+        })
+        .collect();
+    if unmatched.is_empty() {
+        None
+    } else {
+        Some(log_error_status!(error_tag, &name.component)(unmatched))
+    }
+}
+
 /// Possible reasons why starting a container might be aborted.
 /// See [`start_container`](WorkRuntime::start_container).
 enum StartContainerAbort {
@@ -905,6 +1018,11 @@ impl ContainerKiller {
             aborter.abort();
             false
         }
+    }
+
+    /// Kill a container immediately. In-flight requests are simply dropped.
+    fn forcefully_abort(self) {
+        self.join.abort();
     }
 }
 

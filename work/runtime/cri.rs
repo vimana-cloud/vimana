@@ -23,7 +23,6 @@ use std::time::Duration;
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_server::ImageService;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
-use serde::Serialize;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
 
@@ -53,9 +52,18 @@ const POD_STATES_CONTAINER_CREATED: [PodState; 2] = [PodState::Created, PodState
 /// Pod states matching [`v1::ContainerState::ContainerRunning`].
 const POD_STATES_CONTAINER_RUNNING: [PodState; 1] = [PodState::Running];
 /// Pod states matching [`v1::ContainerState::ContainerExited`].
-const POD_STATES_CONTAINER_EXITED: [PodState; 1] = [PodState::Stopped];
+const POD_STATES_CONTAINER_EXITED: [PodState; 3] =
+    [PodState::Stopped, PodState::Removed, PodState::Killed];
 /// Somewhat counter-intuitively, the empty slice means "match all states".
 const POD_STATES_ALL: [PodState; 0] = [];
+const POD_STATES_RUNNING: [PodState; 6] = [
+    PodState::Initiated,
+    PodState::Created,
+    PodState::Starting,
+    PodState::Running,
+    PodState::Stopped,
+    PodState::Removed,
+];
 
 // These labels must be present on every pod and container using the Vimana handler:
 
@@ -179,7 +187,7 @@ impl RuntimeService for VimanaCriService {
             return Err(Status::invalid_argument("grpc-port-mappings"));
         }
 
-        let pod_name = self
+        let name = self
             .0
             .init_pod(
                 component,
@@ -191,7 +199,7 @@ impl RuntimeService for VimanaCriService {
 
         Ok(Response::new(v1::RunPodSandboxResponse {
             // Prefix the ID so we can distinguish it from downstream OCI pod IDs.
-            pod_sandbox_id: workd_prefix(&pod_name),
+            pod_sandbox_id: workd_prefix(&name),
         }))
     }
 
@@ -211,11 +219,8 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
-        let free_address = true;
-        self.0
-            .stop_pod(pod_name, Duration::ZERO, free_address)
-            .await?;
+        let name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
+        self.0.kill_pod(&name).await?;
 
         Ok(Response::new(v1::StopPodSandboxResponse {}))
     }
@@ -236,8 +241,8 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
-        self.0.delete_pod(pod_name)?;
+        let name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
+        self.0.delete_pod(&name)?;
 
         Ok(Response::new(v1::RemovePodSandboxResponse {}))
     }
@@ -267,10 +272,10 @@ impl RuntimeService for VimanaCriService {
         });
 
         if request.pod_sandbox_id.starts_with(WORKD_PREFIX) {
-            let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
+            let name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
             let mut pod_sandbox_status = Vec::with_capacity(1);
             self.0.get_pod(
-                &pod_name,
+                &name,
                 &Vec::default(),
                 &POD_STATES_ALL,
                 &cri_pod_sandbox_status,
@@ -349,13 +354,13 @@ impl RuntimeService for VimanaCriService {
                 .map(map_oci_prefix!(container_id))
         });
 
-        let pod_name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
+        let name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
         let config = request.config.unwrap_or_default();
         //let component = component_name_from_labels(&config.labels)?;
 
         // While redundant, the component name from the container's labels
         // must match the component name extracted from the pod ID and image ID.
-        //if component != pod_name.component {
+        //if component != name.component {
         //    return Err(Status::invalid_argument(
         //        "create-container-labels-pod-mismatch",
         //    ));
@@ -364,7 +369,7 @@ impl RuntimeService for VimanaCriService {
         // Check that the image spec also matches the labels / pod name.
         // In fact, the whole `ImageSpec` is essentially determined by the component name.
         let image_spec = config.image.unwrap_or_default();
-        //if image_spec.image != pod_name.component.to_string() {
+        //if image_spec.image != name.component.to_string() {
         //    return Err(Status::invalid_argument(
         //        "create-container-labels-image-mismatch",
         //    ));
@@ -395,7 +400,7 @@ impl RuntimeService for VimanaCriService {
         // but a component pod is inseparable from its single container,
         // so "pods" and containers are created simultaneously.
         self.0.create_container(
-            &pod_name,
+            &name,
             &config.metadata,
             &config.labels,
             &config.annotations,
@@ -424,8 +429,8 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
-        self.0.start_container(pod_name).await?;
+        let name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
+        self.0.start_container(&name).await?;
 
         Ok(Response::new(v1::StartContainerResponse {}))
     }
@@ -446,10 +451,9 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
+        let name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
         let timeout = Duration::from_secs(request.timeout.try_into().unwrap_or(0));
-        let free_address = false;
-        self.0.stop_pod(pod_name, timeout, free_address).await?;
+        self.0.stop_container(&name, timeout).await?;
 
         Ok(Response::new(v1::StopContainerResponse {}))
     }
@@ -470,10 +474,9 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        // RemoveContainer is a no-op.
-        // According to the CRI API contract,
-        // the container should have already been stopped by `StopContainer`.
-        // Nothing else changes until `RemovePodSandbox`.
+        let name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
+        self.0.remove_container(&name)?;
+
         Ok(Response::new(v1::RemoveContainerResponse {}))
     }
 
@@ -531,12 +534,12 @@ impl RuntimeService for VimanaCriService {
         });
 
         if request.container_id.starts_with(WORKD_PREFIX) {
-            let pod_name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
+            let name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
             let mut container_status = Vec::with_capacity(1);
             self.0.get_pod(
-                &pod_name,
+                &name,
                 &Vec::default(),
-                &POD_STATES_ALL,
+                &POD_STATES_ALL, // TODO: Should not be ALL
                 &cri_container_status,
                 &mut container_status,
             );
@@ -792,9 +795,6 @@ impl RuntimeService for VimanaCriService {
             }
         }
 
-        eprintln!("RUNTIME HANDLERS: {runtime_handlers:?}");
-        eprintln!("INFO: {info:?}");
-
         Ok(Response::new(v1::StatusResponse {
             status: Some(v1::RuntimeStatus {
                 conditions: vec![runtime_ready_condition, network_ready_condition],
@@ -1022,6 +1022,7 @@ impl VimanaCriService {
 
         // The state always matches if it's either unspecified or 'ready'.
         // Pod sandboxes are never unready.
+        // TODO: Revisit this.
         let state_matches_ready = filter.state.map_or(true, |state| {
             state.state == v1::PodSandboxState::SandboxReady as i32
         });
@@ -1031,13 +1032,13 @@ impl VimanaCriService {
                 // I believe the ID must match exactly,
                 // but that's not entirely clear from the documentation,
                 // which just says "ID of the sandbox".
-                if let Ok(pod_name) = Name::parse(&filter.id).pod() {
+                if let Ok(name) = Name::parse(&filter.id).pod() {
                     // If it's a complete, parseable pod name (after the prefix),
                     // look it up and return it, if the other conditions are met.
                     self.0.get_pod(
-                        &pod_name,
+                        &name,
                         &labels,
-                        &POD_STATES_ALL,
+                        &POD_STATES_RUNNING,
                         &cri_pod_sandbox,
                         &mut response.items,
                     );
@@ -1049,7 +1050,7 @@ impl VimanaCriService {
                 // search exhaustively based on the state and labels filters.
                 self.0.list_pods(
                     &labels,
-                    &POD_STATES_ALL,
+                    &POD_STATES_RUNNING,
                     &cri_pod_sandbox,
                     &mut response.items,
                 );
@@ -1081,11 +1082,11 @@ impl VimanaCriService {
             // I believe the ID must match exactly,
             // but that's not entirely clear from the documentation,
             // which just says "ID of the container".
-            if let Ok(pod_name) = Name::parse(&filter.id).pod() {
+            if let Ok(name) = Name::parse(&filter.id).pod() {
                 // If it's a complete, parseable pod name (after the prefix),
                 // look it up and return it, if the other conditions are met.
                 self.0.get_pod(
-                    &pod_name,
+                    &name,
                     &labels,
                     matching_states,
                     &cri_container,
@@ -1200,7 +1201,7 @@ fn cri_pod_sandbox_status(
             runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
         },
         match pod.state {
-            PodState::Initiated => Vec::default(),
+            PodState::Initiated | PodState::Removed | PodState::Killed => Vec::default(),
             PodState::Created | PodState::Starting | PodState::Running | PodState::Stopped => {
                 vec![cri_container_status(name, pod)]
             }
@@ -1261,7 +1262,9 @@ fn cri_container_state_to_pod_states(state: v1::ContainerStateValue) -> &'static
 
 fn pod_state_to_cri_container_state(state: PodState) -> v1::ContainerState {
     match state {
-        PodState::Initiated => v1::ContainerState::ContainerUnknown,
+        PodState::Initiated | PodState::Removed | PodState::Killed => {
+            v1::ContainerState::ContainerUnknown
+        }
         PodState::Created | PodState::Starting => v1::ContainerState::ContainerCreated,
         PodState::Running => v1::ContainerState::ContainerRunning,
         PodState::Stopped => v1::ContainerState::ContainerExited,
