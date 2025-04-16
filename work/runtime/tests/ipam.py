@@ -1,6 +1,11 @@
 """ IPAM CNI plugin emulator.
 
-This should generally act like the [`host-local`][1] plugin.
+This should generally act like the [`host-local`][1] plugin
+except that it takes a single command-line argument;
+the path to a SQLite3 database
+that's used to keep track of allocated IP addresses.
+That allows multiple test targets to run in parallel
+without interfering with each other's IPAM systems.
 
 [1]: https://www.cni.dev/plugins/current/ipam/host-local/
 """
@@ -9,10 +14,7 @@ from ipaddress import IPv4Network, IPv6Network, ip_network
 from json import dump, load
 from os import getenv, path
 from sqlite3 import Cursor, IntegrityError, connect
-from sys import stdin, stdout
-
-# Save state between invocations in this SQLite database.
-DB_PATH = path.join(getenv('TMPDIR', '/tmp'), 'test-ipam-host-local.db')
+from sys import argv, stdin, stdout
 
 # CNI API parameters:
 CNI_VERSION = '1.0.0'
@@ -72,7 +74,7 @@ actions = {
     'DEL': delete,
 }
 
-def main():
+def main(dbPath: str):
     command = getenv('CNI_COMMAND')
     container = getenv('CNI_CONTAINERID')
     config = load(stdin)
@@ -94,11 +96,11 @@ def main():
     # Persist all allocations to a database in the temporary directory,
     # so non-colliding addresses can be allocated across test runs,
     # but the pool gets regularly reset (on reboot).
-    cursor = connect(DB_PATH).cursor()
+    cursor = connect(dbPath).cursor()
     cursor.execute('CREATE TABLE IF NOT EXISTS address(container TEXT PRIMARY KEY, address TEXT)')
     cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS address_index ON address(address)')
 
     return actions[command](cursor, container, ipam)
 
 if __name__ == '__main__':
-    main()
+    main(argv[1])

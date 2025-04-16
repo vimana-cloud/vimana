@@ -11,12 +11,15 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import IPv4Address, IPv6Address
 from itertools import chain
 from json import loads as parseJson
+from os import chmod
 from os.path import exists
 from queue import Queue, Empty, ShutDown
 from random import randrange
 from re import Match, compile as compileRegex
-from subprocess import Popen, PIPE
+from shlex import quote
 from socket import socket, AF_INET, SOCK_STREAM
+from stat import S_IEXEC
+from subprocess import Popen, PIPE
 from sys import stderr
 from tempfile import NamedTemporaryFile
 from threading  import Thread
@@ -71,14 +74,26 @@ from work.runtime.tests.api_pb2 import (
 )
 
 # Path to the `workd` binary in the runfiles.
-_workd_path = 'work/runtime/workd'
+_workdPath = 'work/runtime/workd'
 # Path to the `host-local` IPAM emulator.
-_ipam_path = 'work/runtime/tests/ipam'
+_ipamPath = 'work/runtime/tests/ipam'
 # Path to the `vimana-push` binary which uploads Wasm containers to the registry.
-_push_image_path = 'bootstrap/push-image'
+_pushImagePath = 'bootstrap/push-image'
 
 # Generally wait up to 5 seconds for things to happen asynchronously.
 _timeout = timedelta(seconds=5)
+
+# Create a temporary IPAM database file
+# and "wrap" the IPAM executable with a temporary script
+# that passes the database path as an argument.
+# This allows tests running in parallel to have independent IPAM systems.
+_ipamDatabase = NamedTemporaryFile()
+_ipamWrapper = NamedTemporaryFile(mode='w', delete_on_close=False)
+_ipamWrapper.write(f'''#!/usr/bin/bash
+exec {quote(_ipamPath)} {quote(_ipamDatabase.name)}
+''')
+_ipamWrapper.close()
+chmod(_ipamWrapper.name, S_IEXEC)
 
 class WorkdTestCase(TestCase):
     @classmethod
@@ -122,7 +137,9 @@ class WorkdTester:
                 _waitFor(
                     lambda: exists(ociSocket) and not _isPortAvailable(self._imageRegistryPort),
                 )
-                self._workd, self._workdSocket = startWorkd(ociSocket, self._imageRegistryPort)
+                self._workd, self._workdSocket = startWorkd(
+                    ociSocket, self._imageRegistryPort, _ipamWrapper.name,
+                )
                 try:
                     # We need a separate thread just to collect the logs:
                     # https://stackoverflow.com/a/4896288/5712883.
@@ -191,7 +208,7 @@ class WorkdTester:
             metadata:  Path to serialized gRPC service metadata file.
         """
         command = [
-            _push_image_path,
+            _pushImagePath,
             f'http://localhost:{self._imageRegistryPort}',
             domain,
             service,
@@ -239,7 +256,7 @@ class WorkdTester:
             message = '> '.join(chain((header,), logs))
             print(message, file=stderr)
 
-def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int) -> tuple[Popen, str]:
+def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int, ipamPath: str) -> tuple[Popen, str]:
     """ Start a background process running the work node daemon.
 
     Return the running process and the UNIX socket path where it's listening.
@@ -249,11 +266,11 @@ def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int) -> tuple[Popen, st
     networkInterface = 'lo'  # Loopback device.
     podIps = 'fc00:0001::/32'
     command = [
-        _workd_path,
+        _workdPath,
         f'--incoming={socket}',
         f'--downstream={ociRuntimeSocket}',
         f'--registry={registry}',
-        f'--ipam-plugin={_ipam_path}',
+        f'--ipam-plugin={ipamPath}',
         f'--network-interface={networkInterface}',
         f'--pod-ips={podIps}',
     ]
