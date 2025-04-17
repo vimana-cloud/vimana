@@ -1,4 +1,4 @@
-""" Test harness and helper functions for the work runtime. """
+"""Test harness and helper functions for the work runtime."""
 
 from collections import defaultdict
 from collections.abc import Callable
@@ -13,64 +13,67 @@ from itertools import chain
 from json import loads as parseJson
 from os import chmod
 from os.path import exists
-from queue import Queue, Empty, ShutDown
+from queue import Empty, Queue, ShutDown
 from random import randrange
-from re import Match, compile as compileRegex
+from re import Match
+from re import compile as compileRegex
 from shlex import quote
-from socket import socket, AF_INET, SOCK_STREAM
+from socket import AF_INET, SOCK_STREAM, socket
 from stat import S_IEXEC
-from subprocess import Popen, PIPE
+from subprocess import PIPE, Popen
 from sys import stderr
 from tempfile import NamedTemporaryFile
-from threading  import Thread
-from typing import Any, TextIO
+from threading import Thread
 from time import sleep
+from typing import Any, TextIO
 from unittest import TestCase
 from uuid import uuid4
 
 import grpc
 
-from work.runtime.tests.api_pb2_grpc import (
-    ImageServiceServicer, ImageServiceStub,
-    RuntimeServiceServicer, RuntimeServiceStub,
-    add_ImageServiceServicer_to_server,
-    add_RuntimeServiceServicer_to_server,
-)
 from work.runtime.tests.api_pb2 import (
-    VersionResponse,
-    RunPodSandboxResponse,
-    StopPodSandboxResponse,
-    RemovePodSandboxResponse,
-    PodSandboxStatusResponse,
-    ListPodSandboxResponse,
-    CreateContainerResponse,
-    StartContainerResponse,
-    StopContainerResponse,
-    RemoveContainerResponse,
-    ListContainersResponse,
-    ContainerStatusResponse,
-    UpdateContainerResourcesResponse,
-    ReopenContainerLogResponse,
-    ExecSyncResponse,
-    ExecResponse,
     AttachResponse,
-    PortForwardResponse,
-    ContainerStatsResponse,
-    ListContainerStatsResponse,
-    PodSandboxStatsResponse,
-    ListPodSandboxStatsResponse,
-    UpdateRuntimeConfigResponse,
-    StatusResponse,
     CheckpointContainerResponse,
     ContainerEventResponse,
+    ContainerStatsResponse,
+    ContainerStatusResponse,
+    CreateContainerResponse,
+    ExecResponse,
+    ExecSyncResponse,
+    ImageFsInfoResponse,
+    ImageStatusResponse,
+    ListContainersResponse,
+    ListContainerStatsResponse,
+    ListImagesResponse,
     ListMetricDescriptorsResponse,
     ListPodSandboxMetricsResponse,
-    RuntimeConfigResponse,
-    ListImagesResponse,
-    ImageStatusResponse,
+    ListPodSandboxResponse,
+    ListPodSandboxStatsResponse,
+    PodSandboxStatsResponse,
+    PodSandboxStatusResponse,
+    PortForwardResponse,
     PullImageResponse,
+    RemoveContainerResponse,
     RemoveImageResponse,
-    ImageFsInfoResponse,
+    RemovePodSandboxResponse,
+    ReopenContainerLogResponse,
+    RunPodSandboxResponse,
+    RuntimeConfigResponse,
+    StartContainerResponse,
+    StatusResponse,
+    StopContainerResponse,
+    StopPodSandboxResponse,
+    UpdateContainerResourcesResponse,
+    UpdateRuntimeConfigResponse,
+    VersionResponse,
+)
+from work.runtime.tests.api_pb2_grpc import (
+    ImageServiceServicer,
+    ImageServiceStub,
+    RuntimeServiceServicer,
+    RuntimeServiceStub,
+    add_ImageServiceServicer_to_server,
+    add_RuntimeServiceServicer_to_server,
 )
 
 # Path to the `workd` binary in the runfiles.
@@ -89,11 +92,12 @@ _timeout = timedelta(seconds=5)
 # This allows tests running in parallel to have independent IPAM systems.
 _ipamDatabase = NamedTemporaryFile()
 _ipamWrapper = NamedTemporaryFile(mode='w', delete_on_close=False)
-_ipamWrapper.write(f'''#!/usr/bin/bash
+_ipamWrapper.write(f"""#!/usr/bin/bash
 exec {quote(_ipamPath)} {quote(_ipamDatabase.name)}
-''')
+""")
 _ipamWrapper.close()
 chmod(_ipamWrapper.name, S_IEXEC)
+
 
 class WorkdTestCase(TestCase):
     @classmethod
@@ -113,8 +117,9 @@ class WorkdTestCase(TestCase):
     def tearDown(self):
         self.tester.printWorkdLogs(self)
 
+
 class WorkdTester:
-    """ Manager for the system under test.
+    """Manager for the system under test.
 
     Fires up a real `workd` server hooked up to dependencies:
     - A mock container image registry
@@ -135,10 +140,13 @@ class WorkdTester:
                 # Wait for both the image registry and oci runtime to become connectable
                 # before starting workd.
                 _waitFor(
-                    lambda: exists(ociSocket) and not _isPortAvailable(self._imageRegistryPort),
+                    lambda: exists(ociSocket)
+                    and not _isPortAvailable(self._imageRegistryPort),
                 )
                 self._workd, self._workdSocket = startWorkd(
-                    ociSocket, self._imageRegistryPort, _ipamWrapper.name,
+                    ociSocket,
+                    self._imageRegistryPort,
+                    _ipamWrapper.name,
                 )
                 try:
                     # We need a separate thread just to collect the logs:
@@ -197,8 +205,10 @@ class WorkdTester:
                     finally:
                         self._workdLogQueue.shutdown()
 
-    def pushImage(self, domain: str, service: str, version: str, module: str, metadata: str):
-        """ Push a Vimana Wasm "container" image to the running container registry
+    def pushImage(
+        self, domain: str, service: str, version: str, module: str, metadata: str
+    ):
+        """Push a Vimana Wasm "container" image to the running container registry
 
         Args:
             domain:    e.g. `1234567890abcdef1234567890abcdef`
@@ -221,7 +231,7 @@ class WorkdTester:
             raise RuntimeError(f'Failed to push image (status={status}).')
 
     def setupImage(self, service: str, version: str, module: str, metadata: str):
-        """ Boilerplate to create consistent metadata with a random domain. """
+        """Boilerplate to create consistent metadata with a random domain."""
         domain = hexUuid()
         componentName = f'{domain}:{service}@{version}'
         labels = {
@@ -243,12 +253,12 @@ class WorkdTester:
         logs = []
         while True:
             try:
-                logs.append(self._workdLogQueue.get(block = False))
+                logs.append(self._workdLogQueue.get(block=False))
             except (Empty, ShutDown):
                 return logs
 
     def printWorkdLogs(self, testCase: TestCase):
-        """ Print collected workd logs to standard error, if there are any. """
+        """Print collected workd logs to standard error, if there are any."""
         logs = self.workdLogs()
         if len(logs) > 0:
             testName = testCase.id().split('.')[-1]
@@ -256,8 +266,11 @@ class WorkdTester:
             message = '> '.join(chain((header,), logs))
             print(message, file=stderr)
 
-def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int, ipamPath: str) -> tuple[Popen, str]:
-    """ Start a background process running the work node daemon.
+
+def startWorkd(
+    ociRuntimeSocket: str, imageRegistryPort: int, ipamPath: str
+) -> tuple[Popen, str]:
+    """Start a background process running the work node daemon.
 
     Return the running process and the UNIX socket path where it's listening.
     """
@@ -279,8 +292,9 @@ def startWorkd(ociRuntimeSocket: str, imageRegistryPort: int, ipamPath: str) -> 
     process = Popen(command, stdout=PIPE, text=True, bufsize=1)
     return (process, socket)
 
+
 def startImageRegistry() -> tuple[HTTPServer, int]:
-    """ Start a mock container image registry on some available port.
+    """Start a mock container image registry on some available port.
 
     Return the running server and the port number where it's listening.
     """
@@ -292,8 +306,9 @@ def startImageRegistry() -> tuple[HTTPServer, int]:
     ).start()
     return (server, port)
 
+
 def startOciRuntime() -> tuple[grpc.Server, str]:
-    """ Start a background process running a "fake" OCI container runtime.
+    """Start a background process running a "fake" OCI container runtime.
 
     Return the running server and the UNIX socket path where it's listening.
     """
@@ -305,18 +320,21 @@ def startOciRuntime() -> tuple[grpc.Server, str]:
     server.start()
     return (server, socket)
 
+
 def hexUuid() -> str:
     return uuid4().hex
 
+
 def ipHostName(address: IPv4Address | IPv6Address) -> str:
-    """ Return an IP address in a string form that can be used as a hostname.
+    """Return an IP address in a string form that can be used as a hostname.
 
     IPv6 addresses must be wrapped in square brackets.
     """
     return f'[{address}]' if isinstance(address, IPv6Address) else str(address)
 
+
 def _findAvailablePort(attempts: int = 5) -> int:
-    """ Find an available TCP port by random probing. """
+    """Find an available TCP port by random probing."""
     for i in range(attempts):
         # Pick a random port in the ephemeral range: [49152–65536).
         port = randrange(49152, 65536)
@@ -324,8 +342,9 @@ def _findAvailablePort(attempts: int = 5) -> int:
             return port
     raise RuntimeError(f'Could not find an open port after {attempts} attempts.')
 
+
 def _collectLogs(stdout: TextIO, queue: Queue):
-    """ Read all lines from the `stdout` pipe, adding each line to the queue. """
+    """Read all lines from the `stdout` pipe, adding each line to the queue."""
     # Invoke `readline` iteratively until EOF is indicated by the sentinel value `b''`.
     for line in iter(stdout.readline, b''):
         try:
@@ -334,6 +353,7 @@ def _collectLogs(stdout: TextIO, queue: Queue):
             # If the test is shutting down, nobody wants the remaining logs.
             break
     stdout.close()
+
 
 def _isPortAvailable(port: int) -> bool:
     with closing(socket(AF_INET, SOCK_STREAM)) as sock:
@@ -344,6 +364,7 @@ def _isPortAvailable(port: int) -> bool:
             return True
     return False
 
+
 def _waitFor(predicate: Callable[[], bool]):
     start = datetime.now()
     while not predicate():
@@ -351,23 +372,28 @@ def _waitFor(predicate: Callable[[], bool]):
             raise RuntimeError('Timed out polling for condition')
         sleep(1 / 32)  # ~30ms
 
+
 def _readFile(path: str) -> bytes:
     with open(path, 'rb') as f:
         return f.read()
 
+
 def _tmpName() -> str:
-    """ Return a unique name for a hypothetical temporary file that does not exist. """
+    """Return a unique name for a hypothetical temporary file that does not exist."""
     f = NamedTemporaryFile()
     name = f.name
     f.close()  # Delete the file.
     return name
+
 
 # Regular expressions used by the mock image registry.
 # A real registry would support multiple digest algorithms,
 # but the mock registry currently only supports SHA-256 for simplicity.
 # Also leverage the knowledge that mock registry upload IDs are simply 36-character UUIDs.
 _postBlobPath = compileRegex(r'^/v2/(.+)/blobs/uploads/$')
-_putBlobPath = compileRegex(r'^/v2/(.+)/blobs/uploads/([-0-9a-f]{36})\?digest=sha256:([0-9a-f]{64})$')
+_putBlobPath = compileRegex(
+    r'^/v2/(.+)/blobs/uploads/([-0-9a-f]{36})\?digest=sha256:([0-9a-f]{64})$'
+)
 _getBlobPath = compileRegex(r'^/v2/(.+)/blobs/sha256:([0-9a-f]{64})$')
 _manifestPath = compileRegex(r'^/v2/(.+)/manifests/([^/]+)$')
 
@@ -378,12 +404,14 @@ IMAGE_CONFIG_MIME_TYPE = 'application/vnd.oci.image.config.v1+json'
 WASM_MIME_TYPE = 'application/wasm'
 PROTOBUF_MIME_TYPE = 'application/protobuf'
 
+
 class MockImageRegistryServer(HTTPServer):
     def __init__(self, port):
         self.nameToUploadIds = defaultdict(set)
         self.nameToHashToBlob = defaultdict(dict)
         self.nameToReferenceToManifest = defaultdict(dict)
         super().__init__(('localhost', port), MockImageRegistryHandler)
+
 
 class MockImageRegistryHandler(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -411,7 +439,9 @@ class MockImageRegistryHandler(BaseHTTPRequestHandler):
             blob = self.rfile.read(contentLength)
 
             if self.headers['Content-Type'] != OCTET_STREAM_MIME_TYPE:
-                self.send_error(HTTPStatus.BAD_REQUEST.value, message='bad content type')
+                self.send_error(
+                    HTTPStatus.BAD_REQUEST.value, message='bad content type'
+                )
                 return
             if _sha256(blob) != blobSha256:
                 self.send_error(HTTPStatus.BAD_REQUEST.value, message='bad digest')
@@ -434,15 +464,21 @@ class MockImageRegistryHandler(BaseHTTPRequestHandler):
             manifestBytes = self.rfile.read(contentLength)
 
             if self.headers['Content-Type'] != IMAGE_MANIFEST_MIME_TYPE:
-                self.send_error(HTTPStatus.BAD_REQUEST.value, message='bad content type')
+                self.send_error(
+                    HTTPStatus.BAD_REQUEST.value, message='bad content type'
+                )
                 return
             manifest = parseJson(manifestBytes)
             manifestConditions = [
                 manifest['schemaVersion'] == 2,
-                self._validateDescriptor(name, manifest['config'], IMAGE_CONFIG_MIME_TYPE),
+                self._validateDescriptor(
+                    name, manifest['config'], IMAGE_CONFIG_MIME_TYPE
+                ),
                 len(manifest['layers']) == 2,
                 self._validateDescriptor(name, manifest['layers'][0], WASM_MIME_TYPE),
-                self._validateDescriptor(name, manifest['layers'][1], PROTOBUF_MIME_TYPE),
+                self._validateDescriptor(
+                    name, manifest['layers'][1], PROTOBUF_MIME_TYPE
+                ),
             ]
             if not all(manifestConditions):
                 self.send_error(HTTPStatus.BAD_REQUEST.value, message='bad manifest')
@@ -451,25 +487,31 @@ class MockImageRegistryHandler(BaseHTTPRequestHandler):
             self.server.nameToReferenceToManifest[name][reference] = manifestBytes
 
             self.send_response(HTTPStatus.CREATED.value)
-            self.send_header('Location', f'/v2/{name}/manifests/sha256:{_sha256(manifestBytes)}')
+            self.send_header(
+                'Location', f'/v2/{name}/manifests/sha256:{_sha256(manifestBytes)}'
+            )
             self.end_headers()
 
         else:
             self.send_error(HTTPStatus.BAD_REQUEST.value, message='invalid URL')
 
-    def _validateDescriptor(self, name: str, descriptor: dict[str, Any], mediaType: str) -> bool:
-        """ Validate a [descriptor][https://specs.opencontainers.org/image-spec/descriptor/].
+    def _validateDescriptor(
+        self, name: str, descriptor: dict[str, Any], mediaType: str
+    ) -> bool:
+        """Validate a [descriptor][https://specs.opencontainers.org/image-spec/descriptor/].
 
         Check that the media types equals the expected value,
         and that the blob it refers to by digest exists under the given name,
         with the correct size.
         """
         # Remove the digest prefix to look it up in the map.
-        blobSha256 = descriptor['digest'][len('sha256:'):]
+        blobSha256 = descriptor['digest'][len('sha256:') :]
         blob = self.server.nameToHashToBlob[name][blobSha256]
-        return isinstance(blob, bytes) \
-            and descriptor['mediaType'] == mediaType \
+        return (
+            isinstance(blob, bytes)
+            and descriptor['mediaType'] == mediaType
             and descriptor['size'] == len(blob)
+        )
 
     def do_GET(self):
         # Retrieve either a blob or a manifest.
@@ -481,7 +523,7 @@ class MockImageRegistryHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.BAD_REQUEST.value, message='invalid URL')
 
     def _getBoilerplate(self, path: Match, table: dict[str, dict[str, bytes]]):
-        """ Common logic shared between blob-fetching and manifest-fetching. """
+        """Common logic shared between blob-fetching and manifest-fetching."""
         name = path.group(1)
         digestOrReference = path.group(2)
 
@@ -497,49 +539,118 @@ class MockImageRegistryHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # Don't clutter up standard error.
 
+
 def _sha256(data: bytes) -> str:
     hasher = sha256()
     hasher.update(data)
     return hasher.hexdigest()
 
-class FakeRuntimeService(RuntimeServiceServicer):
-    """ Fake implementation of the CRI API's `RuntimeService` that does nothing. """
 
-    def Version(self, request, context): return VersionResponse()
-    def RunPodSandbox(self, request, context): return RunPodSandboxResponse()
-    def StopPodSandbox(self, request, context): return StopPodSandboxResponse()
-    def RemovePodSandbox(self, request, context): return RemovePodSandboxResponse()
-    def PodSandboxStatus(self, request, context): return PodSandboxStatusResponse()
-    def ListPodSandbox(self, request, context): return ListPodSandboxResponse()
-    def CreateContainer(self, request, context): return CreateContainerResponse()
-    def StartContainer(self, request, context): return StartContainerResponse()
-    def StopContainer(self, request, context): return StopContainerResponse()
-    def RemoveContainer(self, request, context): return RemoveContainerResponse()
-    def ListContainers(self, request, context): return ListContainersResponse()
-    def ContainerStatus(self, request, context): return ContainerStatusResponse()
-    def UpdateContainerResources(self, request, context): return UpdateContainerResourcesResponse()
-    def ReopenContainerLog(self, request, context): return ReopenContainerLogResponse()
-    def ExecSync(self, request, context): return ExecSyncResponse()
-    def Exec(self, request, context): return ExecResponse()
-    def Attach(self, request, context): return AttachResponse()
-    def PortForward(self, request, context): return PortForwardResponse()
-    def ContainerStats(self, request, context): return ContainerStatsResponse()
-    def ListContainerStats(self, request, context): return ListContainerStatsResponse()
-    def PodSandboxStats(self, request, context): return PodSandboxStatsResponse()
-    def ListPodSandboxStats(self, request, context): return ListPodSandboxStatsResponse()
-    def UpdateRuntimeConfig(self, request, context): return UpdateRuntimeConfigResponse()
-    def Status(self, request, context): return StatusResponse()
-    def CheckpointContainer(self, request, context): return CheckpointContainerResponse()
-    def GetContainerEvents(self, request, context): return ContainerEventResponse()
-    def ListMetricDescriptors(self, request, context): return ListMetricDescriptorsResponse()
-    def ListPodSandboxMetrics(self, request, context): return ListPodSandboxMetricsResponse()
-    def RuntimeConfig(self, request, context): return RuntimeConfigResponse()
+class FakeRuntimeService(RuntimeServiceServicer):
+    """Fake implementation of the CRI API's `RuntimeService` that does nothing."""
+
+    def Version(self, request, context):
+        return VersionResponse()
+
+    def RunPodSandbox(self, request, context):
+        return RunPodSandboxResponse()
+
+    def StopPodSandbox(self, request, context):
+        return StopPodSandboxResponse()
+
+    def RemovePodSandbox(self, request, context):
+        return RemovePodSandboxResponse()
+
+    def PodSandboxStatus(self, request, context):
+        return PodSandboxStatusResponse()
+
+    def ListPodSandbox(self, request, context):
+        return ListPodSandboxResponse()
+
+    def CreateContainer(self, request, context):
+        return CreateContainerResponse()
+
+    def StartContainer(self, request, context):
+        return StartContainerResponse()
+
+    def StopContainer(self, request, context):
+        return StopContainerResponse()
+
+    def RemoveContainer(self, request, context):
+        return RemoveContainerResponse()
+
+    def ListContainers(self, request, context):
+        return ListContainersResponse()
+
+    def ContainerStatus(self, request, context):
+        return ContainerStatusResponse()
+
+    def UpdateContainerResources(self, request, context):
+        return UpdateContainerResourcesResponse()
+
+    def ReopenContainerLog(self, request, context):
+        return ReopenContainerLogResponse()
+
+    def ExecSync(self, request, context):
+        return ExecSyncResponse()
+
+    def Exec(self, request, context):
+        return ExecResponse()
+
+    def Attach(self, request, context):
+        return AttachResponse()
+
+    def PortForward(self, request, context):
+        return PortForwardResponse()
+
+    def ContainerStats(self, request, context):
+        return ContainerStatsResponse()
+
+    def ListContainerStats(self, request, context):
+        return ListContainerStatsResponse()
+
+    def PodSandboxStats(self, request, context):
+        return PodSandboxStatsResponse()
+
+    def ListPodSandboxStats(self, request, context):
+        return ListPodSandboxStatsResponse()
+
+    def UpdateRuntimeConfig(self, request, context):
+        return UpdateRuntimeConfigResponse()
+
+    def Status(self, request, context):
+        return StatusResponse()
+
+    def CheckpointContainer(self, request, context):
+        return CheckpointContainerResponse()
+
+    def GetContainerEvents(self, request, context):
+        return ContainerEventResponse()
+
+    def ListMetricDescriptors(self, request, context):
+        return ListMetricDescriptorsResponse()
+
+    def ListPodSandboxMetrics(self, request, context):
+        return ListPodSandboxMetricsResponse()
+
+    def RuntimeConfig(self, request, context):
+        return RuntimeConfigResponse()
+
 
 class FakeImageService(ImageServiceServicer):
-    """ Fake implementation of the CRI API's `ImageService` that does nothing. """
+    """Fake implementation of the CRI API's `ImageService` that does nothing."""
 
-    def ListImages(self, request, context): return ListImagesResponse()
-    def ImageStatus(self, request, context): return ImageStatusResponse()
-    def PullImage(self, request, context): return PullImageResponse()
-    def RemoveImage(self, request, context): return RemoveImageResponse()
-    def ImageFsInfo(self, request, context): return ImageFsInfoResponse()
+    def ListImages(self, request, context):
+        return ListImagesResponse()
+
+    def ImageStatus(self, request, context):
+        return ImageStatusResponse()
+
+    def PullImage(self, request, context):
+        return PullImageResponse()
+
+    def RemoveImage(self, request, context):
+        return RemoveImageResponse()
+
+    def ImageFsInfo(self, request, context):
+        return ImageFsInfoResponse()

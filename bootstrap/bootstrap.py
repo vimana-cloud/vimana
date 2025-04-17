@@ -1,4 +1,4 @@
-""" Construct the K8s JSON resources for a Vimana domain. """
+"""Construct the K8s JSON resources for a Vimana domain."""
 
 from argparse import ArgumentParser
 from base64 import b64encode
@@ -8,7 +8,7 @@ from hashlib import sha224
 from json import dump, load
 from os import getenv
 from os.path import join as joinPath
-from subprocess import Popen, PIPE
+from subprocess import Popen
 from tempfile import NamedTemporaryFile
 
 # Name of the global Vimana gateway resource.
@@ -25,6 +25,7 @@ GRPC_CONTAINER_PORT = 80
 # `RUNFILES_DIR` is set when invoked via `bazel build`.
 # `..` is the parent for external repo data dependencies when invoked via `bazel run`.
 TLS_GENERATE_PATH = joinPath(getenv('RUNFILES_DIR', '..'), 'rules_k8s+', 'tls-generate')
+
 
 def bootstrap(
     domains: dict[str, object],
@@ -85,68 +86,72 @@ def bootstrap(
             k8sSecretName = deriveName(hostname, 'c')
             k8sListenerName = deriveName(hostname, 'l')
             # https://gateway-api.sigs.k8s.io/reference/spec/#listener
-            listeners.append({
-                'name': k8sListenerName,
-                'protocol': 'HTTPS',
-                'port': GRPC_GATEWAY_PORT,
-                'hostname': hostname,
-                'tls': {
-                    'certificateRefs': [
-                        {
-                            'kind': 'Secret',
-                            'name': k8sSecretName,
-                        },
-                    ],
-                },
-                # All internal routing occurs with gRPC.
-                # JSON transcoding can be achieved by EnvoyFilter objects.
-                'allowedRoutes': {
-                    'kinds': [
-                        {'kind': 'GRPCRoute'}
-                    ],
-                },
-            })
+            listeners.append(
+                {
+                    'name': k8sListenerName,
+                    'protocol': 'HTTPS',
+                    'port': GRPC_GATEWAY_PORT,
+                    'hostname': hostname,
+                    'tls': {
+                        'certificateRefs': [
+                            {
+                                'kind': 'Secret',
+                                'name': k8sSecretName,
+                            },
+                        ],
+                    },
+                    # All internal routing occurs with gRPC.
+                    # JSON transcoding can be achieved by EnvoyFilter objects.
+                    'allowedRoutes': {
+                        'kinds': [{'kind': 'GRPCRoute'}],
+                    },
+                }
+            )
             resources.append(makeTlsSecret(k8sSecretName, hostname))
 
         # List of `GRPCRouteRule` for the domain (one per service; populated later).
         grpcRouteRules = []
         # One route per domain, configured for all the domain's hostnames.
         # https://gateway-api.sigs.k8s.io/reference/spec/#grpcroute
-        resources.append({
-            'kind': 'GRPCRoute',
-            'apiVersion': 'gateway.networking.k8s.io/v1',
-            'metadata': {
-                'name': domainId,
-                'labels': {
-                    'vimana.host/domain': domainId,
+        resources.append(
+            {
+                'kind': 'GRPCRoute',
+                'apiVersion': 'gateway.networking.k8s.io/v1',
+                'metadata': {
+                    'name': domainId,
+                    'labels': {
+                        'vimana.host/domain': domainId,
+                    },
                 },
-            },
-            'spec': {
-                # All routes are parented by the global gateway.
-                'parentRefs': [
-                    {'name': VIMANA_GATEWAY_NAME},
-                ],
-                # One hostname for the canonical domain and one for each alias.
-                'hostnames': list(hostnames),
-                'rules': grpcRouteRules,
-            },
-        })
+                'spec': {
+                    # All routes are parented by the global gateway.
+                    'parentRefs': [
+                        {'name': VIMANA_GATEWAY_NAME},
+                    ],
+                    # One hostname for the canonical domain and one for each alias.
+                    'hostnames': list(hostnames),
+                    'rules': grpcRouteRules,
+                },
+            }
+        )
 
         for serviceName, service in domain['services'].items():
             # List of `GRPCBackendRef` for the service (one per component; populated later).
             grpcBackendRefs = []
             # https://gateway-api.sigs.k8s.io/reference/spec/#grpcrouterule
-            grpcRouteRules.append({
-                'matches': [
-                    {
-                        'method': {
-                            'service': serviceName,
-                            'type': 'Exact',
+            grpcRouteRules.append(
+                {
+                    'matches': [
+                        {
+                            'method': {
+                                'service': serviceName,
+                                'type': 'Exact',
+                            },
                         },
-                    },
-                ],
-                'backendRefs': grpcBackendRefs,
-            })
+                    ],
+                    'backendRefs': grpcBackendRefs,
+                }
+            )
 
             for componentVersion, component in service['components'].items():
                 # Derive valid K8s Service, Deployment, and Pod names
@@ -164,81 +169,92 @@ def bootstrap(
 
                 # It's called a 'Service' resource but it represents a Vimana component.
                 # https://kubespec.dev/v1/Service
-                resources.append({
-                    'kind': 'Service',
-                    'apiVersion': 'v1',
-                    'metadata': {
-                        'name': k8sServiceName,
-                        'labels': componentLabels,
-                    },
-                    'spec': {
-                        # Every component serves cleartext HTTP/2 (gRPC) traffic.
-                        # Public TLS termination and JSON transcoding happens at the Gateway,
-                        # and mTLS for mesh traffic is provided transparently by Ztunnel
-                        # (Istio ambient mode).
-                        'ports': [
-                            {
-                                'name': 'grpc',
-                                'port': GRPC_CONTAINER_PORT,
-                                'appProtocol': 'kubernetes.io/h2c',
-                            }
-                        ],
-                        'selector': componentLabels,
-                    },
-                })
+                resources.append(
+                    {
+                        'kind': 'Service',
+                        'apiVersion': 'v1',
+                        'metadata': {
+                            'name': k8sServiceName,
+                            'labels': componentLabels,
+                        },
+                        'spec': {
+                            # Every component serves cleartext HTTP/2 (gRPC) traffic.
+                            # Public TLS termination and JSON transcoding happens at the Gateway,
+                            # and mTLS for mesh traffic is provided transparently by Ztunnel
+                            # (Istio ambient mode).
+                            'ports': [
+                                {
+                                    'name': 'grpc',
+                                    'port': GRPC_CONTAINER_PORT,
+                                    'appProtocol': 'kubernetes.io/h2c',
+                                }
+                            ],
+                            'selector': componentLabels,
+                        },
+                    }
+                )
 
                 # One deployment resource per component as well.
                 # https://kubespec.dev/apps/v1/Deployment
-                resources.append({
-                    'kind': 'Deployment',
-                    'apiVersion': 'apps/v1',
-                    'metadata': {
-                        'name': k8sDeploymentName,
-                        'labels': componentLabels,
-                    },
-                    'spec': {
-                        'replicas': 1,
-                        'selector': {
-                            'matchLabels': componentLabels,
+                resources.append(
+                    {
+                        'kind': 'Deployment',
+                        'apiVersion': 'apps/v1',
+                        'metadata': {
+                            'name': k8sDeploymentName,
+                            'labels': componentLabels,
                         },
-                        'template': {
-                            'metadata': {
-                                'labels': componentLabels,
+                        'spec': {
+                            'replicas': 1,
+                            'selector': {
+                                'matchLabels': componentLabels,
                             },
-                            'spec': {
-                                'runtimeClassName': WORKD_RUNTIME_CLASS,
-                                'serviceAccountName': '',
-                                # Workd pods have a single container, called 'grpc'.
-                                'containers': [{
-                                    'name': 'grpc',
-                                    # TODO: Fix image pull logic.
-                                    #'image': '{}/{}/{}:{}'.format(
-                                    #    clusterRegistry,
-                                    #    domainId,
-                                    #    _hexify(serviceName),
-                                    #    componentVersion,
-                                    #),
-                                    'image': 'registry.hub.docker.com/library/hello-world',
-                                    # TODO: Determine testability implications of image pull policy.
-                                    # 'imagePullPolicy': 'Always',
-                                    'env': [],
-                                }],
+                            'template': {
+                                'metadata': {
+                                    'labels': componentLabels,
+                                },
+                                'spec': {
+                                    'runtimeClassName': WORKD_RUNTIME_CLASS,
+                                    'serviceAccountName': '',
+                                    # Workd pods have a single container, called 'grpc'.
+                                    'containers': [
+                                        {
+                                            'name': 'grpc',
+                                            # TODO: Fix image pull logic.
+                                            #'image': '{}/{}/{}:{}'.format(
+                                            #    clusterRegistry,
+                                            #    domainId,
+                                            #    _hexify(serviceName),
+                                            #    componentVersion,
+                                            # ),
+                                            'image': 'registry.hub.docker.com/library/hello-world',
+                                            # TODO: Determine testability implications of image pull policy.
+                                            # 'imagePullPolicy': 'Always',
+                                            'env': [],
+                                        },
+                                    ],
+                                },
                             },
                         },
                     },
-                })
+                )
 
                 # https://gateway-api.sigs.k8s.io/reference/spec/#grpcbackendref
-                grpcBackendRefs.append({
-                    'name': k8sServiceName,
-                    'kind': 'Service',
-                    'port': GRPC_CONTAINER_PORT,
-                    'weight': component['weight'],
-                })
+                grpcBackendRefs.append(
+                    {
+                        'name': k8sServiceName,
+                        'kind': 'Service',
+                        'port': GRPC_CONTAINER_PORT,
+                        'weight': component['weight'],
+                    }
+                )
 
     return resources
 
-def generateDomainTls(caKey: str, caCert: str, name: str, hostname: str) -> dict[str, object]:
+
+def generateDomainTls(
+    caKey: str, caCert: str, name: str, hostname: str
+) -> dict[str, object]:
     """
     Generate a TLS private key and certificate as a K8s Secret resource.
 
@@ -262,7 +278,9 @@ def generateDomainTls(caKey: str, caCert: str, name: str, hostname: str) -> dict
                 f'--root-cert={caCert}',
             ]
             if Popen(command).wait() != 0:
-                raise RuntimeError(f'Failed to generate TLS certificate for \'{hostname}\'.')
+                raise RuntimeError(
+                    f"Failed to generate TLS certificate for '{hostname}'."
+                )
             key = keyFile.read()
             cert = certFile.read()
 
@@ -279,6 +297,7 @@ def generateDomainTls(caKey: str, caCert: str, name: str, hostname: str) -> dict
             'tls.key': b64encode(key).decode(),
         },
     }
+
 
 def generateRootCa(pathPrefix: str) -> (str, str):
     """
@@ -301,6 +320,7 @@ def generateRootCa(pathPrefix: str) -> (str, str):
 
     return (keyPath, certPath)
 
+
 def deriveName(name: str, prefix: str) -> str:
     """
     Return a derivative name that's guaranteed to be a valid DNS label.
@@ -322,17 +342,18 @@ def deriveName(name: str, prefix: str) -> str:
     hasher.update(name.encode())
     return f'{prefix}-{hasher.hexdigest()}'
 
-description = '''
+
+description = """
 Generate a file containing the Kubernetes resources needed to bootstrap a Vimana cluster.
 Optionally generate a private key and self-signed certificate for a root CA
 used to sign all the TLS certificates used in the cluster.
-'''.strip()
+""".strip()
 
-epilog = '''
+epilog = """
 The main input to this program is a JSON-encoded configuration file
 describing the domains, services, and components to bootstrap.
 See `bootstrap.bzl` to understand how the configuration should look.
-'''.strip()
+""".strip()
 
 if __name__ == '__main__':
     parser = ArgumentParser(description=description, epilog=epilog)
@@ -348,8 +369,8 @@ if __name__ == '__main__':
         '--generate-ca',
         metavar='PATH',
         help='Generate a CA private key and self-signed certificate '
-            + 'to sign all domain TLS certificates, '
-            + 'stored at the given path with suffixes `.key` and `.cert` respectively',
+        + 'to sign all domain TLS certificates, '
+        + 'stored at the given path with suffixes `.key` and `.cert` respectively',
     )
     args = parser.parse_args()
 
@@ -366,5 +387,5 @@ if __name__ == '__main__':
 
     with open(args.resources, 'w') as file:
         for resource in resources:
-            dump(resource, file, indent = 2)
+            dump(resource, file, indent=2)
             file.write('\n')

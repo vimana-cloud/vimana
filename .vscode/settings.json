@@ -7,5 +7,10 @@
     },
     "bazel.buildifierExecutable": "@buildtools//:buildifier",
     "bazel.buildifierFixOnFormat": true,
-    "bazel.enableCodeLens": true
+    "bazel.enableCodeLens": true,
+    "ruff.configuration": {
+        "format": {
+            "quote-style": "single"
+        }
+    }
 }
