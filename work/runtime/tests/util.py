@@ -19,7 +19,7 @@ from re import Match
 from re import compile as compileRegex
 from shlex import quote
 from socket import AF_INET, SOCK_STREAM, socket
-from stat import S_IEXEC
+from stat import S_IEXEC, S_IREAD
 from subprocess import PIPE, Popen
 from sys import stderr
 from tempfile import NamedTemporaryFile
@@ -92,11 +92,11 @@ _timeout = timedelta(seconds=5)
 # This allows tests running in parallel to have independent IPAM systems.
 _ipamDatabase = NamedTemporaryFile()
 _ipamWrapper = NamedTemporaryFile(mode='w', delete_on_close=False)
-_ipamWrapper.write(f"""#!/usr/bin/bash
+_ipamWrapper.write(f"""#!/usr/bin/env bash
 exec {quote(_ipamPath)} {quote(_ipamDatabase.name)}
 """)
 _ipamWrapper.close()
-chmod(_ipamWrapper.name, S_IEXEC)
+chmod(_ipamWrapper.name, S_IEXEC | S_IREAD)
 
 
 class WorkdTestCase(TestCase):

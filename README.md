@@ -8,8 +8,9 @@ For general information about documentation, see [docs](docs/).
 ## One-Time Setup
 
 1. Clone this repository.
-2. (Mac only) Install [core utilities](https://formulae.brew.sh/formula/coreutils) and [Xcode](https://apps.apple.com/app/xcode/) and get your developer permission.
-3. Install [Bazelisk](https://github.com/bazelbuild/bazelisk).
+2. (Mac only) Install [core utilities] and [Xcode].
+   Make sure you have your [developer permission].
+3. Install [Bazelisk].
 4. To run integration tests:
    1. Install [Docker](https://docs.docker.com/) and enable the daemon.
    2. Run the container registry [reference implementation](https://hub.docker.com/_/registry)
@@ -17,10 +18,18 @@ For general information about documentation, see [docs](docs/).
       ```bash
       docker run --detach --restart=always --name=registry --publish=5000:5000 registry:latest
       ```
-5. (Optional) Install [`direnv`](https://direnv.net/)
+5. (Optional) Install [`direnv`]
    to automatically set up convenient [aliases to pre-built binaries](.bin/) &mdash;
    like `kubectl` and `wasmtime` &mdash;
    whenever you enter the repository directory in your shell.
+
+[core utilities]: https://formulae.brew.sh/formula/coreutils
+[Xcode]: https://apps.apple.com/app/xcode/
+[developer permission]: https://developer.apple.com/register/
+[Bazelisk]: https://github.com/bazelbuild/bazelisk
+[Docker]: https://docs.docker.com/
+[reference implementation]: https://hub.docker.com/_/registry
+[`direnv`]: https://direnv.net/
 
 ## Commands To Know
 
