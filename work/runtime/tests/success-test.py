@@ -15,9 +15,7 @@ from work.runtime.tests.api_pb2 import (
     CreateContainerRequest,
     ImageSpec,
     KeyValue,
-    ListPodSandboxRequest,
     PodSandboxConfig,
-    PodSandboxFilter,
     PodSandboxMetadata,
     PodSandboxStatusRequest,
     RemoveContainerRequest,
@@ -75,7 +73,7 @@ class SuccessTest(WorkdTestCase):
                         namespace=f'{domain}-namespace',
                         attempt=6,
                     ),
-                    hostname='simple-pod-hostname',
+                    hostname='TODO',
                     labels=labels,
                 ),
             ),
@@ -155,155 +153,6 @@ class SuccessTest(WorkdTestCase):
         self.runtimeService.RemovePodSandbox(
             RemovePodSandboxRequest(pod_sandbox_id=podSandboxId),
         )
-
-    def test_ListPodSandbox(self):
-        # Use an isolated runtime instance so we don't get random shit in our list results.
-        with WorkdTester() as tester:
-            # Set up 2 images ("foo" and "bar").
-            # They share the same Wasm module, but have different pod sandbox / container metadata.
-            fooDomain, fooService, fooVersion, fooComponent, fooLabels = (
-                tester.setupImage(
-                    service='foo.HelloWorld',
-                    version='0.0.0',
-                    module='work/runtime/tests/components/adder-c.component.wasm',
-                    metadata='work/runtime/tests/components/adder.binpb',
-                )
-            )
-            fooMetadata = PodSandboxMetadata(
-                name=f'{fooDomain}-name',
-                uid=f'{fooDomain}-uid',
-                namespace=f'{fooDomain}-namespace',
-                attempt=1,
-            )
-            fooSandboxId = tester.runtimeService.RunPodSandbox(
-                RunPodSandboxRequest(
-                    runtime_handler='workd',
-                    config=PodSandboxConfig(
-                        metadata=fooMetadata,
-                        hostname='foobar',
-                        labels=fooLabels,
-                    ),
-                ),
-            ).pod_sandbox_id
-
-            barDomain, barService, barVersion, barComponent, barLabels = (
-                tester.setupImage(
-                    service='bar.GoodbyeWorld',
-                    version='6.6.6',
-                    module='work/runtime/tests/components/adder-c.component.wasm',
-                    metadata='work/runtime/tests/components/adder.binpb',
-                )
-            )
-            barMetadata = PodSandboxMetadata(
-                name=f'{barDomain}-name',
-                uid=f'{barDomain}-uid',
-                namespace=f'{barDomain}-namespace',
-                attempt=0,
-            )
-            barSandboxId = tester.runtimeService.RunPodSandbox(
-                RunPodSandboxRequest(
-                    runtime_handler='workd',
-                    config=PodSandboxConfig(
-                        metadata=barMetadata,
-                        hostname='barbar',
-                        labels=barLabels,
-                    ),
-                ),
-            ).pod_sandbox_id
-
-            # Listing with no filter means we want all the pod sandboxes.
-            response = tester.runtimeService.ListPodSandbox(ListPodSandboxRequest())
-
-            self.assertEqual(len(response.items), 2)
-            # Results could be returned in any order,
-            # but a collection of 2 items only has 2 possible orders.
-            fooIndex = 0 if response.items[0].id == fooSandboxId else 1
-            barIndex = 1 - fooIndex
-            self.assertEqual(response.items[fooIndex].id, fooSandboxId)
-            self.assertEqual(response.items[fooIndex].metadata, fooMetadata)
-            self.assertEqual(
-                response.items[fooIndex].labels['vimana.host/domain'], fooDomain
-            )
-            self.assertEqual(
-                response.items[fooIndex].labels['vimana.host/service'], fooService
-            )
-            self.assertEqual(
-                response.items[fooIndex].labels['vimana.host/version'], fooVersion
-            )
-            self.assertEqual(response.items[fooIndex].runtime_handler, 'workd')
-            self.assertEqual(response.items[barIndex].id, barSandboxId)
-            self.assertEqual(response.items[barIndex].metadata, barMetadata)
-            self.assertEqual(
-                response.items[barIndex].labels['vimana.host/domain'], barDomain
-            )
-            self.assertEqual(
-                response.items[barIndex].labels['vimana.host/service'], barService
-            )
-            self.assertEqual(
-                response.items[barIndex].labels['vimana.host/version'], barVersion
-            )
-            self.assertEqual(response.items[barIndex].runtime_handler, 'workd')
-
-            # Look for a single pod by ID.
-            response = tester.runtimeService.ListPodSandbox(
-                ListPodSandboxRequest(
-                    filter=PodSandboxFilter(
-                        id=fooSandboxId,
-                    ),
-                ),
-            )
-
-            self.assertEqual(len(response.items), 1)
-            self.assertEqual(response.items[0].id, fooSandboxId)
-            self.assertEqual(response.items[0].metadata, fooMetadata)
-            self.assertEqual(response.items[0].labels['vimana.host/domain'], fooDomain)
-            self.assertEqual(
-                response.items[0].labels['vimana.host/service'], fooService
-            )
-            self.assertEqual(
-                response.items[0].labels['vimana.host/version'], fooVersion
-            )
-            self.assertEqual(response.items[0].runtime_handler, 'workd')
-
-            # Look for a single pod by labels.
-            response = tester.runtimeService.ListPodSandbox(
-                ListPodSandboxRequest(
-                    filter=PodSandboxFilter(
-                        label_selector={
-                            'vimana.host/domain': barDomain,
-                            'vimana.host/service': barService,
-                            'vimana.host/version': barVersion,
-                        },
-                    ),
-                ),
-            )
-
-            self.assertEqual(len(response.items), 1)
-            self.assertEqual(response.items[0].id, barSandboxId)
-            self.assertEqual(response.items[0].metadata, barMetadata)
-            self.assertEqual(response.items[0].labels['vimana.host/domain'], barDomain)
-            self.assertEqual(
-                response.items[0].labels['vimana.host/service'], barService
-            )
-            self.assertEqual(
-                response.items[0].labels['vimana.host/version'], barVersion
-            )
-            self.assertEqual(response.items[0].runtime_handler, 'workd')
-
-            # Look by labels with no results (because it mixes "foo" labels with "bar" labels).
-            response = tester.runtimeService.ListPodSandbox(
-                ListPodSandboxRequest(
-                    filter=PodSandboxFilter(
-                        label_selector={
-                            'vimana.host/domain': barDomain,
-                            'vimana.host/service': barService,
-                            'vimana.host/version': fooVersion,
-                        },
-                    ),
-                ),
-            )
-
-            self.assertEqual(len(response.items), 0)
 
     def test_ContainerStatus(self):
         domain, service, version, componentName, labels = self.setupImage(

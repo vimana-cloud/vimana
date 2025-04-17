@@ -1,9 +1,9 @@
 """IPAM CNI plugin emulator.
 
 This should generally act like the [`host-local`][1] plugin
-except that it takes a single command-line argument;
-the path to a SQLite3 database
-that's used to keep track of allocated IP addresses.
+except that it takes a single command-line argument:
+the path to a SQLite3 database that's dedicated to the current Bazel test
+and can be used to keep track of allocated IP addresses.
 That allows multiple test targets to run in parallel
 without interfering with each other's IPAM systems.
 
