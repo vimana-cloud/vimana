@@ -71,15 +71,16 @@ Here's the same state machine illustrated as a table:
 |      **∅**       |      ✔      |           |            |           |           |           |          |   |
 | **`Initiated`**  |             |     ✔     |     ✘      |           |     ✘     |     ✘     |    ✔     |   |
 |  **`Created`**   |             |     ↻     |     ✔      |           |     ✘     |     ✘     |    ✔     |   |
-|  **`Starting`**  |             |     ✘     |     ↻      |     ✔     |     ✔     |     ✘     |    ✔     |   |
-|  **`Running`**   |             |     ✘     |     ↻      |           |     ✔     |     ✘     |    ✔     |   |
+|  **`Starting`**  |             |     ↻     |     ↻      |     ✔     |     ✔     |     ✘     |    ✔     |   |
+|  **`Running`**   |             |     ↻     |     ↻      |           |     ✔     |     ✘     |    ✔     |   |
 |  **`Stopped`**   |             |     ✘     |     ✔      |           |     ↻     |     ✔     |    ✔     |   |
 |  **`Removed`**   |             |     ✔     |     ✘      |           |     ✘     |     ↻     |    ✔     |   |
 |   **`Killed`**   |             |     ✘     |     ✘      |           |     ✘     |     ✘     |    ↻     | ✔ |
 
 - ✔ represents a valid state transition.
 - ✘ represents an error.
-- ↻ indicates that idempotency is supported as long as all parameters are unchanged.
+- ↻ indicates that idempotency is supported (the call does not fail but changes nothing)
+  as long as all parameters are unchanged.
   Changing any parameter
   (*e.g.* invoking `CreateContainer` twice with different environment variables),
   would result in an error.

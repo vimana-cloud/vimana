@@ -45,15 +45,6 @@ const OCI_PREFIX: &str = "O:";
 /// Prefix used to differentiate Vimana pods / containers.
 const WORKD_PREFIX: &str = "W:";
 
-/// Pod states matching [`v1::ContainerState::ContainerUnknown`].
-const POD_STATES_CONTAINER_UNKNOWN: [PodState; 1] = [PodState::Initiated];
-/// Pod states matching [`v1::ContainerState::ContainerCreated`].
-const POD_STATES_CONTAINER_CREATED: [PodState; 2] = [PodState::Created, PodState::Starting];
-/// Pod states matching [`v1::ContainerState::ContainerRunning`].
-const POD_STATES_CONTAINER_RUNNING: [PodState; 1] = [PodState::Running];
-/// Pod states matching [`v1::ContainerState::ContainerExited`].
-const POD_STATES_CONTAINER_EXITED: [PodState; 3] =
-    [PodState::Stopped, PodState::Removed, PodState::Killed];
 /// All pod states for which a container "exists".
 const POD_STATES_CONTAINER_ALL: [PodState; 4] = [
     PodState::Created,
@@ -61,6 +52,15 @@ const POD_STATES_CONTAINER_ALL: [PodState; 4] = [
     PodState::Running,
     PodState::Stopped,
 ];
+/// Pod states matching [`v1::ContainerState::ContainerCreated`].
+const POD_STATES_CONTAINER_CREATED: [PodState; 2] = [PodState::Created, PodState::Starting];
+/// Pod states matching [`v1::ContainerState::ContainerRunning`].
+const POD_STATES_CONTAINER_RUNNING: [PodState; 1] = [PodState::Running];
+/// Pod states matching [`v1::ContainerState::ContainerExited`].
+const POD_STATES_CONTAINER_EXITED: [PodState; 3] =
+    [PodState::Stopped, PodState::Removed, PodState::Killed];
+/// Pod states matching [`v1::ContainerState::ContainerUnknown`].
+const POD_STATES_CONTAINER_UNKNOWN: [PodState; 0] = [];
 
 // These labels must be present on every pod and container using the Vimana handler:
 
@@ -1019,8 +1019,6 @@ impl VimanaCriService {
         let readiness = filter
             .state
             .map(|state| state.state == v1::PodSandboxState::SandboxReady as i32);
-        eprintln!("filter.state {:?}", filter.state);
-        eprintln!("readiness {:?}", readiness);
 
         // Filter ID, if present, can speed things up a lot.
         if filter.id.len() > 0 {
@@ -1141,7 +1139,7 @@ fn cri_pod_sandbox(name: &PodName, pod: &Pod) -> v1::PodSandbox {
         // All Workd containers use the same runtime.
         runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
         // Pod sandboxes are always ready (containers might not be).
-        state: v1::PodSandboxState::SandboxReady as i32,
+        state: pod_state_to_cri_pod_state(pod.state) as i32,
         // The rest are just cloned from the controller:
         metadata: Some(pod.pod_sandbox_metadata.clone()),
         created_at: pod.pod_created_at,
@@ -1159,7 +1157,7 @@ fn cri_container(name: &PodName, pod: &Pod) -> v1::Container {
         metadata: pod.container_metadata.clone(),
         image: None, // TODO
         image_ref: String::from("TODO"),
-        state: pod_state_to_cri_container_state(pod.state.clone()) as i32,
+        state: pod_state_to_cri_container_state(pod.state) as i32,
         created_at: pod.container_created_at,
         labels: pod.container_labels.clone(),
         annotations: pod.container_annotations.clone(),
@@ -1203,7 +1201,7 @@ fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
     v1::ContainerStatus {
         id: workd_prefix(name),
         metadata: pod.container_metadata.clone(),
-        state: pod_state_to_cri_container_state(pod.state.clone()) as i32,
+        state: pod_state_to_cri_container_state(pod.state) as i32,
         created_at: pod.container_created_at,
         started_at: pod.container_started_at,
         finished_at: pod.container_finished_at,

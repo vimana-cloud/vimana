@@ -288,54 +288,53 @@ impl WorkRuntime {
     ) -> Result<()> {
         let pods = self.pods.pin();
         match pods.compute(name.pod, |entry| match entry {
-            Some((_, pod)) => match pod.state {
-                PodState::Initiated | PodState::Removed => {
-                    // Make sure all the labels that begin with `vimana.host/`
-                    // are the same between the pod labels and container labels.
-                    //if let Some(error) =
-                    //    check_vimana_labels(labels, &pod.pod_labels, "extra-container-labels", name)
-                    //{
-                    //    Operation::Abort(Some(error))
-                    //} else if let Some(error) =
-                    //    check_vimana_labels(&pod.pod_labels, labels, "extra-pod-labels", name)
-                    //{
-                    //    Operation::Abort(Some(error))
-                    //} else {
-                    // The Vimana labels match. Transition to `Created`.
-                    let mut pod = pod.clone();
-                    pod.state = PodState::Created;
-                    pod.container_metadata = container_metadata.clone();
-                    pod.container_labels = labels.clone();
-                    pod.container_annotations = annotations.clone();
-                    pod.environment = environment.clone();
-                    pod.container_created_at = now();
-                    Operation::Insert(pod)
-                    //}
-                }
-                PodState::Created => {
-                    // Support idempotency if the parameters are exactly the same.
-                    if pod.container_metadata == *container_metadata
-                        && pod.container_labels == *labels
-                        && pod.container_annotations == *annotations
-                        && pod.environment == *environment
-                    {
-                        log_info!("create-container-idempotent", &name.component, pod.state);
-                        Operation::Abort(None)
-                    } else {
-                        // Cannot re-create the container with a different environment.
-                        Operation::Abort(Some(log_error_status!(
-                            "container-already-created",
-                            &name.component
-                        )(())))
+            Some((_, pod)) => {
+                match pod.state {
+                    PodState::Initiated | PodState::Removed => {
+                        // Make sure all the labels that begin with `vimana.host/`
+                        // are the same between the pod labels and container labels.
+                        //if let Some(error) =
+                        //    check_vimana_labels(labels, &pod.pod_labels, "extra-container-labels", name)
+                        //{
+                        //    Operation::Abort(Some(error))
+                        //} else if let Some(error) =
+                        //    check_vimana_labels(&pod.pod_labels, labels, "extra-pod-labels", name)
+                        //{
+                        //    Operation::Abort(Some(error))
+                        //} else {
+                        // The Vimana labels match. Transition to `Created`.
+                        let mut pod = pod.clone();
+                        pod.state = PodState::Created;
+                        pod.container_metadata = container_metadata.clone();
+                        pod.container_labels = labels.clone();
+                        pod.container_annotations = annotations.clone();
+                        pod.environment = environment.clone();
+                        pod.container_created_at = now();
+                        Operation::Insert(pod)
+                        //}
                     }
+                    PodState::Created | PodState::Starting | PodState::Running => {
+                        // Support idempotency if the parameters are exactly the same.
+                        if pod.container_metadata == *container_metadata
+                            && pod.container_labels == *labels
+                            && pod.container_annotations == *annotations
+                            && pod.environment == *environment
+                        {
+                            log_info!("create-container-idempotent", &name.component, pod.state);
+                            Operation::Abort(None)
+                        } else {
+                            // Cannot re-create the container with a different environment.
+                            Operation::Abort(Some(log_error_status!(
+                                "container-already-created",
+                                &name.component
+                            )(())))
+                        }
+                    }
+                    PodState::Stopped | PodState::Killed => Operation::Abort(Some(
+                        log_error_status!("create-container-bad-state", &name.component)(pod.state),
+                    )),
                 }
-                PodState::Starting | PodState::Running | PodState::Stopped | PodState::Killed => {
-                    Operation::Abort(Some(log_error_status!(
-                        "create-container-bad-state",
-                        &name.component
-                    )(pod.state)))
-                }
-            },
+            }
             None => Operation::Abort(Some(log_error_status!(
                 "create-container-not-found",
                 &name.component
@@ -830,7 +829,7 @@ impl WorkRuntime {
         F: Fn(&PodName, &Pod) -> T,
     {
         for (id, pod) in self.pods.pin().iter() {
-            Self::match_pod(*id, pod, labels, None, transform, results);
+            Self::match_pod(*id, pod, labels, readiness, transform, results);
         }
     }
 
@@ -872,7 +871,6 @@ impl WorkRuntime {
         }) && Self::match_labels(&pod.pod_labels, labels)
         {
             let name = PodName::new(pod.component_name.as_ref().clone(), pod_id);
-            eprintln!("matching: {name}");
             results.push(transform(&name, pod));
         }
     }

@@ -2,6 +2,8 @@
 
 from enum import Enum, auto
 from functools import partial
+from os import getenv
+from time import time_ns
 from unittest import main
 
 from work.runtime.tests.api_pb2 import (
@@ -29,6 +31,11 @@ from work.runtime.tests.api_pb2 import (
 )
 from work.runtime.tests.util import WorkdTestCase, hexUuid
 
+# The number of nanoseconds it takes for this test to time out.
+# Used for very rough upper / lower bounds when checking reasonableness of recent timestamps.
+# https://bazel.build/reference/test-encyclopedia#initial-conditions
+TEST_TIMEOUT_NANOSECONDS = int(getenv('TEST_TIMEOUT')) * 1000 * 1000 * 1000
+
 
 class Phase(Enum):
     """Each possible phase of the lifecycle of a pod / container pair,
@@ -46,6 +53,11 @@ class Phase(Enum):
 class ListTest(WorkdTestCase):
     @classmethod
     def setUpClass(cls):
+        """Create a bunch of pods in various phases of the lifecycle and with various labels.
+
+        6 pods are created with the same domain, service, and version (1 in each lifecycle phase).
+        1 pod is created with a different domain, service and version (in the `Created` phase).
+        """
         super().setUpClass()
 
         (
@@ -74,7 +86,15 @@ class ListTest(WorkdTestCase):
         )
 
         # Set up a pod / container in every possible state for the 'foo' labels.
-        setupFooPod = partial(cls.setupPod, cls.fooComponentName, cls.fooLabels)
+        cls.fooPodMetadata = randomPodMetadata()
+        cls.fooContainerMetadata = randomContainerMetadata()
+        setupFooPod = partial(
+            cls.setupPod,
+            cls.fooPodMetadata,
+            cls.fooContainerMetadata,
+            cls.fooComponentName,
+            cls.fooLabels,
+        )
         cls.initiatedFooId = setupFooPod(Phase.RunPodSandbox)
         cls.createdFooId = setupFooPod(Phase.CreateContainer)
         cls.runningFooId = setupFooPod(Phase.StartContainer)
@@ -83,16 +103,35 @@ class ListTest(WorkdTestCase):
         cls.killedFooId = setupFooPod(Phase.StopPodSandbox)
 
         # We only need one pod / container with the 'bar' labels.
-        setupBarPod = partial(cls.setupPod, cls.barComponentName, cls.barLabels)
+        cls.barPodMetadata = randomPodMetadata()
+        cls.barContainerMetadata = randomContainerMetadata()
+        setupBarPod = partial(
+            cls.setupPod,
+            cls.barPodMetadata,
+            cls.barContainerMetadata,
+            cls.barComponentName,
+            cls.barLabels,
+        )
         cls.createdBarId = setupBarPod(Phase.CreateContainer)
 
     @classmethod
-    def setupPod(cls, componentName: str, labels: dict[str, str], until: Phase) -> str:
+    def setupPod(
+        cls,
+        podMetadata: PodSandboxMetadata,
+        containerMetadata: ContainerMetadata,
+        componentName: str,
+        labels: dict[str, str],
+        until: Phase,
+    ) -> str:
+        """
+        Create a single pod with specified metadata,
+        in the lifecycle phase specified by `until`.
+        """
         podSandboxId = cls.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
                 runtime_handler='workd',
                 config=PodSandboxConfig(
-                    metadata=randomPodMetadata(),
+                    metadata=podMetadata,
                     hostname='foobar',
                     labels=labels,
                 ),
@@ -105,7 +144,7 @@ class ListTest(WorkdTestCase):
             CreateContainerRequest(
                 pod_sandbox_id=podSandboxId,
                 config=ContainerConfig(
-                    metadata=randomContainerMetadata(),
+                    metadata=containerMetadata,
                     image=ImageSpec(
                         image=componentName,
                         runtime_handler='workd',
@@ -144,37 +183,125 @@ class ListTest(WorkdTestCase):
         cls.deletePod(podSandboxId)
         raise ValueError(f'Unexpected phase: {until}')
 
+    def assertPodSandbox(
+        self,
+        podSandbox: PodSandbox,
+        metadata: PodSandboxMetadata,
+        state: PodSandboxState,
+        labels: dict[str, str],
+    ):
+        """Assert on every detail return by `ListPodSandbox`."""
+        self.assertEqual(podSandbox.metadata, metadata)
+        self.assertEqual(podSandbox.state, state)
+        now = time_ns()
+        self.assertTrue(
+            now - TEST_TIMEOUT_NANOSECONDS
+            < podSandbox.created_at
+            < now + TEST_TIMEOUT_NANOSECONDS
+        )
+        self.assertEqual(podSandbox.labels, labels)
+        self.assertEqual(podSandbox.annotations, {})
+        self.assertEqual(podSandbox.runtime_handler, 'workd')
+
+    def assertContainer(
+        self,
+        container: Container,
+        metadata: ContainerMetadata,
+        state: ContainerState,
+        labels: dict[str, str],
+    ):
+        """Assert on every detail return by `ListPodContainers`."""
+        self.assertEqual(container.metadata, metadata)
+        self.assertEqual(container.image, ImageSpec())
+        self.assertEqual(container.image_ref, 'TODO')
+        self.assertEqual(container.state, state)
+        now = time_ns()
+        self.assertTrue(
+            now - TEST_TIMEOUT_NANOSECONDS
+            < container.created_at
+            < now + TEST_TIMEOUT_NANOSECONDS
+        )
+        self.assertEqual(container.labels, labels)
+        self.assertEqual(container.annotations, {})
+        self.assertEqual(container.image_id, 'TODO')
+
     def test_ListPodSandbox_NoFilter(self):
         response = self.runtimeService.ListPodSandbox(ListPodSandboxRequest())
 
-        # TODO: Should this return 7 pods?
-        self.assertEqual(len(response.items), 6)
+        self.assertEqual(len(response.items), 7)
 
-        initiatedFooPod = findById(response.items, self.initiatedFooId)
-        createdFooPod = findById(response.items, self.createdFooId)
-        runningFooPod = findById(response.items, self.runningFooId)
-        stoppedFooPod = findById(response.items, self.stoppedFooId)
-        removedFooPod = findById(response.items, self.removedFooId)
-        # killedFooPod = findById(response.items, self.killedFooId)
-        createdBarPod = findById(response.items, self.createdBarId)
-
-        # TODO: Assert details.
+        self.assertPodSandbox(
+            findById(response.items, self.initiatedFooId),
+            self.fooPodMetadata,
+            PodSandboxState.SANDBOX_READY,
+            self.fooLabels,
+        )
+        self.assertPodSandbox(
+            findById(response.items, self.createdFooId),
+            self.fooPodMetadata,
+            PodSandboxState.SANDBOX_READY,
+            self.fooLabels,
+        )
+        self.assertPodSandbox(
+            findById(response.items, self.runningFooId),
+            self.fooPodMetadata,
+            PodSandboxState.SANDBOX_READY,
+            self.fooLabels,
+        )
+        self.assertPodSandbox(
+            findById(response.items, self.stoppedFooId),
+            self.fooPodMetadata,
+            PodSandboxState.SANDBOX_READY,
+            self.fooLabels,
+        )
+        self.assertPodSandbox(
+            findById(response.items, self.removedFooId),
+            self.fooPodMetadata,
+            PodSandboxState.SANDBOX_READY,
+            self.fooLabels,
+        )
+        self.assertPodSandbox(
+            findById(response.items, self.killedFooId),
+            self.fooPodMetadata,
+            PodSandboxState.SANDBOX_NOTREADY,
+            self.fooLabels,
+        )
+        self.assertPodSandbox(
+            findById(response.items, self.createdBarId),
+            self.barPodMetadata,
+            PodSandboxState.SANDBOX_READY,
+            self.barLabels,
+        )
 
     def test_ListContainers_NoFilter(self):
         response = self.runtimeService.ListContainers(ListContainersRequest())
 
-        # TODO: Should this return 4 containers?
-        self.assertEqual(len(response.containers), 7)
+        self.assertEqual(len(response.containers), 4)
 
-        initiatedContainer = findById(response.containers, self.initiatedFooId)
-        createdContainer = findById(response.containers, self.createdFooId)
-        runningContainer = findById(response.containers, self.runningFooId)
-        stoppedContainer = findById(response.containers, self.stoppedFooId)
-        removedContainer = findById(response.containers, self.removedFooId)
-        killedContainer = findById(response.containers, self.killedFooId)
-        createdBarPod = findById(response.containers, self.createdBarId)
-
-        # TODO: Assert details.
+        self.assertContainer(
+            findById(response.containers, self.createdFooId),
+            self.fooContainerMetadata,
+            ContainerState.CONTAINER_CREATED,
+            self.fooLabels,
+        )
+        self.assertContainer(
+            findById(response.containers, self.runningFooId),
+            self.fooContainerMetadata,
+            ContainerState.CONTAINER_RUNNING,
+            self.fooLabels,
+        )
+        self.assertContainer(
+            findById(response.containers, self.stoppedFooId),
+            self.fooContainerMetadata,
+            ContainerState.CONTAINER_EXITED,
+            self.fooLabels,
+        )
+        self.assertContainer(
+            findById(response.containers, self.createdBarId),
+            self.barContainerMetadata,
+            ContainerState.CONTAINER_CREATED,
+            self.barLabels,
+        )
 
     def test_ListPodSandbox_FilterById(self):
         response = self.runtimeService.ListPodSandbox(
@@ -218,9 +345,8 @@ class ListTest(WorkdTestCase):
             )
         )
 
-        # TODO: Should this return 1 pod?
-        self.assertEqual(len(response.items), 0)
-        # findById(response.items, self.killedFooId)
+        self.assertEqual(len(response.items), 1)
+        findById(response.items, self.killedFooId)
 
     def test_ListContainers_FilterByStateCreated(self):
         response = self.runtimeService.ListContainers(
@@ -270,8 +396,7 @@ class ListTest(WorkdTestCase):
             )
         )
 
-        # TODO: Should this return 0 pods?
-        self.assertEqual(len(response.containers), 1)
+        self.assertEqual(len(response.containers), 0)
 
     def test_ListPodSandbox_FilterByLabels(self):
         response = self.runtimeService.ListPodSandbox(
@@ -286,14 +411,13 @@ class ListTest(WorkdTestCase):
             )
         )
 
-        # TODO: Should this return 6 pods?
-        self.assertEqual(len(response.items), 5)
+        self.assertEqual(len(response.items), 6)
         findById(response.items, self.initiatedFooId)
         findById(response.items, self.createdFooId)
         findById(response.items, self.runningFooId)
         findById(response.items, self.stoppedFooId)
         findById(response.items, self.removedFooId)
-        # findById(response.items, self.killedFooId)
+        findById(response.items, self.killedFooId)
 
     def test_ListContainers_FilterByLabels(self):
         response = self.runtimeService.ListContainers(
