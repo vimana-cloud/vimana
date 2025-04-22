@@ -32,6 +32,7 @@ go_library(
     deps = [
         ":domains-proto-go",
         "@io_k8s_client_go//kubernetes",
+        "@org_uber_go_zap//:zap",
     ],
 )
 
@@ -48,6 +49,25 @@ go_proto_library(
 proto_library(
     name = "domains-proto",
     srcs = ["domains.proto"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@googleapis//google/api:annotations_proto",
+    ],
+)
+
+go_proto_library(
+    name = "services-proto-go",
+    compilers = ["@rules_go//proto:go_grpc"],
+    importpath = "api.vimana.host/v1/services",
+    protos = [":services-proto"],
+    deps = [
+        "@googleapis//google/api:annotations_go_proto",
+    ],
+)
+
+proto_library(
+    name = "services-proto",
+    srcs = ["services.proto"],
     visibility = ["//visibility:public"],
     deps = [
         "@googleapis//google/api:annotations_proto",
