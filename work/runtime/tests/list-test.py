@@ -95,12 +95,20 @@ class ListTest(WorkdTestCase):
             cls.fooComponentName,
             cls.fooLabels,
         )
-        cls.initiatedFooId = setupFooPod(Phase.RunPodSandbox)
-        cls.createdFooId = setupFooPod(Phase.CreateContainer)
-        cls.runningFooId = setupFooPod(Phase.StartContainer)
-        cls.stoppedFooId = setupFooPod(Phase.StopContainer)
-        cls.removedFooId = setupFooPod(Phase.RemoveContainer)
-        cls.killedFooId = setupFooPod(Phase.StopPodSandbox)
+        cls.initiatedFooPodId, _ = setupFooPod(Phase.RunPodSandbox)
+        cls.createdFooPodId, cls.createdFooContainerId = setupFooPod(
+            Phase.CreateContainer
+        )
+        cls.runningFooPodId, cls.runningFooContainerId = setupFooPod(
+            Phase.StartContainer
+        )
+        cls.stoppedFooPodId, cls.stoppedFooContainerId = setupFooPod(
+            Phase.StopContainer
+        )
+        cls.removedFooPodId, cls.removedFooContainerId = setupFooPod(
+            Phase.RemoveContainer
+        )
+        cls.killedFooPodId, cls.killedFooContainerId = setupFooPod(Phase.StopPodSandbox)
 
         # We only need one pod / container with the 'bar' labels.
         cls.barPodMetadata = randomPodMetadata()
@@ -112,7 +120,9 @@ class ListTest(WorkdTestCase):
             cls.barComponentName,
             cls.barLabels,
         )
-        cls.createdBarId = setupBarPod(Phase.CreateContainer)
+        cls.createdBarPodId, cls.createdBarContainerId = setupBarPod(
+            Phase.CreateContainer
+        )
 
     @classmethod
     def setupPod(
@@ -122,10 +132,12 @@ class ListTest(WorkdTestCase):
         componentName: str,
         labels: dict[str, str],
         until: Phase,
-    ) -> str:
+    ) -> tuple[str, str]:
         """
         Create a single pod with specified metadata,
         in the lifecycle phase specified by `until`.
+
+        Return the pod sandbox ID and container ID (in that order).
         """
         podSandboxId = cls.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
@@ -138,9 +150,9 @@ class ListTest(WorkdTestCase):
             ),
         ).pod_sandbox_id
         if until == Phase.RunPodSandbox:
-            return podSandboxId
+            return podSandboxId, None
 
-        cls.runtimeService.CreateContainer(
+        containerId = cls.runtimeService.CreateContainer(
             CreateContainerRequest(
                 pod_sandbox_id=podSandboxId,
                 config=ContainerConfig(
@@ -149,33 +161,33 @@ class ListTest(WorkdTestCase):
                     labels=labels,
                 ),
             ),
-        )
+        ).container_id
         if until == Phase.CreateContainer:
-            return podSandboxId
+            return podSandboxId, containerId
 
         cls.runtimeService.StartContainer(
-            StartContainerRequest(container_id=podSandboxId),
+            StartContainerRequest(container_id=containerId),
         )
         if until == Phase.StartContainer:
-            return podSandboxId
+            return podSandboxId, containerId
 
         cls.runtimeService.StopContainer(
-            StopContainerRequest(container_id=podSandboxId),
+            StopContainerRequest(container_id=containerId),
         )
         if until == Phase.StopContainer:
-            return podSandboxId
+            return podSandboxId, containerId
 
         cls.runtimeService.RemoveContainer(
-            RemoveContainerRequest(container_id=podSandboxId),
+            RemoveContainerRequest(container_id=containerId),
         )
         if until == Phase.RemoveContainer:
-            return podSandboxId
+            return podSandboxId, containerId
 
         cls.runtimeService.StopPodSandbox(
             StopPodSandboxRequest(pod_sandbox_id=podSandboxId),
         )
         if until == Phase.StopPodSandbox:
-            return podSandboxId
+            return podSandboxId, containerId
 
         cls.deletePod(podSandboxId)
         raise ValueError(f'Unexpected phase: {until}')
@@ -229,43 +241,43 @@ class ListTest(WorkdTestCase):
         self.assertEqual(len(response.items), 7)
 
         self.assertPodSandbox(
-            findById(response.items, self.initiatedFooId),
+            findById(response.items, self.initiatedFooPodId),
             self.fooPodMetadata,
             PodSandboxState.SANDBOX_READY,
             self.fooLabels,
         )
         self.assertPodSandbox(
-            findById(response.items, self.createdFooId),
+            findById(response.items, self.createdFooPodId),
             self.fooPodMetadata,
             PodSandboxState.SANDBOX_READY,
             self.fooLabels,
         )
         self.assertPodSandbox(
-            findById(response.items, self.runningFooId),
+            findById(response.items, self.runningFooPodId),
             self.fooPodMetadata,
             PodSandboxState.SANDBOX_READY,
             self.fooLabels,
         )
         self.assertPodSandbox(
-            findById(response.items, self.stoppedFooId),
+            findById(response.items, self.stoppedFooPodId),
             self.fooPodMetadata,
             PodSandboxState.SANDBOX_READY,
             self.fooLabels,
         )
         self.assertPodSandbox(
-            findById(response.items, self.removedFooId),
+            findById(response.items, self.removedFooPodId),
             self.fooPodMetadata,
             PodSandboxState.SANDBOX_READY,
             self.fooLabels,
         )
         self.assertPodSandbox(
-            findById(response.items, self.killedFooId),
+            findById(response.items, self.killedFooPodId),
             self.fooPodMetadata,
             PodSandboxState.SANDBOX_NOTREADY,
             self.fooLabels,
         )
         self.assertPodSandbox(
-            findById(response.items, self.createdBarId),
+            findById(response.items, self.createdBarPodId),
             self.barPodMetadata,
             PodSandboxState.SANDBOX_READY,
             self.barLabels,
@@ -277,28 +289,28 @@ class ListTest(WorkdTestCase):
         self.assertEqual(len(response.containers), 4)
 
         self.assertContainer(
-            findById(response.containers, self.createdFooId),
+            findById(response.containers, self.createdFooContainerId),
             self.fooComponentName,
             self.fooContainerMetadata,
             ContainerState.CONTAINER_CREATED,
             self.fooLabels,
         )
         self.assertContainer(
-            findById(response.containers, self.runningFooId),
+            findById(response.containers, self.runningFooContainerId),
             self.fooComponentName,
             self.fooContainerMetadata,
             ContainerState.CONTAINER_RUNNING,
             self.fooLabels,
         )
         self.assertContainer(
-            findById(response.containers, self.stoppedFooId),
+            findById(response.containers, self.stoppedFooContainerId),
             self.fooComponentName,
             self.fooContainerMetadata,
             ContainerState.CONTAINER_EXITED,
             self.fooLabels,
         )
         self.assertContainer(
-            findById(response.containers, self.createdBarId),
+            findById(response.containers, self.createdBarContainerId),
             self.barComponentName,
             self.barContainerMetadata,
             ContainerState.CONTAINER_CREATED,
@@ -307,19 +319,19 @@ class ListTest(WorkdTestCase):
 
     def test_ListPodSandbox_FilterById(self):
         response = self.runtimeService.ListPodSandbox(
-            ListPodSandboxRequest(filter=PodSandboxFilter(id=self.removedFooId))
+            ListPodSandboxRequest(filter=PodSandboxFilter(id=self.removedFooPodId))
         )
 
         self.assertEqual(len(response.items), 1)
-        findById(response.items, self.removedFooId)
+        findById(response.items, self.removedFooPodId)
 
     def test_ListContainers_FilterById(self):
         response = self.runtimeService.ListContainers(
-            ListContainersRequest(filter=ContainerFilter(id=self.runningFooId))
+            ListContainersRequest(filter=ContainerFilter(id=self.runningFooContainerId))
         )
 
         self.assertEqual(len(response.containers), 1)
-        findById(response.containers, self.runningFooId)
+        findById(response.containers, self.runningFooContainerId)
 
     def test_ListPodSandbox_FilterByStateReady(self):
         response = self.runtimeService.ListPodSandbox(
@@ -331,12 +343,12 @@ class ListTest(WorkdTestCase):
         )
 
         self.assertEqual(len(response.items), 6)
-        findById(response.items, self.initiatedFooId)
-        findById(response.items, self.createdFooId)
-        findById(response.items, self.runningFooId)
-        findById(response.items, self.stoppedFooId)
-        findById(response.items, self.removedFooId)
-        findById(response.items, self.createdBarId)
+        findById(response.items, self.initiatedFooPodId)
+        findById(response.items, self.createdFooPodId)
+        findById(response.items, self.runningFooPodId)
+        findById(response.items, self.stoppedFooPodId)
+        findById(response.items, self.removedFooPodId)
+        findById(response.items, self.createdBarPodId)
 
     def test_ListPodSandbox_FilterByStateNotready(self):
         response = self.runtimeService.ListPodSandbox(
@@ -348,7 +360,7 @@ class ListTest(WorkdTestCase):
         )
 
         self.assertEqual(len(response.items), 1)
-        findById(response.items, self.killedFooId)
+        findById(response.items, self.killedFooPodId)
 
     def test_ListContainers_FilterByStateCreated(self):
         response = self.runtimeService.ListContainers(
@@ -360,8 +372,8 @@ class ListTest(WorkdTestCase):
         )
 
         self.assertEqual(len(response.containers), 2)
-        findById(response.containers, self.createdFooId)
-        findById(response.containers, self.createdBarId)
+        findById(response.containers, self.createdFooContainerId)
+        findById(response.containers, self.createdBarContainerId)
 
     def test_ListContainers_FilterByStateRunning(self):
         response = self.runtimeService.ListContainers(
@@ -373,7 +385,7 @@ class ListTest(WorkdTestCase):
         )
 
         self.assertEqual(len(response.containers), 1)
-        findById(response.containers, self.runningFooId)
+        findById(response.containers, self.runningFooContainerId)
 
     def test_ListContainers_FilterByStateExited(self):
         response = self.runtimeService.ListContainers(
@@ -385,9 +397,9 @@ class ListTest(WorkdTestCase):
         )
 
         self.assertEqual(len(response.containers), 3)
-        findById(response.containers, self.stoppedFooId)
-        findById(response.containers, self.removedFooId)
-        findById(response.containers, self.killedFooId)
+        findById(response.containers, self.stoppedFooContainerId)
+        findById(response.containers, self.removedFooContainerId)
+        findById(response.containers, self.killedFooContainerId)
 
     def test_ListContainers_FilterByStateUnknown(self):
         response = self.runtimeService.ListContainers(
@@ -414,12 +426,12 @@ class ListTest(WorkdTestCase):
         )
 
         self.assertEqual(len(response.items), 6)
-        findById(response.items, self.initiatedFooId)
-        findById(response.items, self.createdFooId)
-        findById(response.items, self.runningFooId)
-        findById(response.items, self.stoppedFooId)
-        findById(response.items, self.removedFooId)
-        findById(response.items, self.killedFooId)
+        findById(response.items, self.initiatedFooPodId)
+        findById(response.items, self.createdFooPodId)
+        findById(response.items, self.runningFooPodId)
+        findById(response.items, self.stoppedFooPodId)
+        findById(response.items, self.removedFooPodId)
+        findById(response.items, self.killedFooPodId)
 
     def test_ListContainers_FilterByLabels(self):
         response = self.runtimeService.ListContainers(
@@ -435,7 +447,7 @@ class ListTest(WorkdTestCase):
         )
 
         self.assertEqual(len(response.containers), 1)
-        findById(response.containers, self.createdBarId)
+        findById(response.containers, self.createdBarContainerId)
 
     def test_ListPodSandbox_FilterByStateAndLabels(self):
         response = self.runtimeService.ListPodSandbox(
@@ -448,11 +460,11 @@ class ListTest(WorkdTestCase):
         )
 
         self.assertEqual(len(response.items), 5)
-        findById(response.items, self.initiatedFooId)
-        findById(response.items, self.createdFooId)
-        findById(response.items, self.runningFooId)
-        findById(response.items, self.stoppedFooId)
-        findById(response.items, self.removedFooId)
+        findById(response.items, self.initiatedFooPodId)
+        findById(response.items, self.createdFooPodId)
+        findById(response.items, self.runningFooPodId)
+        findById(response.items, self.stoppedFooPodId)
+        findById(response.items, self.removedFooPodId)
 
     def test_ListContainers_FilterByStateAndLabels(self):
         response = self.runtimeService.ListContainers(
@@ -465,7 +477,7 @@ class ListTest(WorkdTestCase):
         )
 
         self.assertEqual(len(response.containers), 1)
-        findById(response.containers, self.createdFooId)
+        findById(response.containers, self.createdFooContainerId)
 
 
 def findById(items: list[PodSandbox | Container], id: str) -> PodSandbox | Container:

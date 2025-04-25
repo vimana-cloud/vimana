@@ -38,6 +38,7 @@ k8s_cluster_test(
     setup = [
         ":adder-push",
     ],
+    tags = ["external"],
     test = ":walkthrough",
 )
 

@@ -28,7 +28,7 @@ from work.runtime.tests.api_pb2 import (
 )
 from work.runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
 from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
-from work.runtime.tests.util import WorkdTestCase, WorkdTester, ipHostName
+from work.runtime.tests.util import WorkdTestCase, ipHostName
 
 
 class SuccessTest(WorkdTestCase):
@@ -80,10 +80,10 @@ class SuccessTest(WorkdTestCase):
         )
 
         podSandboxId = response.pod_sandbox_id
-        expectedIdPrefix = f'W:{domain}:{service}@{version}#'
-        self.assertTrue(podSandboxId.startswith(expectedIdPrefix))
+        expectedPodPrefix = f'P:{domain}:{service}@{version}#'
+        self.assertTrue(podSandboxId.startswith(expectedPodPrefix))
         try:
-            int(podSandboxId[len(expectedIdPrefix) :])
+            int(podSandboxId[len(expectedPodPrefix) :])
         except ValueError:
             self.fail('Pod sandbox ID must end with a pod ID (integer)')
 
@@ -111,11 +111,13 @@ class SuccessTest(WorkdTestCase):
             ),
         )
 
-        # The pod should always have the same ID as its one container.
-        self.assertEqual(response.container_id, podSandboxId)
+        # The pod should always have the same ID as its one container (modulo the prefix).
+        containerId = response.container_id
+        self.assertTrue(containerId.startswith('C:'))
+        self.assertEqual(containerId[len('C:') :], podSandboxId[len('P:') :])
 
         self.runtimeService.StartContainer(
-            StartContainerRequest(container_id=podSandboxId),
+            StartContainerRequest(container_id=containerId),
         )
 
         # Finally, try exercising the data plane.
@@ -125,7 +127,7 @@ class SuccessTest(WorkdTestCase):
         self.assertEqual(response, AddFloatsResponse(result=2.3))
 
         self.runtimeService.StopContainer(
-            StopContainerRequest(container_id=podSandboxId, timeout=1),
+            StopContainerRequest(container_id=containerId, timeout=1),
         )
 
         try:
@@ -139,7 +141,7 @@ class SuccessTest(WorkdTestCase):
 
         # This is a no-op but we'll exercise it anyway.
         self.runtimeService.RemoveContainer(
-            RemoveContainerRequest(container_id=podSandboxId),
+            RemoveContainerRequest(container_id=containerId),
         )
 
         # TODO: Verify that the IP address is not yet freed.

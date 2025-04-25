@@ -42,8 +42,10 @@ const CONTAINER_RUNTIME_API_VERSION: &str = "v1";
 
 /// Prefix used to differentiate OCI pods / containers.
 const OCI_PREFIX: &str = "O:";
-/// Prefix used to differentiate Vimana pods / containers.
-const WORKD_PREFIX: &str = "W:";
+/// Prefix used to differentiate Vimana pods.
+const POD_PREFIX: &str = "P:";
+/// Prefix used to differentiate Vimana containers.
+const CONTAINER_PREFIX: &str = "C:";
 
 /// All pod states for which a container "exists".
 const POD_STATES_CONTAINER_ALL: [PodState; 4] = [
@@ -92,10 +94,23 @@ macro_rules! intercept_oci_prefix {
             $id = String::from(&id_value[OCI_PREFIX.len()..]);
             return $downstream;
         }
-        // If it doesn't start with the OCI prefix, it must start with the workd prefix.
-        debug_assert!(id_value.starts_with(WORKD_PREFIX));
+        // If it doesn't start with the OCI prefix,
+        // it must start with one of the workd prefixes.
+        debug_assert!(id_value.starts_with(POD_PREFIX) || id_value.starts_with(CONTAINER_PREFIX));
         $id = id_value;
     };
+}
+
+#[inline(always)]
+fn parse_pod_prefixed_name(name: &str) -> Result<PodName> {
+    debug_assert!(name.starts_with(POD_PREFIX));
+    Name::parse(&name[POD_PREFIX.len()..]).pod()
+}
+
+#[inline(always)]
+fn parse_container_prefixed_name(name: &str) -> Result<PodName> {
+    debug_assert!(name.starts_with(CONTAINER_PREFIX));
+    Name::parse(&name[CONTAINER_PREFIX.len()..]).pod()
 }
 
 #[inline(always)]
@@ -104,8 +119,13 @@ fn oci_prefix<S: Display>(id: S) -> String {
 }
 
 #[inline(always)]
-fn workd_prefix<S: Display>(id: S) -> String {
-    format!("{WORKD_PREFIX}{id}")
+fn pod_prefix<S: Display>(id: S) -> String {
+    format!("{POD_PREFIX}{id}")
+}
+
+#[inline(always)]
+fn container_prefix<S: Display>(id: S) -> String {
+    format!("{CONTAINER_PREFIX}{id}")
 }
 
 /// Inserts the OCI prefix in front of the string that lives at the end of the ID path.
@@ -197,7 +217,7 @@ impl RuntimeService for VimanaCriService {
 
         Ok(Response::new(v1::RunPodSandboxResponse {
             // Prefix the ID so we can distinguish it from downstream OCI pod IDs.
-            pod_sandbox_id: workd_prefix(&name),
+            pod_sandbox_id: pod_prefix(&name),
         }))
     }
 
@@ -217,7 +237,7 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        let name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
+        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
         self.0.kill_pod(&name).await?;
 
         Ok(Response::new(v1::StopPodSandboxResponse {}))
@@ -239,7 +259,7 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        let name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
+        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
         self.0.delete_pod(&name)?;
 
         Ok(Response::new(v1::RemovePodSandboxResponse {}))
@@ -269,32 +289,27 @@ impl RuntimeService for VimanaCriService {
                 })
         });
 
-        if request.pod_sandbox_id.starts_with(WORKD_PREFIX) {
-            let name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
-            let mut pod_sandbox_status = Vec::with_capacity(1);
-            self.0.get_pod(
-                &name,
-                &Vec::default(),
-                None,
-                &cri_pod_sandbox_status,
-                &mut pod_sandbox_status,
-            );
-            let timestamp = now();
-            pod_sandbox_status.pop().map_or(
-                Err(Status::not_found("pod-sandbox-not-found")),
-                |(pod_status, container_statuses)| {
-                    Ok(Response::new(v1::PodSandboxStatusResponse {
-                        status: Some(pod_status),
-                        info: HashMap::default(),
-                        containers_statuses: container_statuses,
-                        timestamp,
-                    }))
-                },
-            )
-        } else {
-            // The pod sandbox ID lacked either the `W:` prefix or the `O:` prefix.
-            Err(Status::not_found("pod-sandbox-id-missing-prefix"))
-        }
+        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
+        let mut pod_sandbox_status = Vec::with_capacity(1);
+        self.0.get_pod(
+            &name,
+            &Vec::default(),
+            None,
+            &cri_pod_sandbox_status,
+            &mut pod_sandbox_status,
+        );
+        let timestamp = now();
+        pod_sandbox_status.pop().map_or(
+            Err(Status::not_found("pod-sandbox-not-found")),
+            |(pod_status, container_statuses)| {
+                Ok(Response::new(v1::PodSandboxStatusResponse {
+                    status: Some(pod_status),
+                    info: HashMap::default(),
+                    containers_statuses: container_statuses,
+                    timestamp,
+                }))
+            },
+        )
     }
 
     async fn list_pod_sandbox(
@@ -312,8 +327,8 @@ impl RuntimeService for VimanaCriService {
                 return self
                     .list_pod_sandbox_downstream(Request::new(request))
                     .await;
-            } else if filter.id.starts_with(WORKD_PREFIX) {
-                filter.id = String::from(&filter.id[WORKD_PREFIX.len()..]);
+            } else if filter.id.starts_with(POD_PREFIX) {
+                filter.id = String::from(&filter.id[POD_PREFIX.len()..]);
                 return self.list_pod_sandbox_upstream(request);
             }
         }
@@ -352,7 +367,7 @@ impl RuntimeService for VimanaCriService {
                 .map(map_oci_prefix!(container_id))
         });
 
-        let name = Name::parse(&request.pod_sandbox_id[WORKD_PREFIX.len()..]).pod()?;
+        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
         let config = request.config.unwrap_or_default();
         //let component = component_name_from_labels(&config.labels)?;
 
@@ -406,7 +421,7 @@ impl RuntimeService for VimanaCriService {
         )?;
 
         Ok(Response::new(v1::CreateContainerResponse {
-            container_id: workd_prefix(name),
+            container_id: container_prefix(name),
         }))
     }
 
@@ -426,7 +441,7 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        let name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
+        let name = parse_container_prefixed_name(&request.container_id)?;
         self.0.start_container(&name).await?;
 
         Ok(Response::new(v1::StartContainerResponse {}))
@@ -448,7 +463,7 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        let name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
+        let name = parse_container_prefixed_name(&request.container_id)?;
         let timeout = Duration::from_secs(request.timeout.try_into().unwrap_or(0));
         self.0.stop_container(&name, timeout).await?;
 
@@ -471,7 +486,7 @@ impl RuntimeService for VimanaCriService {
                 .await
         });
 
-        let name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
+        let name = parse_container_prefixed_name(&request.container_id)?;
         self.0.remove_container(&name)?;
 
         Ok(Response::new(v1::RemoveContainerResponse {}))
@@ -490,8 +505,8 @@ impl RuntimeService for VimanaCriService {
             if filter.id.starts_with(OCI_PREFIX) {
                 filter.id = String::from(&filter.id[OCI_PREFIX.len()..]);
                 return self.list_containers_downstream(Request::new(request)).await;
-            } else if filter.id.starts_with(WORKD_PREFIX) {
-                filter.id = String::from(&filter.id[WORKD_PREFIX.len()..]);
+            } else if filter.id.starts_with(CONTAINER_PREFIX) {
+                filter.id = String::from(&filter.id[CONTAINER_PREFIX.len()..]);
                 return self.list_containers_upstream(request);
             }
         }
@@ -530,28 +545,23 @@ impl RuntimeService for VimanaCriService {
                 .map(map_oci_prefix!(status, id))
         });
 
-        if request.container_id.starts_with(WORKD_PREFIX) {
-            let name = Name::parse(&request.container_id[WORKD_PREFIX.len()..]).pod()?;
-            let mut container_status = Vec::with_capacity(1);
-            self.0.get_container(
-                &name,
-                &Vec::default(),
-                &POD_STATES_CONTAINER_ALL,
-                &cri_container_status,
-                &mut container_status,
-            );
-            container_status
-                .pop()
-                .map_or(Err(Status::not_found("container-not-found")), |status| {
-                    Ok(Response::new(v1::ContainerStatusResponse {
-                        status: Some(status),
-                        info: HashMap::default(),
-                    }))
-                })
-        } else {
-            // The container ID lacked either the `W:` prefix or the `O:` prefix.
-            Err(Status::not_found("container-id-missing-prefix"))
-        }
+        let name = parse_container_prefixed_name(&request.container_id)?;
+        let mut container_status = Vec::with_capacity(1);
+        self.0.get_container(
+            &name,
+            &Vec::default(),
+            &POD_STATES_CONTAINER_ALL,
+            &cri_container_status,
+            &mut container_status,
+        );
+        container_status
+            .pop()
+            .map_or(Err(Status::not_found("container-not-found")), |status| {
+                Ok(Response::new(v1::ContainerStatusResponse {
+                    status: Some(status),
+                    info: HashMap::default(),
+                }))
+            })
     }
 
     async fn update_container_resources(
@@ -1135,7 +1145,7 @@ impl VimanaCriService {
 /// Convert the internal pod to a CRI-API [v1::PodSandbox] to return in `ListPodSandbox`.
 fn cri_pod_sandbox(name: &PodName, pod: &Pod) -> v1::PodSandbox {
     v1::PodSandbox {
-        id: workd_prefix(name),
+        id: pod_prefix(name),
         // All Workd containers use the same runtime.
         runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
         // Pod sandboxes are always ready (containers might not be).
@@ -1150,10 +1160,9 @@ fn cri_pod_sandbox(name: &PodName, pod: &Pod) -> v1::PodSandbox {
 
 /// Convert the internal pod to a CRI-API [v1::Container] to return in `ListContainers`.
 fn cri_container(name: &PodName, pod: &Pod) -> v1::Container {
-    let id = workd_prefix(name);
     v1::Container {
-        id: id.clone(),
-        pod_sandbox_id: id,
+        id: container_prefix(name),
+        pod_sandbox_id: pod_prefix(name),
         metadata: pod.container_metadata.clone(),
         image: Some(cri_image_spec(name)),
         image_ref: cri_image_ref(),
@@ -1174,7 +1183,7 @@ fn cri_pod_sandbox_status(
 ) -> (v1::PodSandboxStatus, Vec<v1::ContainerStatus>) {
     (
         v1::PodSandboxStatus {
-            id: workd_prefix(name),
+            id: pod_prefix(name),
             metadata: Some(pod.pod_sandbox_metadata.clone()),
             state: pod_state_to_cri_pod_state(pod.state) as i32,
             created_at: pod.pod_created_at,
@@ -1199,7 +1208,7 @@ fn cri_pod_sandbox_status(
 /// Convert the internal pod to a CRI-API [v1::ContainerStatus] to return in `ContainerStatus`.
 fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
     v1::ContainerStatus {
-        id: workd_prefix(name),
+        id: container_prefix(name),
         metadata: pod.container_metadata.clone(),
         state: pod_state_to_cri_container_state(pod.state) as i32,
         created_at: pod.container_created_at,
