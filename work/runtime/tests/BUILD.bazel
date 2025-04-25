@@ -4,24 +4,6 @@ load("@rules_python//python:py_library.bzl", "py_library")
 load("@rules_python//python:py_test.bzl", "py_test")
 
 py_test(
-    name = "list-test",
-    srcs = ["list-test.py"],
-    data = [
-        "//work/runtime/tests/components:adder-c",
-        "//work/runtime/tests/components:adder-metadata",
-    ],
-    tags = [
-        # https://github.com/bazelbuild/bazel/discussions/25543
-        "block-network",
-        "requires-fakeroot",
-    ],
-    deps = [
-        ":cri-api-py-pb2",
-        ":util",
-    ],
-)
-
-py_test(
     name = "success-test",
     srcs = ["success-test.py"],
     data = [
@@ -40,6 +22,24 @@ py_test(
         ":util",
         "//work/runtime/tests/components:adder-py-grpc",
         "//work/runtime/tests/components:adder-py-pb2",
+    ],
+)
+
+py_test(
+    name = "list-test",
+    srcs = ["list-test.py"],
+    data = [
+        "//work/runtime/tests/components:adder-c",
+        "//work/runtime/tests/components:adder-metadata",
+    ],
+    tags = [
+        # https://github.com/bazelbuild/bazel/discussions/25543
+        "block-network",
+        "requires-fakeroot",
+    ],
+    deps = [
+        ":cri-api-py-pb2",
+        ":util",
     ],
 )
 

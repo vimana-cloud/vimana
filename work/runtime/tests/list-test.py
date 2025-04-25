@@ -145,10 +145,7 @@ class ListTest(WorkdTestCase):
                 pod_sandbox_id=podSandboxId,
                 config=ContainerConfig(
                     metadata=containerMetadata,
-                    image=ImageSpec(
-                        image=componentName,
-                        runtime_handler='workd',
-                    ),
+                    image=imageSpec(componentName),
                     labels=labels,
                 ),
             ),
@@ -206,13 +203,14 @@ class ListTest(WorkdTestCase):
     def assertContainer(
         self,
         container: Container,
+        componentName: str,
         metadata: ContainerMetadata,
         state: ContainerState,
         labels: dict[str, str],
     ):
         """Assert on every detail return by `ListPodContainers`."""
         self.assertEqual(container.metadata, metadata)
-        self.assertEqual(container.image, ImageSpec())
+        self.assertEqual(container.image, imageSpec(componentName))
         self.assertEqual(container.image_ref, 'TODO')
         self.assertEqual(container.state, state)
         now = time_ns()
@@ -280,24 +278,28 @@ class ListTest(WorkdTestCase):
 
         self.assertContainer(
             findById(response.containers, self.createdFooId),
+            self.fooComponentName,
             self.fooContainerMetadata,
             ContainerState.CONTAINER_CREATED,
             self.fooLabels,
         )
         self.assertContainer(
             findById(response.containers, self.runningFooId),
+            self.fooComponentName,
             self.fooContainerMetadata,
             ContainerState.CONTAINER_RUNNING,
             self.fooLabels,
         )
         self.assertContainer(
             findById(response.containers, self.stoppedFooId),
+            self.fooComponentName,
             self.fooContainerMetadata,
             ContainerState.CONTAINER_EXITED,
             self.fooLabels,
         )
         self.assertContainer(
             findById(response.containers, self.createdBarId),
+            self.barComponentName,
             self.barContainerMetadata,
             ContainerState.CONTAINER_CREATED,
             self.barLabels,
@@ -486,6 +488,14 @@ def randomContainerMetadata():
     return ContainerMetadata(
         name=hexUuid(),
         attempt=1,
+    )
+
+
+def imageSpec(componentName: str) -> ImageSpec:
+    return ImageSpec(
+        image=componentName,
+        user_specified_image=componentName,
+        runtime_handler='workd',
     )
 
 

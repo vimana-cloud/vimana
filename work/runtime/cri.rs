@@ -1155,13 +1155,13 @@ fn cri_container(name: &PodName, pod: &Pod) -> v1::Container {
         id: id.clone(),
         pod_sandbox_id: id,
         metadata: pod.container_metadata.clone(),
-        image: None, // TODO
-        image_ref: String::from("TODO"),
+        image: Some(cri_image_spec(name)),
+        image_ref: cri_image_ref(),
         state: pod_state_to_cri_container_state(pod.state) as i32,
         created_at: pod.container_created_at,
         labels: pod.container_labels.clone(),
         annotations: pod.container_annotations.clone(),
-        image_id: String::from("TODO"),
+        image_id: cri_image_id(),
     }
 }
 
@@ -1206,25 +1206,18 @@ fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
         started_at: pod.container_started_at,
         finished_at: pod.container_finished_at,
         exit_code: 0, // TODO: Populate this in case a container fails at runtime.
-        image: Some(v1::ImageSpec {
-            image: name.component.to_string(),
-            // Pre-determined for all Vimana images:
-            annotations: HashMap::default(),
-            user_specified_image: String::default(),
-            runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
-        }),
-        image_ref: String::from("TODO"),
+        image: Some(cri_image_spec(name)),
+        image_ref: cri_image_ref(),
         reason: String::from("TODO"),
         message: String::from("TODO"),
         labels: pod.container_labels.clone(),
         annotations: pod.container_annotations.clone(),
         // Vimana containers never have volume mounts.
         mounts: Vec::default(),
-        // Logging happens entirely via OTLP, not files.
-        log_path: String::default(),
+        log_path: cri_container_log_path(),
         // TODO: Resource limiting information.
         resources: None,
-        image_id: String::from("TODO"),
+        image_id: cri_image_id(),
         // Wasm modules do not use user-based privileges.
         user: None,
     }
@@ -1268,6 +1261,30 @@ fn pod_state_to_cri_container_state(state: PodState) -> v1::ContainerState {
         PodState::Running => v1::ContainerState::ContainerRunning,
         PodState::Stopped => v1::ContainerState::ContainerExited,
     }
+}
+
+fn cri_image_spec(name: &PodName) -> v1::ImageSpec {
+    let component_name = name.component.to_string();
+    v1::ImageSpec {
+        // TODO: `image` should probably be some sort of digest.
+        image: component_name.clone(),
+        annotations: HashMap::default(),
+        user_specified_image: component_name,
+        runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
+    }
+}
+
+fn cri_image_ref() -> String {
+    String::from("TODO")
+}
+
+fn cri_image_id() -> String {
+    String::from("TODO")
+}
+
+fn cri_container_log_path() -> String {
+    // Logging happens entirely via OTLP, not files.
+    String::from("/dev/null")
 }
 
 fn component_name_from_labels(labels: &HashMap<String, String>) -> Result<ComponentName> {

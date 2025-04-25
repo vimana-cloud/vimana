@@ -190,6 +190,7 @@ class SuccessTest(WorkdTestCase):
         )
         imageSpec = ImageSpec(
             image=componentName,
+            user_specified_image=componentName,
             runtime_handler='workd',
         )
 
@@ -228,7 +229,7 @@ class SuccessTest(WorkdTestCase):
         self.assertEqual(response.status.labels, containerLabels)
         self.assertEqual(len(response.status.annotations), 0)
         self.assertEqual(len(response.status.mounts), 0)
-        self.assertEqual(response.status.log_path, '')
+        self.assertEqual(response.status.log_path, '/dev/null')
         self.assertEqual(response.status.resources, ContainerResources())
         self.assertEqual(response.status.image_id, 'TODO')
         self.assertEqual(response.status.user, ContainerUser())
