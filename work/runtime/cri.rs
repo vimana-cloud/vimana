@@ -80,11 +80,12 @@ pub struct VimanaCriService(pub Arc<WorkRuntime>);
 /// Type boilerplate for a typical Tonic response result.
 type TonicResult<T> = Result<Response<T>>;
 
-/// Return early with the result of the given block
-/// if the given ID (mutable `String`) starts with the OCI prefix.
-/// Otherwise, assume it starts with the work prefix and continue.
-/// Either way, update the ID in-place to remove the prefix.
-macro_rules! intercept_prefix {
+/// If the given ID (mutable `String`) starts with the OCI prefix,
+/// mutate it in-place to remove the prefix
+/// and return early with the result of the given block.
+/// Otherwise, assume it starts with a workd prefix and continue
+/// (without mutating the ID).
+macro_rules! intercept_oci_prefix {
     ( $id:expr, $downstream:block) => {
         let id_value = $id;
         if id_value.starts_with(OCI_PREFIX) {
@@ -207,7 +208,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("StopPodSandbox", &request);
 
-        intercept_prefix!(request.pod_sandbox_id, {
+        intercept_oci_prefix!(request.pod_sandbox_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -229,7 +230,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("RemovePodSandbox", &request);
 
-        intercept_prefix!(request.pod_sandbox_id, {
+        intercept_oci_prefix!(request.pod_sandbox_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -251,7 +252,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("PodSandboxStatus", &request);
 
-        intercept_prefix!(request.pod_sandbox_id, {
+        intercept_oci_prefix!(request.pod_sandbox_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -341,7 +342,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("CreateContainer", &request.pod_sandbox_id);
 
-        intercept_prefix!(request.pod_sandbox_id, {
+        intercept_oci_prefix!(request.pod_sandbox_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -405,8 +406,7 @@ impl RuntimeService for VimanaCriService {
         )?;
 
         Ok(Response::new(v1::CreateContainerResponse {
-            // Containers and their pod sandboxes share IDs.
-            container_id: request.pod_sandbox_id,
+            container_id: workd_prefix(name),
         }))
     }
 
@@ -417,7 +417,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("StartContainer", &request);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -439,7 +439,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("StopContainer", &request);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -462,7 +462,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("RemoveContainer", &request);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -520,7 +520,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("ContainerStatus", &request.container_id);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -561,7 +561,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("UpdateContainerResources", &request);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -580,7 +580,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("ReopenContainerLogRequest", &request);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -599,7 +599,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("ExecSync", &request);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -615,7 +615,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("Exec", &request);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -631,7 +631,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("Attach", &request);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -650,7 +650,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("PortForward", &request);
 
-        intercept_prefix!(request.pod_sandbox_id, {
+        intercept_oci_prefix!(request.pod_sandbox_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -669,7 +669,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("ContainerStats", &request);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -705,7 +705,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("PodSandboxStats", &request);
 
-        intercept_prefix!(request.pod_sandbox_id, {
+        intercept_oci_prefix!(request.pod_sandbox_id, {
             self.0
                 .oci_runtime
                 .lock()
@@ -809,7 +809,7 @@ impl RuntimeService for VimanaCriService {
         let mut request = r.into_inner();
         log_object("CheckpointContainer", &request);
 
-        intercept_prefix!(request.container_id, {
+        intercept_oci_prefix!(request.container_id, {
             self.0
                 .oci_runtime
                 .lock()
