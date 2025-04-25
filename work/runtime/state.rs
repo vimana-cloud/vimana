@@ -268,7 +268,10 @@ impl WorkRuntime {
 
         let pods = self.pods.pin();
         match pods.try_insert(pod_id, pod) {
-            Ok(_) => Ok(pod_name),
+            Ok(_) => {
+                log_info!("initialize-pod-success", &pod_name.component, pod_name.pod);
+                Ok(pod_name)
+            }
             Err(_) => {
                 // Impossible unless the number of pods overflows `usize`.
                 Err(Status::internal("pod-id-collision"))
