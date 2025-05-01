@@ -69,12 +69,12 @@ Here's the same state machine illustrated as a table:
 | To →<br />↓ From | `Initiated` | `Created` | `Starting` | `Running` | `Stopped` | `Removed` | `Killed` | ∅ |
 |:----------------:|:-----------:|:---------:|:----------:|:---------:|:---------:|:---------:|:--------:|:-:|
 |      **∅**       |      ✔      |           |            |           |           |           |          |   |
-| **`Initiated`**  |             |     ✔     |     ✘      |           |     ✘     |     ✘     |    ✔     |   |
-|  **`Created`**   |             |     ↻     |     ✔      |           |     ✘     |     ✘     |    ✔     |   |
-|  **`Starting`**  |             |     ↻     |     ↻      |     ✔     |     ✔     |     ✘     |    ✔     |   |
-|  **`Running`**   |             |     ↻     |     ↻      |           |     ✔     |     ✘     |    ✔     |   |
-|  **`Stopped`**   |             |     ✘     |     ✔      |           |     ↻     |     ✔     |    ✔     |   |
-|  **`Removed`**   |             |     ✔     |     ✘      |           |     ✘     |     ↻     |    ✔     |   |
+| **`Initiated`**  |             |     ✔     |     ✘      |           |     ✘     |     ✘     |    ✔     | ✘ |
+|  **`Created`**   |             |     ↻     |     ✔      |           |     ✘     |     ✘     |    ✔     | ✘ |
+|  **`Starting`**  |             |     ↻     |     ↻      |     ✔     |     ✔     |     ✘     |    ✔     | ✘ |
+|  **`Running`**   |             |     ↻     |     ↻      |           |     ✔     |     ✘     |    ✔     | ✘ |
+|  **`Stopped`**   |             |     ✘     |     ✔      |           |     ↻     |     ✔     |    ✔     | ✘ |
+|  **`Removed`**   |             |     ✔     |     ✘      |           |     ✘     |     ↻     |    ✔     | ✘ |
 |   **`Killed`**   |             |     ✘     |     ✘      |           |     ✘     |     ✘     |    ↻     | ✔ |
 
 - ✔ represents a valid state transition.
