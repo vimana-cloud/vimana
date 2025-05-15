@@ -41,8 +41,7 @@ then
 fi
 pushd "$BUILD_WORKSPACE_DIRECTORY" > /dev/null
 
-# `$1` is relative to `bazel-bin`. Use `bazel info` to make an absolute path.
-buildozer="$(bazel info bazel-bin)/$1"
+buildozer="$1"
 
 # The following creates a Buildozer command file to run a batch of commands together,
 # storing the contents in a variable.
