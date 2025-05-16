@@ -24,12 +24,29 @@
         {
             "label": "bazel: Build Current File",
             "type": "shell",
-            "command": "./dev/build-current-file.sh",
+            "command": "./dev/current-file.sh",
             "args": [
+                "build",
                 "${relativeFile}"
             ],
             "group": {
                 "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "clear": true
+            }
+        },
+        {
+            "label": "bazel: Test Current File",
+            "type": "shell",
+            "command": "./dev/current-file.sh",
+            "args": [
+                "test",
+                "${relativeFile}"
+            ],
+            "group": {
+                "kind": "test",
                 "isDefault": true
             },
             "presentation": {
