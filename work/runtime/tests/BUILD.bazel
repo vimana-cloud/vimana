@@ -49,7 +49,7 @@ py_library(
     data = [
         ":ipam",
         "//bootstrap:push-image",
-        "//work/runtime:workd",
+        "//work/runtime",
     ],
     deps = [
         ":cri-api-py-grpc",

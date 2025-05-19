@@ -3,7 +3,8 @@ load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
 
 # The Workd runtime implements the K8s CRI.
 rust_binary(
-    name = "workd",
+    name = "runtime",
+    binary_name = "workd",
     srcs = [
         "containers.rs",
         "cri.rs",
