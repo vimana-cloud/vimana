@@ -46,7 +46,7 @@ pub(crate) struct WorkRuntime {
 
     /// Remote store from which to retrieve container images by ID,
     /// which can then be loaded into pods.
-    pod_store: PodInitializer,
+    pub(crate) pod_store: PodInitializer,
 
     /// IP address management system.
     ipam: Ipam,

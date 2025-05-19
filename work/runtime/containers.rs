@@ -14,12 +14,13 @@ use tokio::task::spawn;
 use wasmtime::component::Component;
 use wasmtime::Engine as WasmEngine;
 
-use error::{log_error_status, Result};
+use error::{log_error_status, log_info, Result};
 use metadata_proto::work::runtime::Metadata;
 use names::ComponentName;
 
 /// Client used to fetch and compile containers from a registry,
 /// caching compiled components and parsed container metadata locally.
+#[derive(Clone)]
 pub struct ContainerStore {
     /// Local in-memory cache of compiled/parsed containers.
     cache: Cache<ComponentName, Arc<Container>>,
@@ -46,21 +47,39 @@ pub struct Container {
 }
 
 impl ContainerStore {
-    pub fn new(registry: String, max_cache_capacity: u64, wasmtime: &WasmEngine) -> Self {
+    /// Return a new [store](ContainerStore)
+    /// that fetches Vimana container images (composed of a component and associated metadata)
+    /// from the given registry URL.
+    /// Components will be instantiated using the provided [`Engine`](WasmEngine).
+    /// Containers are cached locally in-memory
+    /// up to the limit specified by `max_cache_kibibytes`.
+    pub fn new(registry: String, max_cache_kibibytes: u64, wasmtime: &WasmEngine) -> Self {
         Self {
             cache: Cache::builder()
                 .weigher(|_, container: &Arc<Container>| container.kibibytes)
-                .max_capacity(max_cache_capacity)
+                .max_capacity(max_cache_kibibytes)
                 .build(),
             client: ContainerClient::new(registry, wasmtime),
         }
     }
 
+    /// Return a compiled component implementation and its metadata,
+    /// either copied from the local cache (if available),
+    /// or fetched from a remote repository (and used to update the local cache).
     pub async fn get(&self, name: &ComponentName) -> Result<Arc<Container>> {
         self.cache
             .try_get_with_by_ref(name, self.client.fetch(name))
             .await
             .map_err(|status| status.as_ref().clone())
+    }
+
+    /// Attempt to populate the cache with the container for the given component
+    /// in a background thread.
+    /// A subsequent call to `get`, if successful, should finish more quickly.
+    pub fn prefetch(&self, name: &ComponentName) {
+        let store = self.clone();
+        let name = name.clone();
+        spawn(async move { store.get(&name).await });
     }
 }
 
@@ -94,6 +113,8 @@ impl ContainerClient {
     }
 
     async fn fetch(&self, name: &ComponentName) -> Result<Arc<Container>> {
+        log_info!("fetching-container", name, ());
+
         // Any URL path for `1234567890abcdef1234567890abcdef:package.Service`
         // would begin with `/v2/1234567890abcdef1234567890abcdef/071636b6167656e235562767963656/`.
         let service_url = format!(
@@ -158,6 +179,7 @@ impl ContainerClient {
                 // Round up converting to kibibytes.
                 let kibibytes = ((total_size as f64) / 1024.0).ceil() as u32;
 
+                log_info!("fetched-container-success", name, ());
                 Ok(Arc::new(Container {
                     component,
                     metadata,

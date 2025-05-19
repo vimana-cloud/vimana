@@ -36,7 +36,7 @@ pub(crate) const GRPC_PORT: u16 = 80;
 /// Unlike regular asynchronous functions,
 /// returned futures are [`Shared`], so they can be polled by multiple threads,
 /// and work begins immediately without having to poll them.
-pub struct PodInitializer {
+pub(crate) struct PodInitializer {
     /// Means to fetch containers from an external registry.
     containers: Arc<ContainerStore>,
 }
@@ -44,18 +44,26 @@ pub struct PodInitializer {
 /// Pod initialization starts asynchronously during `RunPodSandbox`,
 /// then may be completed by another thread during `StartContainer`,
 /// so it must use a [`Shared`] future.
-pub type SharedResultFuture<T> = Shared<Pin<Box<dyn Future<Output = Result<T>> + Send>>>;
+pub(crate) type SharedResultFuture<T> = Shared<Pin<Box<dyn Future<Output = Result<T>> + Send>>>;
 
 impl PodInitializer {
-    pub fn new(registry: String, max_cache_capacity: u64, wasmtime: &WasmEngine) -> Self {
+    pub(crate) fn new(registry: String, max_cache_capacity: u64, wasmtime: &WasmEngine) -> Self {
         PodInitializer {
             containers: Arc::new(ContainerStore::new(registry, max_cache_capacity, wasmtime)),
         }
     }
 
+    /// Attempt to populate a cache with the container for the given component
+    /// in a background thread.
+    /// Subsequent attempts to initialize pods based on that container
+    /// should proceed more quickly.
+    pub(crate) fn prefetch_container(&self, name: &ComponentName) {
+        self.containers.prefetch(name);
+    }
+
     /// Initialize a new gRPC pod for the named component using a background task.
     /// A gRPC pod is represented by a Tonic [`Routes`] object that implements it.
-    pub fn grpc(
+    pub(crate) fn grpc(
         &self,
         wasmtime: &WasmEngine,
         name: Arc<ComponentName>,
@@ -175,7 +183,7 @@ const MAX_ENCODING_MESSAGE_SIZE: Option<usize> = Some(1024 * 1024);
 ///
 /// Reference-counted because it's cloned every the method's handling function is invoked.
 #[derive(Clone)]
-pub struct Codec(Arc<CodecInner>);
+pub(crate) struct Codec(Arc<CodecInner>);
 
 /// A message decoder (for requests) and an encoder (for responses).
 struct CodecInner {
@@ -209,7 +217,11 @@ struct MethodInner {
 }
 
 impl Codec {
-    pub fn new(decoder: &Field, encoder: &Field, component: Arc<ComponentName>) -> Result<Self> {
+    pub(crate) fn new(
+        decoder: &Field,
+        encoder: &Field,
+        component: Arc<ComponentName>,
+    ) -> Result<Self> {
         Ok(Codec(Arc::new(CodecInner {
             decoder: RequestDecoder::new(decoder, component.clone())?,
             encoder: ResponseEncoder::new(encoder, component)?,
