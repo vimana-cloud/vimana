@@ -16,7 +16,7 @@ use wasmtime::Engine as WasmEngine;
 
 use error::{log_error_status, log_info, Result};
 use metadata_proto::work::runtime::Metadata;
-use names::ComponentName;
+use names::{hexify_string, ComponentName};
 
 /// Client used to fetch and compile containers from a registry,
 /// caching compiled components and parsed container metadata locally.
@@ -123,7 +123,7 @@ impl ContainerClient {
             name.service.domain,
             // Repository namespace components must contain only lowercase letters and digits,
             // so hex-encode the service name.
-            hexify(&name.service.service),
+            hexify_string(&name.service.service),
         );
         // Pull the manifest:
         // https://specs.opencontainers.org/distribution-spec/#pulling-manifests.
@@ -247,23 +247,6 @@ impl ContainerClient {
             )))
         }
     }
-}
-
-const HEX_CHARS: &[u8] = b"0123456789abcdef";
-
-/// Hex-encode a string,
-/// returning a new string with equivalient data and double the length,
-/// using only the characters `[0-9a-f]`,
-/// nibble-wise little-endian (lower nibble comes first).
-fn hexify(string: &str) -> String {
-    let mut v = Vec::with_capacity(string.len() * 2);
-
-    for &byte in string.as_bytes().iter() {
-        v.push(HEX_CHARS[(byte & 0xf) as usize]);
-        v.push(HEX_CHARS[(byte >> 4) as usize]);
-    }
-
-    unsafe { String::from_utf8_unchecked(v) }
 }
 
 /// See [spec](https://specs.opencontainers.org/image-spec/manifest/#image-manifest).

@@ -38,6 +38,8 @@ const ASCII_ZERO_32: u8x32 = u8x32::splat(b'0');
 const ASCII_NINE_32: u8x32 = u8x32::splat(b'9');
 const ASCII_A_FROM_TEN_32: u8x32 = u8x32::splat(b'a' - 10);
 
+const HEX_CHARS: &[u8] = b"0123456789abcdef";
+
 pub type PodId = usize;
 
 /// Permissively [parses](Self::parse) a service / version name:
@@ -155,37 +157,8 @@ impl DomainUuid {
         if uuid.len() > 32 {
             return Err(Status::invalid_argument("domain-uuid-too-long"));
         }
-        let hex_bytes = u8x32::from_slice(uuid.as_bytes());
-
-        // Check that nothing is outside the range `[0-f]` or inside `[9-a]`.
-        if hex_bytes.simd_lt(ASCII_ZERO_32).any()
-            || hex_bytes.simd_gt(ASCII_F_32).any()
-            || (hex_bytes.simd_gt(ASCII_NINE_32) & hex_bytes.simd_lt(ASCII_A_32)).any()
-        {
-            return Err(Status::invalid_argument("domain-uuid-invalid-characters"));
-        }
-
-        // Convert to logical nibbles
-        // by subtracting ASCII 'a' from each byte that's greater than ASCII '9',
-        // and subtracting ASCII '0' from all other bytes.
-        let nibbles = hex_bytes
-            - hex_bytes
-                .simd_gt(ASCII_NINE_32)
-                .select(ASCII_A_FROM_TEN_32, ASCII_ZERO_32);
-
-        // Deinterleave the nibbles of each logical byte.
-        let lower_nibbles = simd_swizzle!(
-            nibbles,
-            [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
-        );
-        let upper_nibbles = simd_swizzle!(
-            nibbles,
-            [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
-        );
-
-        // Recombine the nibbles of each logical byte.
         Ok(Self {
-            uuid: lower_nibbles + (upper_nibbles * SIXTEEN_16),
+            uuid: unhexify(u8x32::from_slice(uuid.as_bytes()))?,
         })
     }
 
@@ -200,20 +173,7 @@ impl Display for DomainUuid {
     /// Format the domain UUID as a 32-character hex-encoded string.
     /// Inverse of [`DomainUuid::parse`].
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        let upper_nibbles = self.uuid / SIXTEEN_16;
-        let lower_nibbles = self.uuid % SIXTEEN_16;
-        let nibbles = simd_swizzle!(
-            upper_nibbles,
-            lower_nibbles,
-            [
-                16, 0, 17, 1, 18, 2, 19, 3, 20, 4, 21, 5, 22, 6, 23, 7, 24, 8, 25, 9, 26, 10, 27,
-                11, 28, 12, 29, 13, 30, 14, 31, 15,
-            ],
-        );
-        let hex_bytes = nibbles
-            + nibbles
-                .simd_gt(NINE_32)
-                .select(ASCII_A_FROM_TEN_32, ASCII_ZERO_32);
+        let hex_bytes = hexify(self.uuid);
         let array = hex_bytes.as_array();
         let uuid = unsafe { str::from_utf8_unchecked(array) };
         formatter.write_str(uuid)
@@ -364,6 +324,114 @@ fn is_valid_version(version: &str) -> bool {
         .unwrap();
     }
     version.len() < K8S_LABEL_VALUE_MAX_LENGTH && VERSION_RE.is_match(version)
+}
+
+#[inline(always)]
+/// Convert an array of sixteen arbitrary bytes
+/// to a nibblewise little-endian hex-encoded array of thirty-two bytes.
+/// This is the inverse of [unhexify].
+pub fn hexify(bytes: u8x16) -> u8x32 {
+    let upper_nibbles = bytes / SIXTEEN_16;
+    let lower_nibbles = bytes % SIXTEEN_16;
+    let nibbles = simd_swizzle!(
+        lower_nibbles,
+        upper_nibbles,
+        [
+            0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9, 25, 10, 26, 11, 27,
+            12, 28, 13, 29, 14, 30, 15, 31,
+        ],
+    );
+    nibbles
+        + nibbles
+            .simd_gt(NINE_32)
+            .select(ASCII_A_FROM_TEN_32, ASCII_ZERO_32)
+}
+
+#[inline(always)]
+/// Decode a nibblewise little-endian hex-encoded array of thirty-two bytes.
+/// This is the inverse of [hexify].
+pub fn unhexify(hex_bytes: u8x32) -> Result<u8x16> {
+    // Check that nothing is outside the range `[0-f]` or inside `[9-a]`.
+    if hex_bytes.simd_lt(ASCII_ZERO_32).any()
+        || hex_bytes.simd_gt(ASCII_F_32).any()
+        || (hex_bytes.simd_gt(ASCII_NINE_32) & hex_bytes.simd_lt(ASCII_A_32)).any()
+    {
+        return Err(Status::invalid_argument("unhexify-invalid-characters"));
+    }
+    // Convert to logical nibbles
+    // by subtracting ASCII 'a' from each byte that's greater than ASCII '9',
+    // and subtracting ASCII '0' from all other bytes.
+    let nibbles = hex_bytes
+        - hex_bytes
+            .simd_gt(ASCII_NINE_32)
+            .select(ASCII_A_FROM_TEN_32, ASCII_ZERO_32);
+    // Deinterleave the nibbles of each logical byte.
+    let lower_nibbles = simd_swizzle!(
+        nibbles,
+        [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
+    );
+    let upper_nibbles = simd_swizzle!(
+        nibbles,
+        [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
+    );
+    // Recombine the nibbles of each logical byte.
+    Ok(lower_nibbles + (upper_nibbles * SIXTEEN_16))
+}
+
+/// Hex-encode a string,
+/// returning a new string with equivalient data and double the length,
+/// using only the characters `[0-9a-f]`,
+/// nibblewise little-endian (lower nibble comes first).
+/// This is the inverse of [unhexify_string].
+pub fn hexify_string(string: &str) -> String {
+    let mut output = Vec::with_capacity(string.len() * 2);
+    let chunks = string.as_bytes().chunks_exact(16);
+    let remainder = chunks.remainder();
+
+    for chunk in chunks {
+        output.extend_from_slice(hexify(u8x16::from_slice(chunk)).as_array());
+    }
+    for byte in remainder {
+        output.push(HEX_CHARS[(byte & 0xf) as usize]);
+        output.push(HEX_CHARS[(byte >> 4) as usize]);
+    }
+
+    unsafe { String::from_utf8_unchecked(output) }
+}
+
+/// This is the inverse of [hexify_string].
+pub fn unhexify_string(hex_string: &str) -> Result<String> {
+    let hex_length = hex_string.len();
+    if hex_length % 2 != 0 {
+        return Err(Status::invalid_argument("odd-length-hex-string"));
+    }
+    let mut output = Vec::with_capacity(hex_length / 2);
+    let chunks = hex_string.as_bytes().chunks_exact(32);
+    let remainder = chunks.remainder().chunks_exact(2);
+
+    for chunk in chunks {
+        output.extend_from_slice(unhexify(u8x32::from_slice(chunk))?.as_array());
+    }
+    for byte in remainder {
+        output.push(unhexify_nibble(byte[0])? + (unhexify_nibble(byte[1])? << 4));
+    }
+
+    String::from_utf8(output).map_err(|_| Status::invalid_argument("unhexify-string-invalid-utf8"))
+}
+
+#[inline(always)]
+fn unhexify_nibble(hex_nibble: u8) -> Result<u8> {
+    if hex_nibble >= b'0' {
+        if hex_nibble <= b'9' {
+            return Ok(hex_nibble - b'0');
+        }
+        if hex_nibble >= b'a' && hex_nibble <= b'f' {
+            return Ok(hex_nibble - (b'a' - 10));
+        }
+    }
+    Err(Status::invalid_argument(
+        "unhexify-nibble-invalid-character",
+    ))
 }
 
 #[cfg(test)]
@@ -557,7 +625,69 @@ mod tests {
         assert!(domain_uuid.is_err());
         assert_eq!(
             domain_uuid.unwrap_err().message(),
-            "domain-uuid-invalid-characters"
+            "unhexify-invalid-characters"
+        );
+    }
+
+    #[test]
+    fn hexify_string_short() {
+        assert_eq!(hexify_string("hello"), "8656c6c6f6");
+    }
+
+    #[test]
+    fn hexify_string_long() {
+        assert_eq!(
+            hexify_string("this long string is more than sixteen characters 🙂"),
+            "4786963702c6f6e6760237472796e67602963702d6f6275602478616e602379687475656e60236861627163647562737020ff99928",
+        );
+    }
+
+    #[test]
+    fn unhexify_string_short() {
+        assert_eq!(unhexify_string("8656c6c6f6").unwrap(), "hello");
+    }
+
+    #[test]
+    fn unhexify_string_long() {
+        let hex = "4786963702c6f6e6760237472796e67602963702d6f6275602478616e602379687475656e60236861627163647562737020ff99928";
+
+        assert_eq!(
+            unhexify_string(hex).unwrap(),
+            "this long string is more than sixteen characters 🙂",
+        );
+    }
+
+    #[test]
+    fn unhexify_string_odd_length() {
+        assert_eq!(
+            unhexify_string("4786963").unwrap_err().message(),
+            "odd-length-hex-string",
+        );
+    }
+
+    #[test]
+    fn unhexify_string_non_hex() {
+        assert_eq!(
+            unhexify_string("nonhex").unwrap_err().message(),
+            "unhexify-nibble-invalid-character",
+        );
+    }
+
+    #[test]
+    fn unhexify_string_non_hex_long() {
+        assert_eq!(
+            unhexify_string("nonhexnonhexnonhexnonhexnonhexnonhexnonhexnonhex")
+                .unwrap_err()
+                .message(),
+            "unhexify-invalid-characters",
+        );
+    }
+
+    #[test]
+    fn unhexify_string_non_utf8() {
+        assert_eq!(
+            unhexify_string("c328").unwrap_err().message(),
+            "unhexify-string-invalid-utf8",
         );
     }
 }
