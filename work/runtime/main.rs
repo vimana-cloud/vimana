@@ -10,7 +10,9 @@
 #![feature(array_chunks)]
 
 mod containers;
-mod cri;
+mod cri {
+    pub(crate) mod runtime;
+}
 mod host;
 mod ipam;
 mod pods;
@@ -41,7 +43,7 @@ use api_proto::runtime::v1::image_service_client::ImageServiceClient;
 use api_proto::runtime::v1::image_service_server::ImageServiceServer;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
-use cri::{VimanaCriService, CONTAINER_RUNTIME_NAME, CONTAINER_RUNTIME_VERSION};
+use cri::runtime::{VimanaCriService, CONTAINER_RUNTIME_NAME, CONTAINER_RUNTIME_VERSION};
 use ipam::Ipam;
 use state::WorkRuntime;
 
