@@ -4,11 +4,13 @@ mod compound;
 mod scalar;
 
 use std::collections::HashMap;
-use std::fmt::{Debug, Display, Write};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult, Write};
 use std::mem::{transmute, ManuallyDrop};
 use std::ptr::fn_addr_eq;
+use std::result::Result as StdResult;
 use std::sync::Arc;
 
+use anyhow::{Context, Result};
 use metadata_proto::work::runtime::Field;
 use prost::bytes::Buf;
 use prost::encoding::{decode_varint, encoded_len_varint, WireType};
@@ -20,7 +22,6 @@ use compound::{
     enum_explicit_merge, enum_implicit_merge, enum_repeated_merge, message_inner_merge,
     message_outer_merge, message_repeated_merge, oneof_variant_merge,
 };
-use error::log_error_status;
 use names::ComponentName;
 
 /// Decodes a top-level request message.
@@ -35,7 +36,7 @@ struct RequestDecoderInner {
     /// Decodes and merges protobuf contents into a default value.
     inner: Merger,
 
-    /// Component name used for error messages only, shared to save memory.
+    /// Component name used for error logging only, shared to save memory.
     component: Arc<ComponentName>,
 }
 
@@ -87,7 +88,7 @@ type MergeFn = fn(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
     dst: &mut Val,
-) -> Result<(), DecodeError>;
+) -> StdResult<(), DecodeError>;
 
 /// An error encountered during response decoding.
 struct DecodeError {
@@ -108,9 +109,10 @@ enum DecodeLevel {
 }
 
 impl RequestDecoder {
-    pub fn new(request: &Field, component: Arc<ComponentName>) -> Result<Self, Status> {
+    pub fn new(request: &Field, component: Arc<ComponentName>) -> Result<Self> {
         Ok(Self(Arc::new(RequestDecoderInner {
-            inner: Merger::message_inner(request, component.as_ref())?,
+            inner: Merger::message_inner(request, component.as_ref())
+                .context("Invalid request decoder")?,
             component: component,
         })))
     }
@@ -121,7 +123,7 @@ impl TonicDecoder for RequestDecoder {
     type Error = Status;
 
     /// Decode a message from a readable buffer.
-    fn decode(&mut self, src: &mut DecodeBuf<'_>) -> Result<Option<Self::Item>, Self::Error> {
+    fn decode(&mut self, src: &mut DecodeBuf<'_>) -> StdResult<Option<Self::Item>, Self::Error> {
         let mut length = u32::try_from(src.remaining())
             .map_err(|_| Status::invalid_argument("Request is too big"))?;
         let mut value = Val::Record(self.0.inner.defaults.clone());
@@ -132,7 +134,12 @@ impl TonicDecoder for RequestDecoder {
             src,
             &mut value,
         )
-        .map_err(log_error_status!("decode-error", self.0.component.as_ref()))?;
+        .map_err(|error| {
+            // A decoding error indicates that the client sent a malformed request.
+            // Report this as an INVALID_ARGUMENT status to the caller and *do not* log it,
+            // because this is considered a normal client error and could occur very frequently.
+            Status::invalid_argument(error.to_string())
+        })?;
         Ok(Some(value))
     }
 }
@@ -186,7 +193,7 @@ fn read_varint(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
     error: &'static str,
-) -> Result<u64, DecodeError> {
+) -> StdResult<u64, DecodeError> {
     let varint = decode_varint(src).map_err(
         // Overflowed 64 bits or incomplete at end of buffer.
         |_| DecodeError::new(error),
@@ -202,7 +209,7 @@ fn read_varint(
 /// Decode a tag from `src`, returning the field number and wire type.
 /// Decrement `limit` by the number of bytes read.
 #[inline(always)]
-fn decode_tag(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<(u32, WireType), DecodeError> {
+fn decode_tag(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<(u32, WireType), DecodeError> {
     let tag = read_varint(limit, src, INVALID_TAG_VARINT)?;
     let field_number = u32::try_from(tag >> 3).map_err(|_| {
         // Indicates the field number exceeded 32 bits.
@@ -223,7 +230,7 @@ fn decode_tag(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<(u32, WireType
 fn read_length_check_overflow(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
-) -> Result<u32, DecodeError> {
+) -> StdResult<u32, DecodeError> {
     let length = read_varint(limit, src, INVALID_LENGTH_VARINT)?;
     let length = u32::try_from(length).map_err(|_| DecodeError::new(INVALID_LENGTH_VARINT))?;
     if length > *limit {
@@ -235,7 +242,11 @@ fn read_length_check_overflow(
 
 /// Use wire type information to skip an unknown field.
 #[inline(always)]
-fn skip(wire_type: WireType, limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<(), DecodeError> {
+fn skip(
+    wire_type: WireType,
+    limit: &mut u32,
+    src: &mut DecodeBuf<'_>,
+) -> StdResult<(), DecodeError> {
     match wire_type {
         WireType::Varint => {
             // To skip a varint, just decode and forget it.
@@ -273,27 +284,37 @@ fn explicit_scalar(scalar_coding: i32) -> bool {
     scalar_coding % 4 == 2
 }
 
-/// An encoding error should be displayed like this:
-///   DecodeError(.path.to[0][4].the.field): <message>
-impl Debug for DecodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("DecodeError(")?;
-        for level in self.traceback.iter().rev() {
-            match level {
-                DecodeLevel::Field(number) => {
-                    f.write_char('.')?;
-                    Display::fmt(number, f)?;
-                }
-                DecodeLevel::Index(index) => {
-                    f.write_char('[')?;
-                    Display::fmt(index, f)?;
-                    f.write_char(']')?;
-                }
+/// When returning an error status to a client,
+/// a decoding error should be displayed like this:
+///     Malformed request (.0.123[0][4].5.5): <message>
+///
+/// Numbers following dots indicate field numbers.
+/// Those between square brackets indicate repeated field indices.
+impl Display for DecodeError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+        formatter.write_str("Malformed request (")?;
+        format_decode_error_trace(self, formatter)?;
+        formatter.write_str("): ")?;
+        formatter.write_str(&self.message)
+    }
+}
+
+#[inline(always)]
+fn format_decode_error_trace(error: &DecodeError, formatter: &mut Formatter<'_>) -> FmtResult {
+    for level in error.traceback.iter().rev() {
+        match level {
+            DecodeLevel::Field(number) => {
+                formatter.write_char('.')?;
+                Display::fmt(number, formatter)?;
+            }
+            DecodeLevel::Index(index) => {
+                formatter.write_char('[')?;
+                Display::fmt(index, formatter)?;
+                formatter.write_char(']')?;
             }
         }
-        f.write_str("): ")?;
-        f.write_str(&self.message)
     }
+    Ok(())
 }
 
 const BUFFER_UNDERFLOW: &str = "Buffer underflow";

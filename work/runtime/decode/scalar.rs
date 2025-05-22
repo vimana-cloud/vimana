@@ -2,7 +2,7 @@
 //! (anything besides messages, enums, and oneofs).
 
 use std::io::Read;
-use std::result::Result;
+use std::result::Result as StdResult;
 
 use prost::bytes::Buf;
 use prost::encoding::WireType;
@@ -116,7 +116,7 @@ macro_rules! singular_merge_fns {
             limit: &mut u32,
             src: &mut DecodeBuf<'_>,
             dst: &mut Val,
-        ) -> Result<(), DecodeError> {
+        ) -> StdResult<(), DecodeError> {
             if wire_type == $wire_type {
                 *dst = Val::Option(Some(Box::new(($decode_inner)(limit, src)?)));
                 Ok(())
@@ -131,7 +131,7 @@ macro_rules! singular_merge_fns {
             limit: &mut u32,
             src: &mut DecodeBuf<'_>,
             dst: &mut Val,
-        ) -> Result<(), DecodeError> {
+        ) -> StdResult<(), DecodeError> {
             if wire_type == $wire_type {
                 *dst = ($decode_inner)(limit, src)?;
                 Ok(())
@@ -160,7 +160,7 @@ macro_rules! stringy_mergers {
             limit: &mut u32,
             src: &mut DecodeBuf<'_>,
             dst: &mut Val,
-        ) -> Result<(), DecodeError> {
+        ) -> StdResult<(), DecodeError> {
             // Strings and bytes cannot be packed. They can only be repeated expanded.
             if let Val::List(items) = dst {
                 if wire_type == WireType::LengthDelimited {
@@ -177,7 +177,7 @@ macro_rules! stringy_mergers {
 }
 
 #[inline(always)]
-fn bytes_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn bytes_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let mut length = read_length_check_overflow(limit, src)?;
     let mut bytes = Vec::with_capacity(length as usize);
     while length > 0 {
@@ -195,7 +195,10 @@ stringy_mergers!(
 );
 
 #[inline(always)]
-fn string_utf8_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn string_utf8_decode_inner(
+    limit: &mut u32,
+    src: &mut DecodeBuf<'_>,
+) -> StdResult<Val, DecodeError> {
     let length = read_length_check_overflow(limit, src)? as usize;
     let mut string = String::with_capacity(length);
     src.take(length)
@@ -216,7 +219,7 @@ stringy_mergers!(
 fn string_permissive_decode_inner(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
-) -> Result<Val, DecodeError> {
+) -> StdResult<Val, DecodeError> {
     let length = read_length_check_overflow(limit, src)? as usize;
     let mut string = String::with_capacity(length);
     src.take(length)
@@ -253,7 +256,7 @@ macro_rules! numeric_mergers {
             limit: &mut u32,
             src: &mut DecodeBuf<'_>,
             dst: &mut Val,
-        ) -> Result<(), DecodeError> {
+        ) -> StdResult<(), DecodeError> {
             // Protocol buffer parsers must be able to parse repeated fields
             // that were compiled as packed as if they were not packed, and vice versa.
             // This permits adding `[packed=true]` to existing fields
@@ -283,7 +286,7 @@ macro_rules! numeric_mergers {
 }
 
 #[inline(always)]
-fn bool_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn bool_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     if *limit >= 1 {
         let byte = src.get_u8();
         *limit -= 1;
@@ -306,7 +309,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn int32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn int32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let varint = read_varint(limit, src, INVALID_VARINT)?;
     let value = i32::try_from(varint).map_err(|_| DecodeError::new(OVERFLOW_32BIT))?;
     Ok(Val::S32(value))
@@ -321,7 +324,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn sint32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn sint32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let varint = read_varint(limit, src, INVALID_VARINT)?;
     let value = u32::try_from(varint).map_err(|_| DecodeError::new(OVERFLOW_32BIT))?;
     Ok(Val::S32(((value >> 1) as i32) ^ (-((value & 1) as i32))))
@@ -336,7 +339,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn sfixed32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn sfixed32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     if *limit >= 4 {
         *limit -= 4;
         Ok(Val::S32(src.get_i32_le()))
@@ -354,7 +357,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn uint32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn uint32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let varint = read_varint(limit, src, INVALID_VARINT)?;
     let value = u32::try_from(varint).map_err(|_| DecodeError::new(OVERFLOW_32BIT))?;
     Ok(Val::U32(value))
@@ -369,7 +372,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn fixed32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn fixed32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     if *limit >= 4 {
         *limit -= 4;
         Ok(Val::U32(src.get_u32_le()))
@@ -387,7 +390,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn int64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn int64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let varint = read_varint(limit, src, INVALID_VARINT)?;
     Ok(Val::S64(varint as i64))
 }
@@ -401,7 +404,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn sint64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn sint64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let varint = read_varint(limit, src, INVALID_VARINT)?;
     let value = varint as i64;
     Ok(Val::S64(((value >> 1) as i64) ^ (-((value & 1) as i64))))
@@ -416,7 +419,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn sfixed64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn sfixed64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     if *limit >= 8 {
         *limit -= 8;
         Ok(Val::S64(src.get_i64_le()))
@@ -434,7 +437,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn uint64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn uint64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let value = read_varint(limit, src, INVALID_VARINT)?;
     Ok(Val::U64(value))
 }
@@ -448,7 +451,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn fixed64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn fixed64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     if *limit >= 8 {
         *limit -= 8;
         Ok(Val::U64(src.get_u64_le()))
@@ -466,7 +469,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn float_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn float_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     if *limit >= 4 {
         *limit -= 4;
         Ok(Val::Float32(src.get_f32_le()))
@@ -484,7 +487,7 @@ numeric_mergers!(
 );
 
 #[inline(always)]
-fn double_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> Result<Val, DecodeError> {
+fn double_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     if *limit >= 8 {
         *limit -= 8;
         Ok(Val::Float64(src.get_f64_le()))

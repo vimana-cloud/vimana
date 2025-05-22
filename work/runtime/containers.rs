@@ -6,6 +6,7 @@ use std::mem::drop;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use anyhow::{anyhow, Context, Result};
 use api_proto::runtime::v1;
 use bytes::Bytes;
 use prost::Message;
@@ -15,11 +16,10 @@ use serde::Deserialize;
 use tokio::fs::{create_dir_all, metadata, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task::spawn;
-use tonic::Status;
 use wasmtime::component::Component;
 use wasmtime::Engine as WasmEngine;
 
-use error::{log_error_status, log_info, Result};
+use logging::log_info;
 use metadata_proto::work::runtime::Metadata;
 use names::{hexify_string, ComponentName};
 
@@ -73,37 +73,51 @@ impl ContainerStore {
         &self,
         registry: &str,
         name: &ComponentName,
-        image_spec: v1::ImageSpec,
+        image_spec: &v1::ImageSpec,
     ) -> Result<()> {
         let container = self.client.fetch(registry, name).await?;
 
         let component_path = component_path(&name);
-        create_dir_all(&component_path).await?;
+        create_dir_all(&component_path)
+            .await
+            .with_context(|| format!("Failed to create image directory: {:?}", component_path))?;
 
-        let mut container_file = File::create(&component_path.join(CONTAINER_FILENAME)).await?;
-        let mut image_spec_file = File::create(&component_path.join(IMAGE_SPEC_FILENAME)).await?;
+        let mut container_file = File::create(&component_path.join(CONTAINER_FILENAME))
+            .await
+            .context("Failed to create container file")?;
+        let mut image_spec_file = File::create(&component_path.join(IMAGE_SPEC_FILENAME))
+            .await
+            .context("Failed to create image spec file")?;
 
         // Pre-compile the component for faster loading later.
-        let serialized_component = container
-            .component
-            .serialize()
-            .map_err(|_| Status::internal("TODO"))?;
+        // TODO: Prefer to use wasmtime's `Engine::precompile_component`.
+        let serialized_component = container.component.serialize()?;
 
         // Write the length of the component to the file first (as a little-endian `u64`),
         // then the component's pre-compiled bytes.
         container_file
             .write_u64_le(serialized_component.len() as u64)
-            .await?;
-        container_file.write_all(&serialized_component).await?;
-        // Free up the memory as soon as possible since it could be somewhat big.
+            .await
+            .context("Failed writing length to container file")?;
+        container_file
+            .write_all(&serialized_component)
+            .await
+            .context("Failed writing component to container file")?;
+        // Free space as soon as possible since it could be big.
         drop(serialized_component);
 
         let serialized_metadata = container.metadata.encode_to_vec();
-        container_file.write_all(&serialized_metadata).await?;
+        container_file
+            .write_all(&serialized_metadata)
+            .await
+            .context("Failed writing metadata to container file")?;
         drop(serialized_metadata);
 
         let serialized_image_spec = image_spec.encode_to_vec();
-        image_spec_file.write_all(&serialized_image_spec).await?;
+        image_spec_file
+            .write_all(&serialized_image_spec)
+            .await
+            .context("Failed writing to image spec file")?;
 
         Ok(())
     }
@@ -112,23 +126,30 @@ impl ContainerStore {
     pub(crate) async fn get(&self, name: &ComponentName) -> Result<Container> {
         let component_path = component_path(&name);
 
-        let mut container_file = File::open(&component_path.join(CONTAINER_FILENAME)).await?;
+        let mut container_file = File::open(&component_path.join(CONTAINER_FILENAME))
+            .await
+            .context("Failed to open container file")?;
 
-        let component_size = container_file.read_u64_le().await?;
+        let component_size = container_file
+            .read_u64_le()
+            .await
+            .context("Failed reading length from container file")?;
         let mut serialized_component = Vec::with_capacity(component_size as usize);
-        container_file.read_exact(&mut serialized_component).await?;
-        let component = unsafe {
-            Component::deserialize(&self.wasmtime, &serialized_component)
-                .map_err(|_| Status::internal("TODO"))?
-        };
-        // Free up the memory as soon as possible since it could be somewhat big.
+        container_file
+            .read_exact(&mut serialized_component)
+            .await
+            .context("Failed reading component from container file")?;
+        let component = unsafe { Component::deserialize(&self.wasmtime, &serialized_component)? };
+        // Free space as soon as possible since it could be big.
         drop(serialized_component);
 
         let mut serialized_metadata = Vec::new();
-        container_file.read_to_end(&mut serialized_metadata).await?;
+        container_file
+            .read_to_end(&mut serialized_metadata)
+            .await
+            .context("Failed reading metadata from container file")?;
         let metadata = Metadata::decode(serialized_metadata.as_slice())
-            .map_err(|_| Status::internal("TODO"))?;
-        drop(serialized_metadata);
+            .context("Failed to decode metadata from container file")?;
 
         Ok(Container {
             component,
@@ -140,15 +161,20 @@ impl ContainerStore {
     pub(crate) async fn get_image(&self, name: &ComponentName) -> Result<v1::Image> {
         let component_path = component_path(&name);
 
-        let container_metadata = metadata(&component_path.join(CONTAINER_FILENAME)).await?;
-        let mut image_spec_file = File::open(&component_path.join(IMAGE_SPEC_FILENAME)).await?;
+        let container_metadata = metadata(&component_path.join(CONTAINER_FILENAME))
+            .await
+            .context("Failed to get metadata for container file")?;
+        let mut image_spec_file = File::open(&component_path.join(IMAGE_SPEC_FILENAME))
+            .await
+            .context("Failed to open image spec file")?;
 
         let mut serialized_image_spec = Vec::new();
         image_spec_file
             .read_to_end(&mut serialized_image_spec)
-            .await?;
+            .await
+            .context("Failed reading image spec from file")?;
         let image_spec = v1::ImageSpec::decode(serialized_image_spec.as_slice())
-            .map_err(|_| Status::internal("TODO"))?;
+            .context("Failed to decode image spec from file")?;
 
         Ok(v1::Image {
             id: name.to_string(),
@@ -199,7 +225,7 @@ impl ContainerClient {
     }
 
     async fn fetch(&self, registry: &str, name: &ComponentName) -> Result<Arc<Container>> {
-        log_info!("fetching-container", name, registry);
+        log_info!(component: name, "Fetching image from {:?}", registry);
 
         // Any URL path for `1234567890abcdef1234567890abcdef:package.Service`
         // would begin with `/v2/1234567890abcdef1234567890abcdef/071636b6167656e235562767963656/`.
@@ -226,102 +252,86 @@ impl ContainerClient {
             .header(ACCEPT, MANIFEST_MIME)
             .send()
             .await
-            .map_err(
-                // Fails if there was an error while sending request,
-                // redirect loop was detected or redirect limit was exhausted.
-                log_error_status!("get-manifest", name),
-            )?;
+            .with_context(|| format!("Failed fetching manifest: {:?}", manifest_url))?;
         if response.status() == HttpStatusCode::OK {
-            let manifest = response.json::<ImageManifest>().await.map_err(
-                // JSON decoding failed.
-                log_error_status!("decode-manifest", name),
-            )?;
+            let manifest = response
+                .json::<ImageManifest>()
+                .await
+                .with_context(|| format!("Failed decoding manifest: {:?}", manifest_url))?;
 
             // All images consist of 2 layers:
             // the component byte code, followed by the serialized metadata.
             if manifest.layers.len() == 2 {
                 // Fetch the layers in parallel.
-                let component_fetch = spawn(self.clone().fetch_component(
-                    format!(
-                        "{service_url}/blobs/{}",
-                        manifest.layers.get(0).unwrap().digest,
-                    ),
-                    name.clone(),
-                ));
+                let component_fetch = spawn(self.clone().fetch_component(format!(
+                    "{service_url}/blobs/{}",
+                    manifest.layers.get(0).unwrap().digest,
+                )));
                 let metadata_result = self
-                    .fetch_metadata(
-                        format!(
-                            "{service_url}/blobs/{}",
-                            manifest.layers.get(1).unwrap().digest,
-                        ),
-                        &name,
-                    )
+                    .fetch_metadata(format!(
+                        "{service_url}/blobs/{}",
+                        manifest.layers.get(1).unwrap().digest,
+                    ))
                     .await;
 
                 // Propagate compilation errors first, then metadata parsing errors.
-                let component = component_fetch.await.map_err(
-                    // Background task join error.
-                    log_error_status!("fetch-component-join", name),
-                )??;
+                let component = component_fetch
+                    .await
+                    .context("Failure joining fetch-component background task")??;
                 let metadata = metadata_result?;
 
-                log_info!("fetched-container-success", name, ());
+                log_info!(component: name, "Successful image fetch");
                 Ok(Arc::new(Container {
                     component,
                     metadata,
                 }))
             } else {
-                Err(log_error_status!("unexpected-container-layers", name)(
-                    manifest.layers.len(),
+                Err(anyhow!(
+                    "Unexpected container layer count: {:?}",
+                    manifest.layers.len()
                 ))
+                .context(format!("Failed fetching manifest: {:?}", manifest_url))
             }
-        } else if response.status() == HttpStatusCode::NOT_FOUND {
-            Err(log_error_status!("manifest-not-found", name)(manifest_url))
         } else {
-            Err(log_error_status!("get-manifest-status", name)(format!(
-                "(status={} url={})",
-                response.status().as_u16(),
-                manifest_url
-            )))
+            Err(anyhow!("Got HTTP {}", response.status().as_u16()))
+                .context(format!("Failed fetching manifest: {:?}", manifest_url))
         }
     }
 
-    async fn fetch_component(self, url: String, name: ComponentName) -> Result<Component> {
-        Ok(
-            Component::new(&self.wasmtime, self.fetch_blob(url, &name).await?).map_err(
-                // Compilation error.
-                log_error_status!("compile-component", &name),
-            )?,
+    async fn fetch_component(self, url: String) -> Result<Component> {
+        Component::new(
+            &self.wasmtime,
+            self.fetch_blob(&url)
+                .await
+                .with_context(|| format!("Failure fetching component: {:?}", url))?,
         )
+        .context("Component compilation error")
     }
 
-    async fn fetch_metadata(&self, url: String, name: &ComponentName) -> Result<Metadata> {
-        Ok(Metadata::decode(self.fetch_blob(url, name).await?).map_err(
-            // Malformed metadata.
-            log_error_status!("decode-metadata", name),
-        )?)
+    async fn fetch_metadata(&self, url: String) -> Result<Metadata> {
+        // TODO: We're decoding this only to encode it again later.
+        //       Avoid the unnecessary work.
+        Metadata::decode(
+            self.fetch_blob(&url)
+                .await
+                .with_context(|| format!("Failure fetching metadata: {:?}", url))?,
+        )
+        .context("Failure decoding metadata")
     }
 
-    async fn fetch_blob(&self, url: String, name: &ComponentName) -> Result<Bytes> {
-        let response = self.http.get(&url).send().await.map_err(
+    async fn fetch_blob(&self, url: &str) -> Result<Bytes> {
+        let response = self.http.get(url).send().await.context(
             // Fails if there was an error while sending request,
             // redirect loop was detected or redirect limit was exhausted.
-            log_error_status!("get-blob", name),
+            "Error fetching blob",
         )?;
         if response.status() == HttpStatusCode::OK {
-            response.bytes().await.map_err(
+            response.bytes().await.context(
                 // Not sure when this would ever happen.
-                log_error_status!("blob-bytes", name),
+                "Failed reading response",
             )
-        } else if response.status() == HttpStatusCode::NOT_FOUND {
-            Err(log_error_status!("blob-not-found", name)(url))
         } else {
-            // Catch-all non-OK status code.
-            Err(log_error_status!("get-blob-status", name)(format!(
-                "(status={} url={})",
-                response.status().as_u16(),
-                url
-            )))
+            Err(anyhow!("Got HTTP {}", response.status().as_u16()))
         }
     }
 }

@@ -1,21 +1,16 @@
 //! Host functions provided by Vimana.
 
-use std::future::Future;
 use std::sync::Arc;
 
-use tonic::Code;
-use wasmtime::component::{ComponentNamedList, Lift, Linker, LinkerInstance, Lower};
+use anyhow::Result;
+use wasmtime::component::Linker;
 use wasmtime::Engine as WasmEngine;
-use wasmtime::StoreContextMut;
-
-use error::{log_error_status, Result};
-use names::ComponentName;
 
 /// State available to host-defined functions.
-pub struct HostState {}
+pub(crate) struct HostState {}
 
 impl HostState {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {}
     }
 }
@@ -57,56 +52,17 @@ macro_rules! boxed {
     };
 }
 
-pub fn grpc_linker(
-    component: &ComponentName,
-    wasmtime: &WasmEngine,
-) -> Result<Linker<Arc<HostState>>> {
+pub(crate) fn grpc_linker(wasmtime: &WasmEngine) -> Result<Linker<Arc<HostState>>> {
     let mut linker = Linker::new(wasmtime);
 
-    let mut environment = instance(&mut linker, "wasi:cli/environment@0.2.1", component)?;
-    link_function(
-        &mut environment,
+    let mut environment = linker.instance("wasi:cli/environment@0.2.1")?;
+    environment.func_wrap_async(
         "get-environment",
         boxed!(wasi::cli::environment::get_environment),
-        component,
     )?;
 
-    let mut exit = instance(&mut linker, "wasi:cli/exit@0.2.1", component)?;
-    link_function(&mut exit, "exit", boxed!(wasi::cli::exit::exit), component)?;
+    let mut exit = linker.instance("wasi:cli/exit@0.2.1")?;
+    exit.func_wrap_async("exit", boxed!(wasi::cli::exit::exit))?;
 
     Ok(linker)
-}
-
-fn instance<'a, 'b>(
-    linker: &'a mut Linker<Arc<HostState>>,
-    name: &'b str,
-    component: &ComponentName,
-) -> Result<LinkerInstance<'a, Arc<HostState>>> {
-    linker.instance(name).map_err(
-        // Name conflict.
-        log_error_status!(Code::Internal, "link-instance-name-conflict", component),
-    )
-}
-
-fn link_function<F, Params, Return>(
-    linker: &mut LinkerInstance<'_, Arc<HostState>>,
-    name: &str,
-    implementation: F,
-    component: &ComponentName,
-) -> Result<()>
-where
-    F: for<'a> Fn(
-            StoreContextMut<'a, Arc<HostState>>,
-            Params,
-        ) -> Box<dyn Future<Output = anyhow::Result<Return>> + Send + 'a>
-        + Send
-        + Sync
-        + 'static,
-    Params: ComponentNamedList + Lift + 'static,
-    Return: ComponentNamedList + Lower + 'static,
-{
-    linker.func_wrap_async(name, implementation).map_err(
-        // Name conflict.
-        log_error_status!(Code::Internal, "link-function-name-conflict", component),
-    )
 }

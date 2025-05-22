@@ -1,19 +1,20 @@
 //! IP address management.
 
-use std::fmt::Display;
+use std::fmt::{Display, Result as FmtResult};
 use std::io::{pipe, PipeReader, Write};
 use std::mem::drop;
 use std::net::IpAddr;
+use std::simd::u8x16;
 use std::sync::Arc;
 
+use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use serde_json::{from_slice, json, to_vec};
 use sha2::{Digest, Sha256};
 use tokio::process::Command;
-use tonic::Status;
 
-use error::{log_error_status, log_info, Result};
-use names::{ComponentName, DomainUuid, PodName};
+use logging::log_info;
+use names::{hexify, PodName};
 
 /// CNI plugin API version.
 /// Seems to be the latest version supported by the `host-local` plugin
@@ -86,51 +87,45 @@ impl Ipam {
 
     /// Allocate and return a fresh IP address.
     pub(crate) async fn address(&self, pod_name: &PodName, interface: &str) -> Result<IpAddress> {
-        let output = self.run_plugin_command("ADD", pod_name).await?;
+        let output = self
+            .run_plugin_command("ADD", pod_name)
+            .await
+            .context("Failed to run IPAM ADD")?;
 
-        let result: IpamAddResult = from_slice(&output).map_err(log_error_status!(
-            "ipam-add-output-format",
-            &pod_name.component
-        ))?;
+        let result: IpamAddResult =
+            from_slice(&output).context("Error decoding IPAM 'ADD' response")?;
         if result.ips.len() != 1 {
             // We could relax this constraint to allow multiple IP addresses per pod
             // (say, an IPv4 address and an IPv6 address).
-            return Err(Status::internal("ipam-add-multiple-addresses"));
+            return Err(anyhow!(
+                "Multiple IP addresses not supported: {:?}",
+                result.ips.len()
+            ));
         }
         let cidr = &result.ips.get(0).unwrap().address;
 
         // The IPAM plugin returns address with a subnet mask for the local machine
         // (e.g. `10.0.0.1/8` intead of just `10.0.0.1`).
         let mut cidr_parts = cidr.split('/');
-        let address = cidr_parts.next().ok_or_else(|| {
-            log_error_status!("ipam-result-no-address", &pod_name.component)(cidr)
-        })?;
-        let prefix_length = cidr_parts.next().ok_or_else(|| {
-            log_error_status!("ipam-result-no-subnetmask", &pod_name.component)(cidr)
-        })?;
+        let address = cidr_parts
+            .next()
+            .ok_or_else(|| anyhow!("Invalid address mask: {:?}", cidr))?;
+        let prefix_length = cidr_parts
+            .next()
+            .ok_or_else(|| anyhow!("Invalid address mask: {:?}", cidr))?;
         debug_assert!(cidr_parts.next().is_none());
 
         // Parse the IP address and prefix length.
-        let address: IpAddr = address.parse().map_err(log_error_status!(
-            "ipam-address-format",
-            &pod_name.component
-        ))?;
-        let prefix_length: u8 = prefix_length.parse().map_err(log_error_status!(
-            "ipam-subnetmask-format",
-            &pod_name.component
-        ))?;
+        let address: IpAddr = address
+            .parse()
+            .with_context(|| format!("Invalid address: {:?}", address))?;
+        let prefix_length: u8 = prefix_length
+            .parse()
+            .with_context(|| format!("Invalid subnet prefix length: {:?}", cidr))?;
 
         // If activating the address on the interface fails,
         // de-allocate it so it can be re-used.
-        if let Err(error) = ip_addr(
-            "add",
-            &address,
-            prefix_length,
-            interface,
-            &pod_name.component,
-        )
-        .await
-        {
+        if let Err(error) = ip_addr("add", &address, prefix_length, interface).await {
             let _ = self.run_plugin_command("DEL", pod_name).await;
             return Err(error);
         }
@@ -162,17 +157,15 @@ impl Ipam {
             .env("CNI_NETNS", "/dev/null")
             .env("CNI_IFNAME", "unused")
             .env("CNI_PATH", "/..")
-            .stdin(self.config_pipe(&pod_name.component)?)
+            .stdin(self.config_pipe()?)
             .output()
             .await
-            .map_err(log_error_status!(
-                "ipam-execution-error",
-                &pod_name.component
-            ))?;
+            .context("Error executing command")?;
         if output.status.success() {
             Ok(output.stdout)
         } else {
-            Err(log_error_status!("ipam-error", &pod_name.component)(
+            Err(anyhow!(
+                "IPAM error: {}",
                 // `host-local` prints errors to standard output rather than standard error
                 // (as of v1.6.2).
                 String::from_utf8_lossy(&output.stdout),
@@ -181,12 +174,11 @@ impl Ipam {
     }
 
     /// Create a new unnamed pipe to feed config data to a command's standard input.
-    fn config_pipe(&self, component_name: &ComponentName) -> Result<PipeReader> {
-        let (reader, mut writer) =
-            pipe().map_err(log_error_status!("ipam-pipe-create", component_name))?;
+    fn config_pipe(&self) -> Result<PipeReader> {
+        let (reader, mut writer) = pipe().context("Error creating stdin pipe")?;
         writer
             .write_all(&self.0.config)
-            .map_err(log_error_status!("ipam-pipe-write", component_name))?;
+            .context("Error writing to stdin pipe")?;
         drop(writer); // Flush the pipe.
         Ok(reader)
     }
@@ -197,18 +189,11 @@ impl IpAddress {
     /// It will no longer be able to receive traffic,
     /// but the address will not be available for re-use.
     pub(crate) async fn deactivate(&self) -> Result<()> {
-        ip_addr(
-            "del",
-            &self.address,
-            self.prefix_length,
-            &self.interface,
-            &self.pod_name.component,
-        )
-        .await?;
+        ip_addr("del", &self.address, self.prefix_length, &self.interface).await?;
         log_info!(
-            "ipam-deactivate-success",
-            &self.pod_name.component,
-            &self.address
+            pod: &self.pod_name,
+            "Successful IPAM deactivation: {}",
+            self.address,
         );
         Ok(())
     }
@@ -216,18 +201,21 @@ impl IpAddress {
     /// De-allocate the address for re-use by other pods.
     /// It must be [deactivated](Self::deactivate) before being de-allocated.
     pub(crate) async fn deallocate(&self) -> Result<()> {
-        self.ipam.run_plugin_command("DEL", &self.pod_name).await?;
+        self.ipam
+            .run_plugin_command("DEL", &self.pod_name)
+            .await
+            .context("Failed to run IPAM DEL")?;
         log_info!(
-            "ipam-deallocate-success",
-            &self.pod_name.component,
-            self.address
+            pod: &self.pod_name,
+            "Successful IPAM deallocation: {}",
+            self.address,
         );
         Ok(())
     }
 }
 
 impl Display for IpAddress {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> FmtResult {
         self.address.fmt(f)
     }
 }
@@ -240,25 +228,25 @@ async fn ip_addr(
     address: &IpAddr,
     prefix_length: u8,
     interface: &str,
-    component: &ComponentName,
 ) -> Result<()> {
     let masked_address = format!("{}/{}", address, prefix_length);
     let output = Command::new("ip")
         .args(["addr", command, &masked_address, "dev", interface])
         .output()
         .await
-        .map_err(log_error_status!("ip-addr-execution-error", component))?;
+        .context("Failed to run `ip addr`")?;
     if output.status.success() {
         Ok(())
     } else {
-        Err(log_error_status!("ip-addr-error", component)(
-            String::from_utf8_lossy(&output.stderr),
+        Err(anyhow!(
+            "Error status from `ip addr`: {}",
+            String::from_utf8_lossy(&output.stderr)
         ))
     }
 }
 
 /// The `host-local` IPAM plugin cannot handle characters like `:` and `@` found in pod names.
-/// Compute a legal container ID by hashing the pod name.
+/// Compute a legal container ID by hashing the pod name and encoding it in hexadecimal.
 fn ipam_container_id(pod: &PodName) -> String {
     // Compute the SHA-256 hash of the pod name.
     let mut hasher = Sha256::new();
@@ -266,13 +254,12 @@ fn ipam_container_id(pod: &PodName) -> String {
     let hash = hasher.finalize();
 
     // SHA-256 hashes are always 32 bytes.
-    // `DomainUuid` happens to have the logic to serialize `u8x16` as hexadecimal.
-    // Re-use that logic to produce a hex string.
     debug_assert!(hash.len() == 32);
-    let mut chunks = hash.array_chunks::<16>();
-    let lower = DomainUuid::new(chunks.next().unwrap());
-    let upper = DomainUuid::new(chunks.next().unwrap());
-    format!("{lower}{upper}")
+    let mut chunks = hash.chunks_exact(16);
+    let mut output = Vec::with_capacity(64);
+    output.extend_from_slice(hexify(u8x16::from_slice(chunks.next().unwrap())).as_array());
+    output.extend_from_slice(hexify(u8x16::from_slice(chunks.next().unwrap())).as_array());
+    unsafe { String::from_utf8_unchecked(output) }
 }
 
 /// Used to parse the JSON result of the IPAM plugin for the `ADD` command.

@@ -17,8 +17,11 @@
 
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::result::Result as StdResult;
+use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::{anyhow, Context, Result};
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
@@ -27,10 +30,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::channel::Channel;
 use tonic::{async_trait, Request, Response, Status};
 
-use crate::cri::{component_name_from_labels, TonicResult};
+use crate::cri::{component_name_from_labels, GlobalLogs, LogErrorToStatus, TonicResult};
 use crate::state::{now, Pod, PodState};
 use crate::WorkRuntime;
-use error::{log_info, Result};
 use names::{Name, PodName};
 
 /// "For now it expects 0.1.0." - https://github.com/cri-o/cri-o/blob/v1.31.3/server/version.go.
@@ -163,9 +165,7 @@ macro_rules! map_oci_prefix {
 
 #[async_trait]
 impl RuntimeService for ProxyingRuntimeService {
-    async fn version(&self, r: Request<v1::VersionRequest>) -> TonicResult<v1::VersionResponse> {
-        let request = r.into_inner();
-
+    async fn version(&self, _r: Request<v1::VersionRequest>) -> TonicResult<v1::VersionResponse> {
         Ok(Response::new(v1::VersionResponse {
             version: String::from(KUBELET_API_VERSION),
             runtime_name: String::from(CONTAINER_RUNTIME_NAME),
@@ -193,28 +193,32 @@ impl RuntimeService for ProxyingRuntimeService {
         }
 
         let config = request.config.unwrap_or_default();
-        let component = component_name_from_labels(&config.labels)?;
+        let component_name = component_name_from_labels(&config.labels)
+            .with_context(|| format!("Invalid pod labels: {:?}", config.labels))
+            .log_error(GlobalLogs)?;
 
         // Check that the request fits into Vimana's narrow vision of validity
         // for the sake of preventing unexpected behavior.
         if !config.port_mappings.is_empty() {
             // gRPC pods are never expected to have a port mapping.
-            return Err(Status::invalid_argument("grpc-port-mappings"));
+            return Err(anyhow!("gRPC port mappings are unsupported")).log_error(&component_name);
         }
 
-        let name = self
+        let component_name = Arc::new(component_name);
+        let pod_name = self
             .runtime
             .init_pod(
-                component,
+                component_name.clone(),
                 config.metadata.unwrap_or_default(),
                 config.labels,
                 config.annotations,
             )
-            .await?;
+            .await
+            .log_error(component_name.as_ref())?;
 
         Ok(Response::new(v1::RunPodSandboxResponse {
             // Prefix the ID so we can distinguish it from downstream OCI pod IDs.
-            pod_sandbox_id: pod_prefix(&name),
+            pod_sandbox_id: pod_prefix(&pod_name),
         }))
     }
 
@@ -232,8 +236,11 @@ impl RuntimeService for ProxyingRuntimeService {
                 .await
         });
 
-        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
-        self.runtime.kill_pod(&name).await?;
+        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)
+            .context("Invalid pod sandbox ID")
+            .log_error(GlobalLogs)?;
+
+        self.runtime.kill_pod(&name).await.log_error(&name)?;
 
         Ok(Response::new(v1::StopPodSandboxResponse {}))
     }
@@ -252,8 +259,11 @@ impl RuntimeService for ProxyingRuntimeService {
                 .await
         });
 
-        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
-        self.runtime.delete_pod(&name)?;
+        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)
+            .context("Invalid pod sandbox ID")
+            .log_error(GlobalLogs)?;
+
+        self.runtime.delete_pod(&name).log_error(&name)?;
 
         Ok(Response::new(v1::RemovePodSandboxResponse {}))
     }
@@ -280,7 +290,10 @@ impl RuntimeService for ProxyingRuntimeService {
                 })
         });
 
-        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
+        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)
+            .context("Invalid pod sandbox ID")
+            .log_error(GlobalLogs)?;
+
         let mut pod_sandbox_status = Vec::with_capacity(1);
         self.runtime.get_pod(
             &name,
@@ -290,8 +303,9 @@ impl RuntimeService for ProxyingRuntimeService {
             &mut pod_sandbox_status,
         );
         let timestamp = now();
-        pod_sandbox_status.pop().map_or(
-            Err(Status::not_found("pod-sandbox-not-found")),
+
+        pod_sandbox_status.pop().map_or_else(
+            || Err(anyhow!("Pod sandbox not found: {:?}", name)).log_error(&name),
             |(pod_status, container_statuses)| {
                 Ok(Response::new(v1::PodSandboxStatusResponse {
                     status: Some(pod_status),
@@ -355,7 +369,10 @@ impl RuntimeService for ProxyingRuntimeService {
                 .map(map_oci_prefix!(container_id))
         });
 
-        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
+        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)
+            .context("Invalid pod sandbox ID")
+            .log_error(GlobalLogs)?;
+
         let config = request.config.unwrap_or_default();
         //let component = component_name_from_labels(&config.labels)?;
 
@@ -382,9 +399,7 @@ impl RuntimeService for ProxyingRuntimeService {
         // No particular reason there can't be annotations or a user specified image;
         // just keeping a minimum API surface while we figure things out.
         if !image_spec.annotations.is_empty() {
-            return Err(Status::invalid_argument(
-                "create-container-image-annotations",
-            ));
+            return Err(anyhow!("Image spec annotations are unsupported")).log_error(&name);
         }
         //if !image_spec.user_specified_image.is_empty() {
         //    return Err(Status::invalid_argument(
@@ -400,13 +415,15 @@ impl RuntimeService for ProxyingRuntimeService {
         // The CRI API has separate steps for creating pods and creating containers,
         // but a component pod is inseparable from its single container,
         // so "pods" and containers are created simultaneously.
-        self.runtime.create_container(
-            &name,
-            &config.metadata,
-            &config.labels,
-            &config.annotations,
-            &environment,
-        )?;
+        self.runtime
+            .create_container(
+                &name,
+                &config.metadata,
+                &config.labels,
+                &config.annotations,
+                &environment,
+            )
+            .log_error(&name)?;
 
         Ok(Response::new(v1::CreateContainerResponse {
             container_id: container_prefix(name),
@@ -427,8 +444,11 @@ impl RuntimeService for ProxyingRuntimeService {
                 .await
         });
 
-        let name = parse_container_prefixed_name(&request.container_id)?;
-        self.runtime.start_container(&name).await?;
+        let name = parse_container_prefixed_name(&request.container_id)
+            .context("Invalid container ID")
+            .log_error(GlobalLogs)?;
+
+        self.runtime.start_container(&name).await.log_error(&name)?;
 
         Ok(Response::new(v1::StartContainerResponse {}))
     }
@@ -447,9 +467,15 @@ impl RuntimeService for ProxyingRuntimeService {
                 .await
         });
 
-        let name = parse_container_prefixed_name(&request.container_id)?;
+        let name = parse_container_prefixed_name(&request.container_id)
+            .context("Invalid container ID")
+            .log_error(GlobalLogs)?;
+
         let timeout = Duration::from_secs(request.timeout.try_into().unwrap_or(0));
-        self.runtime.stop_container(&name, timeout).await?;
+        self.runtime
+            .stop_container(&name, timeout)
+            .await
+            .log_error(&name)?;
 
         Ok(Response::new(v1::StopContainerResponse {}))
     }
@@ -468,8 +494,11 @@ impl RuntimeService for ProxyingRuntimeService {
                 .await
         });
 
-        let name = parse_container_prefixed_name(&request.container_id)?;
-        self.runtime.remove_container(&name)?;
+        let name = parse_container_prefixed_name(&request.container_id)
+            .context("Invalid container ID")
+            .log_error(GlobalLogs)?;
+
+        self.runtime.remove_container(&name).log_error(&name)?;
 
         Ok(Response::new(v1::RemoveContainerResponse {}))
     }
@@ -524,7 +553,10 @@ impl RuntimeService for ProxyingRuntimeService {
                 .map(map_oci_prefix!(status, id))
         });
 
-        let name = parse_container_prefixed_name(&request.container_id)?;
+        let name = parse_container_prefixed_name(&request.container_id)
+            .context("Invalid container ID")
+            .log_error(GlobalLogs)?;
+
         let mut container_status = Vec::with_capacity(1);
         self.runtime.get_container(
             &name,
@@ -533,14 +565,16 @@ impl RuntimeService for ProxyingRuntimeService {
             &cri_container_status,
             &mut container_status,
         );
-        container_status
-            .pop()
-            .map_or(Err(Status::not_found("container-not-found")), |status| {
+
+        container_status.pop().map_or_else(
+            || Err(anyhow!("Container not found: {:?}", name)).log_error(&name),
+            |status| {
                 Ok(Response::new(v1::ContainerStatusResponse {
                     status: Some(status),
                     info: HashMap::default(),
                 }))
-            })
+            },
+        )
     }
 
     async fn update_container_resources(
@@ -784,7 +818,7 @@ impl RuntimeService for ProxyingRuntimeService {
         todo!()
     }
 
-    type GetContainerEventsStream = ReceiverStream<Result<v1::ContainerEventResponse>>;
+    type GetContainerEventsStream = ReceiverStream<StdResult<v1::ContainerEventResponse, Status>>;
 
     async fn get_container_events(
         &self,

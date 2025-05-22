@@ -19,7 +19,7 @@ rust_binary(
     visibility = ["//visibility:public"],
     deps = [
         ":cri-api-prost",
-        ":error",
+        ":logging",
         ":metadata-prost",
         ":names",
         "//work/runtime/decode",
@@ -32,8 +32,7 @@ rust_binary(
         "@crates//:http",
         "@crates//:hyper-util",
         "@crates//:lazy_static",
-        "@crates//:log",
-        "@crates//:opentelemetry-appender-log",
+        "@crates//:opentelemetry-appender-tracing",
         "@crates//:opentelemetry-stdout",
         "@crates//:opentelemetry_sdk",
         "@crates//:papaya",
@@ -47,17 +46,9 @@ rust_binary(
         "@crates//:tokio-stream",
         "@crates//:tonic",
         "@crates//:tower",
+        "@crates//:tracing",
+        "@crates//:tracing-subscriber",
         "@crates//:wasmtime",
-    ],
-)
-
-rust_library(
-    name = "error",
-    srcs = ["error.rs"],
-    visibility = [":__subpackages__"],
-    deps = [
-        "@crates//:log",
-        "@crates//:tonic",
     ],
 )
 
@@ -66,16 +57,24 @@ rust_library(
     srcs = ["names.rs"],
     visibility = [":__subpackages__"],
     deps = [
-        ":error",
+        "@crates//:anyhow",
         "@crates//:lazy_static",
         "@crates//:regex",
-        "@crates//:tonic",
     ],
 )
 
 rust_test(
     name = "names-test",
     crate = ":names",
+)
+
+rust_library(
+    name = "logging",
+    srcs = ["logging.rs"],
+    deps = [
+        ":names",
+        "@crates//:tracing",
+    ],
 )
 
 exports_files(["metadata.proto"])
@@ -89,7 +88,10 @@ proto_library(
 rust_prost_library(
     name = "metadata-prost",
     proto = "metadata-proto",
-    visibility = [":__subpackages__"],
+    visibility = [
+        ":__subpackages__",
+        "//protoc-gen-vimana:__pkg__",
+    ],
 )
 
 rust_prost_library(

@@ -14,16 +14,15 @@
 //! - [`PodName`]
 #![feature(portable_simd)]
 
-use std::fmt::{Display, Formatter, Result as FmtResult, Write};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult, Write};
 use std::simd::cmp::SimdPartialOrd;
 use std::simd::{simd_swizzle, u8x16, u8x32};
+use std::slice::from_ref;
 use std::str;
 
+use anyhow::{anyhow, Context, Result};
 use lazy_static::lazy_static;
 use regex::Regex;
-use tonic::{Code, Status};
-
-use error::{log_error_status, Result};
 
 const DOMAIN_SEPARATOR: char = ':';
 const VERSION_SEPARATOR: char = '@';
@@ -104,7 +103,7 @@ impl<'a> Name<'a> {
                 }
             }
         }
-        Err(Status::invalid_argument("invalid-component-name"))
+        Err(anyhow!("Invalid component name: {:?}", self))
     }
 
     /// If the domain, version, and pod ID are all explicitly present and valid,
@@ -116,16 +115,12 @@ impl<'a> Name<'a> {
                 if let Some(pod) = self.pod {
                     let component =
                         ComponentName::new(DomainUuid::parse(domain)?, self.service, version)?;
-                    let pod = usize::from_str_radix(pod, 16).map_err(log_error_status!(
-                        Code::InvalidArgument,
-                        "invalid-pod-id",
-                        &component
-                    ))?;
+                    let pod = usize::from_str_radix(pod, 16).context("Invalid pod ID")?;
                     return Ok(PodName::new(component, pod));
                 }
             }
         }
-        Err(Status::invalid_argument("invalid-pod-name"))
+        Err(anyhow!("Invalid pod name: {:?}", self))
     }
 }
 
@@ -140,6 +135,26 @@ fn parse_version<'a>(version: &'a str) -> (Option<&'a str>, Option<&'a str>) {
     (Some(version), pod)
 }
 
+impl<'a> Debug for Name<'a> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+        formatter.write_char('"')?;
+        if let Some(domain) = self.domain {
+            formatter.write_str(domain)?;
+            formatter.write_char(DOMAIN_SEPARATOR)?;
+        }
+        formatter.write_str(self.service)?;
+        if let Some(version) = self.version {
+            formatter.write_char(VERSION_SEPARATOR)?;
+            formatter.write_str(version)?;
+            if let Some(pod) = self.pod {
+                formatter.write_char(POD_ID_SEPARATOR)?;
+                formatter.write_str(pod)?;
+            }
+        }
+        formatter.write_char('"')
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DomainUuid {
     /// The UUID part of a canonical domain represents 128 bits.
@@ -151,15 +166,13 @@ impl DomainUuid {
     pub fn parse(uuid: &str) -> Result<Self> {
         // The hex-encoded UUID string must be 32 bytes long
         // (1 logical nibble per hex-encoded byte).
-        if uuid.len() < 32 {
-            return Err(Status::invalid_argument("domain-uuid-too-short"));
+        if uuid.len() == 32 {
+            Ok(Self {
+                uuid: unhexify(u8x32::from_slice(uuid.as_bytes()))?,
+            })
+        } else {
+            Err(anyhow!("Incorrect domain UUID length: {:?}", uuid.len()))
         }
-        if uuid.len() > 32 {
-            return Err(Status::invalid_argument("domain-uuid-too-long"));
-        }
-        Ok(Self {
-            uuid: unhexify(u8x32::from_slice(uuid.as_bytes()))?,
-        })
     }
 
     pub fn new(bytes: &[u8; 16]) -> Self {
@@ -193,18 +206,18 @@ impl ServiceName {
     where
         S: Into<String>,
     {
-        let service = service.into();
+        let service: String = service.into();
         if is_valid_service_name(&service) {
             Ok(Self { domain, service })
         } else {
-            Err(Status::invalid_argument("invalid-service-name"))
+            Err(anyhow!("Invalid service name: {:?}", service))
         }
     }
 }
 
 impl Display for ServiceName {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        self.domain.fmt(formatter)?;
+        Display::fmt(&self.domain, formatter)?;
         formatter.write_char(DOMAIN_SEPARATOR)?;
         formatter.write_str(&self.service)
     }
@@ -224,21 +237,21 @@ impl ComponentName {
         S: Into<String>,
         V: Into<String>,
     {
-        let version = version.into();
+        let version: String = version.into();
         if is_valid_version(&version) {
             Ok(Self {
                 service: ServiceName::new(domain, service)?,
                 version,
             })
         } else {
-            Err(Status::invalid_argument("invalid-version"))
+            Err(anyhow!("Invalid version: {:?}", version))
         }
     }
 }
 
 impl Display for ComponentName {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        self.service.fmt(formatter)?;
+        Display::fmt(&self.service, formatter)?;
         formatter.write_char(VERSION_SEPARATOR)?;
         formatter.write_str(&self.version)
     }
@@ -263,7 +276,7 @@ impl PodName {
 
 impl Display for PodName {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        self.component.fmt(formatter)?;
+        Display::fmt(&self.component, formatter)?;
         formatter.write_char(POD_ID_SEPARATOR)?;
         formatter.write_fmt(format_args!("{:x}", self.pod))
     }
@@ -331,8 +344,8 @@ fn is_valid_version(version: &str) -> bool {
 /// to a nibblewise little-endian hex-encoded array of thirty-two bytes.
 /// This is the inverse of [unhexify].
 pub fn hexify(bytes: u8x16) -> u8x32 {
-    let upper_nibbles = bytes / SIXTEEN_16;
     let lower_nibbles = bytes % SIXTEEN_16;
+    let upper_nibbles = bytes / SIXTEEN_16;
     let nibbles = simd_swizzle!(
         lower_nibbles,
         upper_nibbles,
@@ -356,7 +369,10 @@ pub fn unhexify(hex_bytes: u8x32) -> Result<u8x16> {
         || hex_bytes.simd_gt(ASCII_F_32).any()
         || (hex_bytes.simd_gt(ASCII_NINE_32) & hex_bytes.simd_lt(ASCII_A_32)).any()
     {
-        return Err(Status::invalid_argument("unhexify-invalid-characters"));
+        return Err(anyhow!(
+            "Invalid hex characters: {:?}",
+            String::from_utf8_lossy(hex_bytes.as_array())
+        ));
     }
     // Convert to logical nibbles
     // by subtracting ASCII 'a' from each byte that's greater than ASCII '9',
@@ -403,7 +419,7 @@ pub fn hexify_string(string: &str) -> String {
 pub fn unhexify_string(hex_string: &str) -> Result<String> {
     let hex_length = hex_string.len();
     if hex_length % 2 != 0 {
-        return Err(Status::invalid_argument("odd-length-hex-string"));
+        return Err(anyhow!("Odd-length hex string"));
     }
     let mut output = Vec::with_capacity(hex_length / 2);
     let chunks = hex_string.as_bytes().chunks_exact(32);
@@ -416,22 +432,21 @@ pub fn unhexify_string(hex_string: &str) -> Result<String> {
         output.push(unhexify_nibble(byte[0])? + (unhexify_nibble(byte[1])? << 4));
     }
 
-    String::from_utf8(output).map_err(|_| Status::invalid_argument("unhexify-string-invalid-utf8"))
+    Ok(String::from_utf8(output).context("Hex string represents invalid UTF-8")?)
 }
 
 #[inline(always)]
 fn unhexify_nibble(hex_nibble: u8) -> Result<u8> {
-    if hex_nibble >= b'0' {
-        if hex_nibble <= b'9' {
-            return Ok(hex_nibble - b'0');
-        }
-        if hex_nibble >= b'a' && hex_nibble <= b'f' {
-            return Ok(hex_nibble - (b'a' - 10));
-        }
+    if hex_nibble >= b'0' && hex_nibble <= b'9' {
+        Ok(hex_nibble - b'0')
+    } else if hex_nibble >= b'a' && hex_nibble <= b'f' {
+        Ok(hex_nibble - (b'a' - 10))
+    } else {
+        Err(anyhow!(
+            "Invalid hex character: {:?}",
+            String::from_utf8_lossy(from_ref(&hex_nibble))
+        ))
     }
-    Err(Status::invalid_argument(
-        "unhexify-nibble-invalid-character",
-    ))
 }
 
 #[cfg(test)]
@@ -505,7 +520,7 @@ mod tests {
             let pod_name = Name::parse(&name).pod();
 
             assert!(pod_name.is_err());
-            assert_eq!(pod_name.unwrap_err().message(), "invalid-pod-id",);
+            assert_eq!(pod_name.unwrap_err().to_string(), "Invalid pod ID",);
         }
     }
 
@@ -552,7 +567,10 @@ mod tests {
             let component = Name::parse(&name).component();
 
             assert!(component.is_err());
-            assert_eq!(component.unwrap_err().message(), "invalid-version");
+            assert_eq!(
+                component.unwrap_err().to_string(),
+                format!("Invalid version: {:?}", version),
+            );
         }
     }
 
@@ -570,7 +588,10 @@ mod tests {
             let component = Name::parse(&name).component();
 
             assert!(component.is_err());
-            assert_eq!(component.unwrap_err().message(), "invalid-service-name");
+            assert_eq!(
+                component.unwrap_err().to_string(),
+                format!("Invalid service name: {:?}", service),
+            );
         }
     }
 
@@ -601,7 +622,10 @@ mod tests {
         let domain_uuid = DomainUuid::parse(domain);
 
         assert!(domain_uuid.is_err());
-        assert_eq!(domain_uuid.unwrap_err().message(), "domain-uuid-too-short");
+        assert_eq!(
+            domain_uuid.unwrap_err().to_string(),
+            "Incorrect domain UUID length: 31",
+        );
     }
 
     #[test]
@@ -612,7 +636,10 @@ mod tests {
         let domain_uuid = DomainUuid::parse(domain);
 
         assert!(domain_uuid.is_err());
-        assert_eq!(domain_uuid.unwrap_err().message(), "domain-uuid-too-long");
+        assert_eq!(
+            domain_uuid.unwrap_err().to_string(),
+            "Incorrect domain UUID length: 33",
+        );
     }
 
     #[test]
@@ -624,8 +651,8 @@ mod tests {
 
         assert!(domain_uuid.is_err());
         assert_eq!(
-            domain_uuid.unwrap_err().message(),
-            "unhexify-invalid-characters"
+            domain_uuid.unwrap_err().to_string(),
+            "Invalid hex characters: \"1234567890ABCDEF1234567890ABCDEF\"",
         );
     }
 
@@ -660,16 +687,16 @@ mod tests {
     #[test]
     fn unhexify_string_odd_length() {
         assert_eq!(
-            unhexify_string("4786963").unwrap_err().message(),
-            "odd-length-hex-string",
+            unhexify_string("4786963").unwrap_err().to_string(),
+            "Odd-length hex string",
         );
     }
 
     #[test]
     fn unhexify_string_non_hex() {
         assert_eq!(
-            unhexify_string("nonhex").unwrap_err().message(),
-            "unhexify-nibble-invalid-character",
+            unhexify_string("nonhex").unwrap_err().to_string(),
+            "Invalid hex character: \"n\"",
         );
     }
 
@@ -678,16 +705,16 @@ mod tests {
         assert_eq!(
             unhexify_string("nonhexnonhexnonhexnonhexnonhexnonhexnonhexnonhex")
                 .unwrap_err()
-                .message(),
-            "unhexify-invalid-characters",
+                .to_string(),
+            "Invalid hex characters: \"nonhexnonhexnonhexnonhexnonhexno\"",
         );
     }
 
     #[test]
     fn unhexify_string_non_utf8() {
         assert_eq!(
-            unhexify_string("c328").unwrap_err().message(),
-            "unhexify-string-invalid-utf8",
+            unhexify_string("c328").unwrap_err().to_string(),
+            "Hex string represents invalid UTF-8",
         );
     }
 }

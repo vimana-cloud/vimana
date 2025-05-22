@@ -3,8 +3,10 @@
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
+use std::result::Result as StdResult;
 use std::sync::Arc;
 
+use anyhow::{anyhow, Context, Error, Result};
 use axum::body::Body as AxumBody;
 use axum::routing::method_routing::post;
 use futures::future::Shared;
@@ -16,15 +18,16 @@ use tonic::codec::{Codec as TonicCodec, EnabledCompressionEncodings};
 use tonic::metadata::KeyAndValueRef;
 use tonic::server::{Grpc, UnaryService};
 use tonic::service::Routes;
-use tonic::{Code, Request as TonicRequest, Response as TonicResponse, Status};
+use tonic::{Request as TonicRequest, Response as TonicResponse, Status};
 use wasmtime::component::{ComponentExportIndex, InstancePre, Val};
 use wasmtime::{Engine as WasmEngine, Store};
 
 use crate::containers::ContainerStore;
 use crate::host::{grpc_linker, HostState};
+use crate::state::SingleUse;
 use decode::RequestDecoder;
 use encode::ResponseEncoder;
-use error::{log_error_status, log_warn, Result};
+use logging::log_warn;
 use metadata_proto::work::runtime::Field;
 use names::ComponentName;
 
@@ -44,7 +47,13 @@ pub(crate) struct PodInitializer {
 /// Pod initialization starts asynchronously during `RunPodSandbox`,
 /// then may be completed by another thread during `StartContainer`,
 /// so it must use a [`Shared`] future.
-pub(crate) type SharedResultFuture<T> = Shared<Pin<Box<dyn Future<Output = Result<T>> + Send>>>;
+///
+/// Make the error [`SingleUse`] so it satisfies the [`Clone`] requirement
+/// and can be converted to an unwrapped [`Error`] later.
+/// Ideally, this would be something `anyhow` could support natively instead:
+/// https://github.com/dtolnay/anyhow/issues/405.
+pub(crate) type SharedResultFuture<T> =
+    Shared<Pin<Box<dyn Future<Output = StdResult<Arc<T>, SingleUse<Error>>> + Send>>>;
 
 impl PodInitializer {
     pub(crate) fn new(containers: ContainerStore) -> Self {
@@ -57,7 +66,7 @@ impl PodInitializer {
         &self,
         wasmtime: &WasmEngine,
         name: Arc<ComponentName>,
-    ) -> (SharedResultFuture<Arc<Routes>>, AbortHandle) {
+    ) -> (SharedResultFuture<Routes>, AbortHandle) {
         // Complete all work in a background task so it can proceed without polling.
         let task = spawn(initialize_grpc(
             wasmtime.clone(),
@@ -70,11 +79,12 @@ impl PodInitializer {
 
         // Only potential join errors have to be handled in the foreground.
         let future = task
-            .map(move |recv_result| {
-                recv_result.map_err(
-                    // Background task join error.
-                    log_error_status!("initialize-grpc-join", name.as_ref()),
-                )?
+            .map(|result| {
+                result
+                    .context("Failure joining initialize-gRPC background task")
+                    .map_err(SingleUse::of)?
+                    .context("Failure initializing gRPC pod")
+                    .map_err(SingleUse::of)
             })
             .boxed()
             .shared();
@@ -88,17 +98,16 @@ async fn initialize_grpc(
     wasmtime: WasmEngine,
     containers: ContainerStore,
     name: Arc<ComponentName>,
-) -> Result<Arc<Routes>> {
+) -> StdResult<Arc<Routes>, Error> {
     let container = containers.get(name.as_ref()).await?;
     let metadata = (&container.metadata.grpc)
         .as_ref()
-        .ok_or(Status::failed_precondition("not-grpc"))?;
+        .ok_or(anyhow!("gRPC metadata is empty"))?;
 
-    let linker = grpc_linker(name.as_ref(), &wasmtime)?;
-    let instantiator = linker.instantiate_pre(&container.component).map_err(
-        // Linker error.
-        log_error_status!("linker-instantiate-pre", name.as_ref()),
-    )?;
+    let linker = grpc_linker(&wasmtime)?;
+    let instantiator = linker
+        .instantiate_pre(&container.component)
+        .context("Linking error")?;
 
     let mut method_router = Routes::default().into_axum_router();
     for (method_name, method) in metadata.methods.iter() {
@@ -106,20 +115,18 @@ async fn initialize_grpc(
             method
                 .request
                 .as_ref()
-                .ok_or(Status::failed_precondition("metadata-missing-request"))?,
+                .ok_or(anyhow!("Metadata missing request"))?,
             method
                 .response
                 .as_ref()
-                .ok_or(Status::failed_precondition("metadata-missing-response"))?,
+                .ok_or(anyhow!("Metadata missing response"))?,
             name.clone(),
         )?;
 
         let (_, export_index) = container
             .component
             .export_index(None, &method.function)
-            .ok_or_else(|| {
-                log_error_status!("component-function-lookup", name.as_ref())(&method.function)
-            })?;
+            .ok_or_else(|| anyhow!("Function not found: {:?}", method.function))?;
 
         let method = Method(Arc::new(MethodInner {
             function: export_index,
@@ -233,11 +240,12 @@ impl TonicCodec for Codec {
     }
 }
 
-type BoxFuture<T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'static>>;
+type BoxedStatusResultFuture<T> =
+    Pin<Box<dyn Future<Output = StdResult<T, Status>> + Send + 'static>>;
 
 impl UnaryService<Val> for Method {
     type Response = Val;
-    type Future = BoxFuture<TonicResponse<Self::Response>>;
+    type Future = BoxedStatusResultFuture<TonicResponse<Self::Response>>;
 
     fn call(&mut self, request: TonicRequest<Val>) -> Self::Future {
         let method = self.clone();
@@ -249,18 +257,18 @@ impl UnaryService<Val> for Method {
                 .instantiator
                 .instantiate_async(&mut store)
                 .await
-                .map_err(log_error_status!(
-                    Code::Internal,
-                    "instantiate",
-                    method.0.component.as_ref()
-                ))?;
+                .map_err(|error| {
+                    // TODO: Log these errors.
+                    let _component = method.0.component.as_ref();
+                    Status::internal("Module instantiation error")
+                })?;
 
             let function = instance
                 .get_func(&mut store, &method.0.function)
                 .ok_or_else(|| {
-                    log_error_status!("function-not-found", method.0.component.as_ref())(
-                        method.0.function,
-                    )
+                    // TODO: Log these errors.
+                    let _function_index = &method.0.function;
+                    Status::internal("Function selection error")
                 })?;
 
             let (metadata, extensions, request) = request.into_parts();
@@ -274,19 +282,20 @@ impl UnaryService<Val> for Method {
                             let value = String::from(value);
                             headers.push(Val::Tuple(vec![Val::String(key), Val::String(value)]));
                         } else {
+                            // Silently ignore non-ASCII header value, but log a warning.
                             log_warn!(
-                                "request-header-non-ascii-value",
-                                method.0.component.as_ref(),
-                                (key, value)
+                                component: method.0.component.as_ref(),
+                                "Non-ASCII request header value: {:?} = {:?}",
+                                key, value,
                             );
                         }
                     }
                     KeyAndValueRef::Binary(key, value) => {
-                        // Silently ignore non-ASCII header, but log a warning.
+                        // Silently ignore non-ASCII header key, but log a warning.
                         log_warn!(
-                            "request-header-non-ascii",
-                            method.0.component.as_ref(),
-                            (key, value)
+                            component: method.0.component.as_ref(),
+                            "Non-ASCII request header: {:?} = {:?}",
+                            key, value,
                         );
                     }
                 }
@@ -302,10 +311,11 @@ impl UnaryService<Val> for Method {
             function
                 .call_async(&mut store, &parameters, &mut results)
                 .await
-                .map_err(log_error_status!(
-                    "invoke-function",
-                    method.0.component.as_ref()
-                ))?;
+                .map_err(|error| {
+                    // TODO: Log these errors.
+                    let _component = method.0.component.as_ref();
+                    Status::internal("Function invocation error")
+                })?;
 
             let response = TonicResponse::new(
                 // Should be safe to pop since we initialized it with an item.

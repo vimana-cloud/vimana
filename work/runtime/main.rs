@@ -7,7 +7,7 @@
 //!   fields requests from Ingress to all hosted services.
 //! - Unix `/run/vimana/workd.sock`
 //!   handles orchestration requests from Kubelet.
-#![feature(array_chunks)]
+#![feature(portable_simd)]
 
 mod containers;
 mod cri;
@@ -27,8 +27,7 @@ use std::sync::Arc;
 use clap::Parser;
 use futures::FutureExt;
 use hyper_util::rt::TokioIo;
-use log::{set_boxed_logger, set_max_level, LevelFilter};
-use opentelemetry_appender_log::OpenTelemetryLogBridge;
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::logs::LoggerProvider;
 use opentelemetry_stdout::LogExporter as StdoutLogExporter;
 use serde::Deserialize;
@@ -40,6 +39,8 @@ use tokio::sync::oneshot;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Endpoint, Server};
 use tower::service_fn;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::registry::Registry;
 use wasmtime::{Config as WasmConfig, Engine as WasmEngine};
 
 use api_proto::runtime::v1::image_service_client::ImageServiceClient;
@@ -94,9 +95,9 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     let logger_provider = LoggerProvider::builder()
         .with_simple_exporter(StdoutLogExporter::default())
         .build();
-    set_boxed_logger(Box::new(OpenTelemetryLogBridge::new(&logger_provider)))
-        .expect("Error setting up logger");
-    set_max_level(LevelFilter::Info);
+    Registry::default()
+        .with(OpenTelemetryTracingBridge::new(&logger_provider))
+        .init();
 
     // Read the JSON config file.
     let config = if let Ok(config_file) = File::open(CONFIG_PATH) {

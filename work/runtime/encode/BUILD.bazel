@@ -9,9 +9,9 @@ rust_library(
     ],
     visibility = ["//work/runtime:__subpackages__"],
     deps = [
-        "//work/runtime:error",
         "//work/runtime:metadata-prost",
         "//work/runtime:names",
+        "@crates//:anyhow",
         "@crates//:prost",
         "@crates//:tonic",
         "@crates//:wasmtime",

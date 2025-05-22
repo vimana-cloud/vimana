@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
 use std::time::{Duration, SystemTime};
 
+use anyhow::{anyhow, Error, Result};
 use futures::future::Shared;
 use papaya::{Compute, HashMap as LockFreeConcurrentHashMap, Operation};
 use tokio::select;
@@ -17,14 +18,13 @@ use tokio::time::timeout;
 use tonic::service::Routes;
 use tonic::transport::server::TcpIncoming;
 use tonic::transport::{Error as ServerError, Server};
-use tonic::Status;
 use wasmtime::Engine as WasmEngine;
 
 use crate::containers::ContainerStore;
 use crate::ipam::{IpAddress, Ipam};
 use crate::pods::{PodInitializer, SharedResultFuture, GRPC_PORT};
 use api_proto::runtime::v1::{ContainerMetadata, PodSandboxMetadata};
-use error::{log_error, log_error_status, log_info, log_warn, Result};
+use logging::{log_info, log_warn};
 use names::{ComponentName, PodId, PodName};
 
 const VIMANA_LABEL_PREFIX: &str = "vimana.host/";
@@ -111,7 +111,7 @@ pub(crate) struct Pod {
 
     /// Axum router implementing the pod.
     /// Starts initializing as soon as possible.
-    routes: SharedResultFuture<Arc<Routes>>,
+    routes: SharedResultFuture<Routes>,
 
     /// K8s metadata. Must be returned as-is for status requests.
     pub(crate) pod_sandbox_metadata: PodSandboxMetadata,
@@ -187,28 +187,26 @@ impl WorkRuntime {
     /// and then [started](Self::start_container) therein.
     pub(crate) async fn init_pod(
         &self,
-        component_name: ComponentName,
+        component_name: Arc<ComponentName>,
         pod_sandbox_metadata: PodSandboxMetadata,
         labels: HashMap<String, String>,
         annotations: HashMap<String, String>,
     ) -> Result<PodName> {
-        // TODO: Does the pod ID have to be unique within a node, or across all nodes?
+        // TODO: Does the pod sandbox / container ID have to be unique within a node,
+        //   or across all nodes?
         //   if the latter, figure out how to get a unique node ID involved somehow.
         let pod_id = self.next_pod_id.fetch_add(1, Ordering::Relaxed);
-        let pod_name = PodName::new(component_name.clone(), pod_id);
-        let component_name = Arc::new(component_name);
+        let pod_name = PodName::new(component_name.as_ref().clone(), pod_id);
 
         // Start initializing the pod immediately in a background task.
-        let (routes, abort_routes) = self.pod_store.grpc(&self.wasmtime, component_name.clone());
+        let (routes_future, abort_routes) =
+            self.pod_store.grpc(&self.wasmtime, component_name.clone());
 
         let ip_address = self
             .ipam
             .address(&pod_name, &self.network_interface)
             .await
             .map_err(|error| {
-                // TODO:
-                //   Does aborting here also abort clones
-                //   (like pre-fetching due to `PullImage`)? Is that what we want?
                 abort_routes.abort();
                 error
             })?;
@@ -217,7 +215,7 @@ impl WorkRuntime {
             state: PodState::Initiated,
             ip_address,
             component_name,
-            routes,
+            routes: routes_future,
             pod_sandbox_metadata,
             pod_labels: labels,
             pod_annotations: annotations,
@@ -236,12 +234,12 @@ impl WorkRuntime {
         let pods = self.pods.pin();
         match pods.try_insert(pod_id, pod) {
             Ok(_) => {
-                log_info!("initialize-pod-success", &pod_name.component, pod_name.pod);
+                log_info!(pod: &pod_name, "Successful pod initialization");
                 Ok(pod_name)
             }
             Err(_) => {
                 // Impossible unless the number of pods overflows `usize`.
-                Err(Status::internal("pod-id-collision"))
+                Err(anyhow!("Pod id collision: {:?}", pod_id))
             }
         }
     }
@@ -290,35 +288,30 @@ impl WorkRuntime {
                             && pod.container_annotations == *annotations
                             && pod.environment == *environment
                         {
-                            log_info!("create-container-idempotent", &name.component, pod.state);
+                            log_info!(pod: name, "Idempotent container creation");
                             Operation::Abort(None)
                         } else {
                             // Cannot re-create the container with a different environment.
-                            Operation::Abort(Some(log_error_status!(
-                                "container-already-created",
-                                &name.component
-                            )(())))
+                            Operation::Abort(Some(anyhow!("Container already created")))
                         }
                     }
-                    PodState::Stopped | PodState::Killed => Operation::Abort(Some(
-                        log_error_status!("create-container-bad-state", &name.component)(pod.state),
-                    )),
+                    PodState::Stopped | PodState::Killed => {
+                        // Unexpected Kubelet behavior.
+                        Operation::Abort(Some(anyhow!("Bad prior state: {:?}", pod.state)))
+                    }
                 }
             }
-            None => Operation::Abort(Some(log_error_status!(
-                "create-container-not-found",
-                &name.component
-            )(()))),
+            None => Operation::Abort(Some(anyhow!("Pod not found"))),
         }) {
             Compute::Updated { old: _, new: _ } => {
-                log_info!("create-container-success", &name.component, name.pod);
+                log_info!(pod: name, "Successful container creation");
                 Ok(())
             }
             Compute::Aborted(None) => Ok(()),
             Compute::Aborted(Some(error)) => Err(error),
             _ => {
-                // Logically impossible (all possible compute outcomes are handled).
-                Err(Status::internal("create-container-impossible"))
+                // All possible compute outcomes should have been handled.
+                Err(anyhow!("State machine logical impossibility"))
             }
         }
     }
@@ -337,10 +330,7 @@ impl WorkRuntime {
             let _ = future.await;
             if self.start_container_without_wait(name)?.is_some() {
                 // This should never happen because we already know the server was ready.
-                return Err(log_error_status!(
-                    "start-container-impossible-unready",
-                    &name.component
-                )(()));
+                return Err(anyhow!("Logical impossibility (juggling routes future)"));
             }
         }
         Ok(())
@@ -354,7 +344,7 @@ impl WorkRuntime {
     fn start_container_without_wait(
         &self,
         name: &PodName,
-    ) -> Result<Option<SharedResultFuture<Arc<Routes>>>> {
+    ) -> Result<Option<SharedResultFuture<Routes>>> {
         let pods = self.pods.pin();
         match pods.compute(name.pod, |entry| match entry {
             Some((_, pod)) => match pod.state {
@@ -370,39 +360,37 @@ impl WorkRuntime {
                     Some(Err(init_error)) => {
                         // Propagate any initialization errors up the stack.
                         // It should have already been logged where it first occurred.
-                        Operation::Abort(StartContainerAbort::Error(init_error.clone()))
+                        Operation::Abort(StartContainerAbort::Error(init_error.take().unwrap_or(
+                            // If you see this in the logs,
+                            // the actual root cause should have been logged recently.
+                            anyhow!("Failed starting pod: cause already logged"),
+                        )))
                     }
                     None => {
                         // Still initializing; await the future then retry.
-                        log_info!("starting-container-waiting", &name.component, name.pod);
+                        log_info!(pod: name, "Waiting to start container");
                         Operation::Abort(StartContainerAbort::Waiting(pod.routes.clone()))
                     }
                 },
                 PodState::Starting | PodState::Running => {
-                    log_info!("starting-container-idempotent", &name.component, name.pod);
+                    log_info!(pod: name, "Idempotent container start");
                     Operation::Abort(StartContainerAbort::Done)
                 }
                 PodState::Initiated | PodState::Removed | PodState::Killed => {
                     // Unexpected Kubelet behavior.
-                    Operation::Abort(StartContainerAbort::Error(log_error_status!(
-                        "starting-container-bad-state",
-                        &name.component
-                    )(pod.state)))
+                    Operation::Abort(StartContainerAbort::Error(anyhow!(
+                        "Bad prior state: {:?}",
+                        pod.state,
+                    )))
                 }
             },
-            None => {
-                // Unexpected Kubelet behavior.
-                Operation::Abort(StartContainerAbort::Error(log_error_status!(
-                    "starting-container-not-found",
-                    &name.component
-                )(())))
-            }
+            None => Operation::Abort(StartContainerAbort::Error(anyhow!("Container not found"))),
         }) {
             Compute::Updated {
                 old: _,
                 new: (_, pod),
             } => {
-                log_info!("starting-container-success", &name.component, name.pod);
+                log_info!(pod: name, "Container starting");
 
                 // The only code path that results in `Compute::Updated`
                 // should have verified that the routes are ready and OK.
@@ -410,8 +398,13 @@ impl WorkRuntime {
                     .routes
                     .peek()
                     .clone()
-                    .ok_or(Status::internal("start-container-impossible"))?
-                    .clone()?;
+                    .ok_or(anyhow!(
+                        "Logical impossibility (routes future absent after checking)",
+                    ))?
+                    .clone()
+                    .map_err(|_| {
+                        anyhow!("Logical impossibility (routes future failed after checking)")
+                    })?;
                 let address = SocketAddr::new(pod.ip_address.address, GRPC_PORT);
                 // TODO: Revisit implications of nodelay.
                 let nodelay = true;
@@ -439,26 +432,23 @@ impl WorkRuntime {
                                 | PodState::Created
                                 | PodState::Running
                                 | PodState::Removed => {
-                                    log_error!(
-                                        "started-container-bind-error-bad-state",
-                                        &name.component,
-                                        &existing_pod.state
+                                    log_warn!(
+                                        pod: name,
+                                        "State changed while handling bind error: {:?}",
+                                        existing_pod.state,
                                     );
                                     Operation::Abort(())
                                 }
                             },
                             None => {
-                                log_error!(
-                                    "started-container-bind-error-not-found",
-                                    &name.component,
-                                    ()
+                                log_warn!(
+                                    pod: name,
+                                    "Container disappeared while handling bind error",
                                 );
                                 Operation::Abort(())
                             }
                         });
-                        Err(log_error_status!("bind-grpc-port", &name.component)(
-                            bind_error,
-                        ))
+                        Err(anyhow!(bind_error).context("Failed binding to port"))
                     },
                     |incoming| {
                         // Shut down the server gracefully when either:
@@ -476,7 +466,7 @@ impl WorkRuntime {
                         let task = spawn(
                             // [This suggestion](https://github.com/hyperium/tonic/pull/1893),
                             // (using Axum directly instead of Tonic)
-                            // obviates the need to implement Tonic's `NamedService`
+                            // obviates the need to implement Tonic's `NamedService`,
                             // which is not dyn-compatible.
                             Server::builder()
                                 .add_routes(routes.as_ref().clone())
@@ -502,20 +492,17 @@ impl WorkRuntime {
                                 | PodState::Running
                                 | PodState::Stopped
                                 | PodState::Removed
-                                | PodState::Killed => Operation::Abort(log_error_status!(
-                                    "started-container-bad-state",
-                                    &name.component
-                                )(
-                                    &existing_pod.state
+                                | PodState::Killed => Operation::Abort(anyhow!(
+                                    "State changed while starting: {:?}",
+                                    existing_pod.state
                                 )),
                             },
-                            None => Operation::Abort(log_error_status!(
-                                "started-container-not-found",
-                                &name.component
-                            )(())),
+                            None => {
+                                Operation::Abort(anyhow!("Container disappeared while starting"))
+                            }
                         }) {
                             Compute::Updated { old: _, new: _ } => {
-                                log_info!("started-container-success", &name.component, name.pod);
+                                log_info!(pod: name, "Successful container start");
                                 Ok(None)
                             }
                             Compute::Aborted(error) => {
@@ -528,7 +515,9 @@ impl WorkRuntime {
                                 // Logically impossible (all possible compute outcomes are handled).
                                 // Might as well clean up if this happens, though.
                                 pod.killer.take().map(ContainerKiller::forcefully_abort);
-                                Err(Status::internal("started-container-impossible"))
+                                Err(anyhow!(
+                                    "State machine logical impossibility (finalizing start)",
+                                ))
                             }
                         }
                     },
@@ -537,10 +526,9 @@ impl WorkRuntime {
             Compute::Aborted(StartContainerAbort::Done) => Ok(None),
             Compute::Aborted(StartContainerAbort::Waiting(future)) => Ok(Some(future)),
             Compute::Aborted(StartContainerAbort::Error(error)) => Err(error),
-            _ => {
-                // Logically impossible (all possible compute outcomes are handled).
-                Err(Status::internal("starting-container-impossible"))
-            }
+            _ => Err(anyhow!(
+                "State machine logical impossibility (initiating start)",
+            )),
         }
     }
 
@@ -552,9 +540,9 @@ impl WorkRuntime {
         if let Some(killer) = self.stop_container_without_wait(name)? {
             if !killer.kill_with_timeout(timeout).await {
                 log_warn!(
-                    "stop-container-stopped-forcefully",
-                    &name.component,
-                    name.pod
+                    pod: name,
+                    "Container stopped forcefully after {} seconds",
+                    timeout.as_secs(),
                 );
             }
         }
@@ -582,36 +570,30 @@ impl WorkRuntime {
                     Operation::Insert(pod)
                 }
                 PodState::Stopped => {
-                    log_info!("stop-container-idempotent", &name.component, pod.state);
+                    log_info!(pod: name, "Idempotent container stop");
                     Operation::Abort(None)
                 }
                 PodState::Initiated | PodState::Created | PodState::Removed | PodState::Killed => {
-                    Operation::Abort(Some(log_error_status!(
-                        "stop-container-bad-state",
-                        &name.component
-                    )(pod.state)))
+                    // Unexpected Kubelet behavior.
+                    Operation::Abort(Some(anyhow!("Bad prior state: {:?}", pod.state)))
                 }
             },
-            None => Operation::Abort(Some(log_error_status!(
-                "stop-container-not-found",
-                &name.component
-            )(()))),
+            None => Operation::Abort(Some(anyhow!("Container not found"))),
         }) {
             Compute::Updated {
                 old: _,
                 new: (_, pod),
             } => {
-                log_info!("stop-container-success", &name.component, name.pod);
+                log_info!(pod: name, "Successful container stop");
                 if prior_state == PodState::Running {
                     // If the pod was previously `Running`, then we have to kill it.
                     if let Some(killer) = pod.killer.take() {
                         Ok(Some(killer))
                     } else {
-                        // This situation should be logically impossible.
-                        Err(log_error_status!(
-                            "stop-container-no-killer",
-                            &name.component
-                        )(name.pod))
+                        // This situation should be logically impossible:
+                        // the pod should no longer be in the `Running` state
+                        // once the killer has been taken.
+                        Err(anyhow!("Running container is unkillable"))
                     }
                 } else {
                     // Otherwise, there's nothing to kill
@@ -622,8 +604,8 @@ impl WorkRuntime {
             Compute::Aborted(None) => Ok(None),
             Compute::Aborted(Some(error)) => Err(error),
             _ => {
-                // Logically impossible (all possible compute outcomes are handled).
-                Err(Status::internal("stop-container-impossible"))
+                // All possible compute outcomes should have been handled.
+                Err(anyhow!("State machine logical impossibility"))
             }
         }
     }
@@ -641,35 +623,32 @@ impl WorkRuntime {
                     Operation::Insert(pod)
                 }
                 PodState::Removed => {
-                    log_info!("remove-container-idempotent", &name.component, ());
+                    log_info!(pod: name, "Idempotent container removal");
                     Operation::Abort(None)
                 }
                 PodState::Initiated
                 | PodState::Created
                 | PodState::Starting
                 | PodState::Running
-                | PodState::Killed => Operation::Abort(Some(log_error_status!(
-                    "remove-container-bad-state",
-                    &name.component
-                )(pod.state))),
+                | PodState::Killed => {
+                    // Unexpected Kubelet behavior.
+                    Operation::Abort(Some(anyhow!("Bad prior state: {:?}", pod.state)))
+                }
             },
-            None => Operation::Abort(Some(log_error_status!(
-                "remove-container-not-found",
-                &name.component
-            )(()))),
+            None => Operation::Abort(Some(anyhow!("Container not found"))),
         }) {
             Compute::Updated {
                 old: _,
                 new: (_, _),
             } => {
-                log_info!("remove-container-success", &name.component, name.pod);
+                log_info!(pod: name, "Successful container removal");
                 Ok(())
             }
             Compute::Aborted(None) => Ok(()),
             Compute::Aborted(Some(error)) => Err(error),
             _ => {
-                // Logically impossible (all possible compute outcomes are handled).
-                Err(Status::internal("remove-container-impossible"))
+                // All possible compute outcomes should have been handled.
+                Err(anyhow!("State machine logical impossibility"))
             }
         }
     }
@@ -684,12 +663,14 @@ impl WorkRuntime {
             // If the pod must be killed, do that before freeing the IP address.
             if let Some(killer) = killer.take() {
                 // Give it a courtesy second to shut down gracefully.
+                // The kubelet should have first attempted to kill the container
+                // with an explicit grace period.
                 if !killer.kill_with_timeout(Duration::from_secs(1)).await {
-                    log_warn!("kill-pod-stopped-forcefully", &name.component, name.pod);
+                    log_warn!(pod: name, "Pod killed forcefully");
                 }
             }
-            let _ = ip_address.deactivate().await?;
-            let _ = ip_address.deallocate().await?;
+            ip_address.deactivate().await?;
+            ip_address.deallocate().await?;
         }
         Ok(())
     }
@@ -721,27 +702,24 @@ impl WorkRuntime {
                     Operation::Insert(pod)
                 }
                 PodState::Killed => {
-                    log_info!("kill-pod-idempotent", &name.component, name.pod);
+                    log_info!(pod: name, "Idempotent pod kill");
                     Operation::Abort(None)
                 }
             },
-            None => Operation::Abort(Some(log_error_status!(
-                "kill-pod-not-found",
-                &name.component
-            )(()))),
+            None => Operation::Abort(Some(anyhow!("Pod not found"))),
         }) {
             Compute::Updated {
                 old: _,
                 new: (_, pod),
             } => {
-                log_info!("kill-pod-success", &name.component, name.pod);
+                log_info!(pod: name, "Successful pod kill");
                 Ok(Some((pod.killer.clone(), pod.ip_address.clone())))
             }
             Compute::Aborted(None) => Ok(None),
             Compute::Aborted(Some(error)) => Err(error),
             _ => {
-                // Logically impossible (all possible compute outcomes are handled).
-                Err(Status::internal("kill-pod-impossible"))
+                // All possible compute outcomes should have been handled.
+                Err(anyhow!("State machine logical impossibility"))
             }
         }
     }
@@ -759,22 +737,20 @@ impl WorkRuntime {
                     // The CRI API promises
                     // that `StopPodSandbox` is called before `RemovePodSandbox`,
                     // so this should be impossible.
-                    Operation::Abort(log_error_status!("delete-pod-bad-state", &name.component)(
-                        pod.state,
-                    ))
+                    Operation::Abort(anyhow!("Bad prior state: {:?}", pod.state))
                 }
                 PodState::Killed => Operation::Remove,
             },
-            None => Operation::Abort(Status::internal("delete-pod-not-found")),
+            None => Operation::Abort(anyhow!("Pod not found")),
         }) {
             Compute::Removed(_, _) => {
-                log_info!("delete-pod-success", &name.component, name.pod);
+                log_info!(pod: name, "Successful pod deletion");
                 Ok(())
             }
             Compute::Aborted(error) => Err(error),
             _ => {
-                // Logically impossible (all possible compute outcomes are handled).
-                Err(Status::internal("delete-pod-impossible"))
+                // All possible compute outcomes should have been handled.
+                Err(anyhow!("State machine logical impossibility"))
             }
         }
     }
@@ -923,9 +899,7 @@ impl WorkRuntime {
 fn check_vimana_labels(
     left: &HashMap<String, String>,
     right: &HashMap<String, String>,
-    error_tag: &'static str,
-    name: &PodName,
-) -> Option<Status> {
+) -> Result<()> {
     let unmatched: Vec<(&String, &String)> = left
         .iter()
         .filter(|(key, value)| {
@@ -933,9 +907,9 @@ fn check_vimana_labels(
         })
         .collect();
     if unmatched.is_empty() {
-        None
+        Ok(())
     } else {
-        Some(log_error_status!(error_tag, &name.component)(unmatched))
+        Err(anyhow!("TODO"))
     }
 }
 
@@ -943,9 +917,9 @@ fn check_vimana_labels(
 /// See [`start_container`](WorkRuntime::start_container).
 enum StartContainerAbort {
     /// Pod is still initializing asynchronously.
-    Waiting(SharedResultFuture<Arc<Routes>>),
+    Waiting(SharedResultFuture<Routes>),
     /// There was a problem.
-    Error(Status),
+    Error(Error),
     /// Support idempotency if the pod is already started.
     Done,
 }
@@ -989,11 +963,11 @@ impl ContainerKiller {
 /// Can either be [empty](Self::default) or [populated](Self::of).
 /// When populated, the inner value can be [taken](Self::take) making the `SingleUse` empty.
 /// When empty, `take` returns an error.
-struct SingleUse<T>(Arc<SyncMutex<Option<T>>>);
+pub(crate) struct SingleUse<T>(Arc<SyncMutex<Option<T>>>);
 
 impl<T> SingleUse<T> {
     /// Return a populated handle with the given value.
-    fn of(value: T) -> Self {
+    pub(crate) fn of(value: T) -> Self {
         Self(Arc::new(SyncMutex::new(Some(value))))
     }
 

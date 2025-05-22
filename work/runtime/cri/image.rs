@@ -9,20 +9,19 @@
 
 use std::collections::HashMap;
 
+use anyhow::{anyhow, Context, Result};
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_client::ImageServiceClient;
 use api_proto::runtime::v1::image_service_server::ImageService;
-use api_proto::runtime::v1::ImageSpec;
 use lazy_static::lazy_static;
 use regex::Regex;
 use tokio::sync::Mutex as AsyncMutex;
 use tonic::transport::channel::Channel;
-use tonic::{async_trait, Request, Response, Status};
+use tonic::{async_trait, Request, Response};
 
 use crate::containers::ContainerStore;
 use crate::cri::runtime::CONTAINER_RUNTIME_NAME;
-use crate::cri::{component_name_from_labels, TonicResult};
-use error::Result;
+use crate::cri::{component_name_from_labels, GlobalLogs, LogErrorToStatus, TonicResult};
 use names::{unhexify_string, ComponentName, DomainUuid};
 
 /// Wrapper around [WorkRuntime] that implements [ImageService]
@@ -81,9 +80,11 @@ impl ImageService for ProxyingImageService {
         }
 
         let image_spec = request.image.unwrap_or_default();
-        let (registry, name) = registry_and_component_from_image_spec(&image_spec)?;
+        let (_registry, name) = registry_and_component_from_image_spec(&image_spec.image)
+            .with_context(|| format!("Invalid image ID: {:?}", image_spec.image))
+            .log_error(GlobalLogs)?;
 
-        let image = self.containers.get_image(&name).await?;
+        let image = self.containers.get_image(&name).await.log_error(&name)?;
 
         Ok(Response::new(v1::ImageStatusResponse {
             image: Some(image),
@@ -110,15 +111,30 @@ impl ImageService for ProxyingImageService {
         }
 
         let image_spec = request.image.unwrap_or_default();
-        let (registry, name) = registry_and_component_from_image_spec(&image_spec)?;
+        let (registry, name_from_image) = registry_and_component_from_image_spec(&image_spec.image)
+            .with_context(|| format!("Invalid image ID: {:?}", image_spec.image))
+            .log_error(GlobalLogs)?;
 
         // Invariant check:
         // make sure the component name from the image ID matches that from the pod's labels.
-        if name != component_name_from_labels(&request.sandbox_config.unwrap_or_default().labels)? {
-            return Err(Status::invalid_argument("pull-image-labels-mismatch"));
+        let pod_labels = &request.sandbox_config.unwrap_or_default().labels;
+        let name = component_name_from_labels(pod_labels)
+            .with_context(|| format!("Invalid pod labels: {:?}", pod_labels))
+            .log_error(&name_from_image)?;
+        if name_from_image != name {
+            return Err(anyhow!(
+                "Pod label mismatch: {:?} vs. {:?}",
+                name_from_image,
+                name,
+            ))
+            .log_error(&name);
         }
 
-        self.containers.pull(&registry, &name, image_spec).await?;
+        self.containers
+            .pull(&registry, &name, &image_spec)
+            .await
+            .with_context(|| format!("Error pulling image: {:?}", image_spec.image))
+            .log_error(&name)?;
 
         Ok(Response::new(v1::PullImageResponse {
             image_ref: name.to_string(),
@@ -170,15 +186,15 @@ impl ProxyingImageService {
     }
 }
 
-fn registry_and_component_from_image_spec(image: &ImageSpec) -> Result<(String, ComponentName)> {
+fn registry_and_component_from_image_spec(image_id: &str) -> Result<(String, ComponentName)> {
     lazy_static! {
         // Use a permissive regex to parse the image ID:
         //     <registry>/<domain>/<service-hex>:<version>
         static ref IMAGE_ID_RE: Regex = Regex::new(r"^([^/]*)/([^/]*)/([^:]*):(.*)$").unwrap();
     }
 
-    let Some(image_id) = IMAGE_ID_RE.captures(&image.image) else {
-        return Err(Status::internal("invalid-image-id"));
+    let Some(image_id) = IMAGE_ID_RE.captures(image_id) else {
+        return Err(anyhow!("Malformed image ID"));
     };
     let registry = &image_id[1];
     let domain = &image_id[2];

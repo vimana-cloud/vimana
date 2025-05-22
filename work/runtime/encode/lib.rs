@@ -4,18 +4,19 @@ mod compound;
 mod scalar;
 
 use std::collections::HashMap;
-use std::fmt::{Debug, Display, Write};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult, Write};
 use std::mem::ManuallyDrop;
 use std::ptr::fn_addr_eq;
+use std::result::Result as StdResult;
 use std::sync::Arc;
 
+use anyhow::{Context, Result};
 use metadata_proto::work::runtime::Field;
 use prost::encoding::WireType;
 use tonic::codec::{EncodeBuf, Encoder as TonicEncoder};
 use tonic::Status;
 use wasmtime::component::Val;
 
-use error::log_error_status;
 use names::ComponentName;
 
 /// Encodes a top-level response message (*without* tag or length).
@@ -30,7 +31,7 @@ struct ResponseEncoderInner {
     /// Encodes the protobuf contents.
     inner: Encoder,
 
-    /// Component name used for error messages only, shared to save memory.
+    /// Component name used for error logging only, shared to save memory.
     component: Arc<ComponentName>,
 }
 
@@ -76,13 +77,13 @@ type EncodeFn = fn(
     value: &Val,
     lengths: &mut Vec<u32>,
     buf: &mut EncodeBuf<'_>,
-) -> Result<(), EncodeError>;
+) -> StdResult<(), EncodeError>;
 
 /// Pre-compute the queue of sub-lengths for the given value, and subfields recursively,
 /// for [encoding](EncodeFn) to consume.
 /// Returns the total length of the serialized value, including the leading tag and length.
 type LengthFn =
-    fn(encoder: &Encoder, value: &Val, lengths: &mut Vec<u32>) -> Result<u32, EncodeError>;
+    fn(encoder: &Encoder, value: &Val, lengths: &mut Vec<u32>) -> StdResult<u32, EncodeError>;
 
 /// An error encountered during response encoding.
 struct EncodeError {
@@ -103,9 +104,10 @@ enum EncodeLevel {
 }
 
 impl ResponseEncoder {
-    pub fn new(response: &Field, component: Arc<ComponentName>) -> Result<Self, Status> {
+    pub fn new(response: &Field, component: Arc<ComponentName>) -> Result<Self> {
         Ok(Self(Arc::new(ResponseEncoderInner {
-            inner: Encoder::message_inner(response, component.as_ref())?,
+            inner: Encoder::message_inner(response, component.as_ref())
+                .context("Invalid response encoder")?,
             component: component,
         })))
     }
@@ -121,7 +123,13 @@ impl TonicEncoder for ResponseEncoder {
         let mut lengths = Vec::new();
         let result = (self.0.inner.length)(&self.0.inner, &item, &mut lengths)
             .and_then(|_length| (self.0.inner.encode)(&self.0.inner, &item, &mut lengths, dst))
-            .map_err(log_error_status!("encode-error", self.0.component.as_ref()));
+            .map_err(|error| {
+                // An encoding error indicates that the Wasm component returned an invalid value.
+                // Report this as an INTERNAL status to the caller and log it,
+                // because the implementation should have been checked for type correctness.
+                // TODO: log this.
+                Status::internal(error.to_string())
+            });
         // In tests, make sure we used all the pre-computed lengths as expected.
         debug_assert!(lengths.is_empty());
         result
@@ -191,27 +199,46 @@ fn explicit_scalar(scalar_coding: i32) -> bool {
     scalar_coding % 4 == 2
 }
 
-/// An encoding error should be displayed like this:
-///   EncodeError(.path.to[0][4].the.field): <message>
+/// When returning an error status to a client,
+/// an encoding error should be displayed like this:
+///     Response serialization error
+///
+/// This represents an unexpected situation,
+/// since the Wasm component should have been verified to return the correct type.
+/// More details can be found by searching the logs for `EncodeError`.
+impl Display for EncodeError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+        formatter.write_str("Response serialization error")
+    }
+}
+
+/// When logging, an encoding error should be displayed like this:
+///     EncodeError(.path.to[0][4].the.field): <message>
 impl Debug for EncodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("EncodeError(")?;
-        for level in self.traceback.iter().rev() {
-            match level {
-                EncodeLevel::Field(name) => {
-                    f.write_char('.')?;
-                    f.write_str(name)?;
-                }
-                EncodeLevel::Index(index) => {
-                    f.write_char('[')?;
-                    Display::fmt(index, f)?;
-                    f.write_char(']')?;
-                }
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+        formatter.write_str("EncodeError(")?;
+        format_encode_error_trace(self, formatter)?;
+        formatter.write_str("): ")?;
+        formatter.write_str(&self.message)
+    }
+}
+
+#[inline(always)]
+fn format_encode_error_trace(error: &EncodeError, formatter: &mut Formatter<'_>) -> FmtResult {
+    for level in error.traceback.iter().rev() {
+        match level {
+            EncodeLevel::Field(name) => {
+                formatter.write_char('.')?;
+                formatter.write_str(name)?;
+            }
+            EncodeLevel::Index(index) => {
+                formatter.write_char('[')?;
+                Display::fmt(index, formatter)?;
+                formatter.write_char(']')?;
             }
         }
-        f.write_str("): ")?;
-        f.write_str(&self.message)
     }
+    Ok(())
 }
 
 // All type mismatch error messages.

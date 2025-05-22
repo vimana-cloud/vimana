@@ -2,10 +2,11 @@
 
 use std::collections::HashMap;
 use std::mem::ManuallyDrop;
+use std::result::Result as StdResult;
 
+use anyhow::{anyhow, Context, Result};
 use prost::encoding::{decode_varint, encoded_len_varint, WireType};
 use tonic::codec::DecodeBuf;
-use tonic::Status;
 use wasmtime::component::Val;
 
 use crate::{
@@ -14,7 +15,6 @@ use crate::{
     MESSAGE_NON_RECORD, NON_EXPLICIT_ONEOF_VARIANT, OVERFLOW_32BIT, REPEATED_NON_LIST,
     WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
 };
-use error::log_error_status;
 use metadata_proto::work::runtime::field::{Coding, CompoundCoding, ScalarCoding};
 use metadata_proto::work::runtime::Field;
 use names::ComponentName;
@@ -22,43 +22,37 @@ use names::ComponentName;
 impl Merger {
     /// Construct a new [`Merger`] from the given [`Field`] representing a message type.
     /// Only the [subfields](Field::subfields) are significant.
-    ///
-    /// Since this method is expected to be invoked by the control plane,
-    /// it returns an error [`Status`] consistent with the Work node's [`error`] handling.
-    pub(crate) fn message_inner(
-        message: &Field,
-        component: &ComponentName,
-    ) -> Result<Self, Status> {
+    pub(crate) fn message_inner(message: &Field, component: &ComponentName) -> Result<Self> {
         compile_message(message, message_inner_merge, component)
     }
 }
 
 /// Common initialization logic for messages and oneofs.
 /// Oneofs just have the extra restriction that subfield encoders must be explicit.
-fn compile_message(
-    field: &Field,
-    merge: MergeFn,
-    component: &ComponentName,
-) -> Result<Merger, Status> {
+fn compile_message(field: &Field, merge: MergeFn, component: &ComponentName) -> Result<Merger> {
     let mut subfields: HashMap<u32, (u32, Merger)> = HashMap::with_capacity(field.subfields.len());
     let mut defaults: Vec<(String, Val)> = Vec::with_capacity(field.subfields.len());
 
     for (index, subfield) in field.subfields.iter().enumerate() {
-        let (subfield_merger, subfield_default) = match subfield.coding.ok_or(
-            // API violated - coding required.
-            Status::internal("decoder-subfield-no-coding"),
-        )? {
+        let (subfield_merger, subfield_default) = match subfield
+            .coding
+            .ok_or_else(|| anyhow!("Field #{} missing required coding", subfield.number))?
+        {
             Coding::ScalarCoding(scalar_coding) => {
-                Merger::scalar(ScalarCoding::try_from(scalar_coding).map_err(
-                    // Unrecognized enum value: Protobuf inconsistency?
-                    log_error_status!("bad-scalar-coding", component),
-                )?)
+                Merger::scalar(ScalarCoding::try_from(scalar_coding).with_context(|| {
+                    format!(
+                        "Invalid ScalarCoding for field #{}: {:?}",
+                        subfield.number, scalar_coding,
+                    )
+                })?)
             }
             Coding::CompoundCoding(compound_coding) => {
-                match CompoundCoding::try_from(compound_coding).map_err(
-                    // Protobuf inconsistency? Enum number unknown.
-                    log_error_status!("bad-compound-coding", component),
-                )? {
+                match CompoundCoding::try_from(compound_coding).with_context(|| {
+                    format!(
+                        "Invalid CompoundCoding for field #{}: {:?}",
+                        subfield.number, compound_coding,
+                    )
+                })? {
                     CompoundCoding::EnumImplicit => {
                         let merger = compile_enum_variants(subfield, enum_implicit_merge);
 
@@ -67,8 +61,9 @@ fn compile_message(
                             let default = default.clone();
                             (merger, Val::Enum(default))
                         } else {
-                            return Err(Status::failed_precondition(
-                                "Enum must have a default value",
+                            return Err(anyhow!(
+                                "Implicit enum at field #{} must have a default value",
+                                subfield.number
                             ));
                         }
                     }
@@ -85,11 +80,15 @@ fn compile_message(
                         Val::List(Vec::new()),
                     ),
                     CompoundCoding::Message => (
-                        compile_message(subfield, message_outer_merge, component)?,
+                        compile_message(subfield, message_outer_merge, component).with_context(
+                            || format!("Invalid message for field #{}", subfield.number),
+                        )?,
                         Val::Option(None),
                     ),
                     CompoundCoding::MessageExpanded => (
-                        compile_message(subfield, message_repeated_merge, component)?,
+                        compile_message(subfield, message_repeated_merge, component).with_context(
+                            || format!("Invalid expanded message for field #{}", subfield.number),
+                        )?,
                         Val::List(Vec::new()),
                     ),
                     CompoundCoding::Oneof => {
@@ -99,7 +98,17 @@ fn compile_message(
                         for variant in subfield.subfields.iter() {
                             subfields.insert(
                                 variant.number,
-                                (index as u32, compile_oneof_variant(variant, component)?),
+                                (
+                                    index as u32,
+                                    compile_oneof_variant(variant, component).with_context(
+                                        || {
+                                            format!(
+                                                "Invalid oneof variant #{} for field #{}",
+                                                variant.number, subfield.number
+                                            )
+                                        },
+                                    )?,
+                                ),
                             );
                         }
                         // Oneofs always have an absent (explicit presence-tracked) default.
@@ -123,37 +132,32 @@ fn compile_message(
     })
 }
 
-fn compile_oneof_variant(variant: &Field, component: &ComponentName) -> Result<Merger, Status> {
-    let merger = match variant.coding.ok_or(
-        // API violated - coding required.
-        Status::internal("decoder-oneof-variant-no-coding"),
-    )? {
+fn compile_oneof_variant(variant: &Field, component: &ComponentName) -> Result<Merger> {
+    let merger = match variant.coding.ok_or(anyhow!("Missing required coding"))? {
         Coding::ScalarCoding(scalar_coding) => {
             // Enforce explicit-only coding.
             if explicit_scalar(scalar_coding) {
                 // We know the default will be an empty optional
                 // because we enforce explicit-only coding.
-                let (merger, _default) =
-                    Merger::scalar(ScalarCoding::try_from(scalar_coding).map_err(
-                        // Unrecognized enum value: Protobuf inconsistency?
-                        log_error_status!("bad-scalar-coding", component),
-                    )?);
+                let (merger, _default) = Merger::scalar(
+                    ScalarCoding::try_from(scalar_coding)
+                        .with_context(|| format!("Invalid ScalarCoding: {:?}", scalar_coding))?,
+                );
                 merger
             } else {
-                return Err(Status::internal("decoder-non-explicit-oneof-variant"));
+                return Err(anyhow!("Oneof variants must use explicit coding"));
             }
         }
         Coding::CompoundCoding(compound_coding) => {
-            match CompoundCoding::try_from(compound_coding).map_err(
-                // Protobuf inconsistency? Enum number unknown.
-                log_error_status!("bad-compound-coding", component),
-            )? {
+            match CompoundCoding::try_from(compound_coding)
+                .with_context(|| format!("Invalid CompoundCoding: {:?}", compound_coding))?
+            {
                 CompoundCoding::EnumExplicit => compile_enum_variants(variant, enum_explicit_merge),
                 CompoundCoding::Message => {
                     compile_message(variant, message_outer_merge, component)?
                 }
                 _coding => {
-                    return Err(Status::internal("decoder-non-explicit-oneof-variant"));
+                    return Err(anyhow!("Oneof variants must use explicit coding"));
                 }
             }
         }
@@ -189,7 +193,7 @@ pub(crate) fn message_inner_merge(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
     dst: &mut Val,
-) -> Result<(), DecodeError> {
+) -> StdResult<(), DecodeError> {
     // Inner message contents always decode to a complete record.
     // `message_outer_merge` would produce an optional record instead.
     if let Val::Record(fields) = dst {
@@ -231,7 +235,7 @@ pub(crate) fn message_outer_merge(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
     dst: &mut Val,
-) -> Result<(), DecodeError> {
+) -> StdResult<(), DecodeError> {
     if wire_type == WireType::LengthDelimited {
         let mut length = read_length_check_overflow(limit, src)?;
 
@@ -253,7 +257,7 @@ pub(crate) fn message_repeated_merge(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
     dst: &mut Val,
-) -> Result<(), DecodeError> {
+) -> StdResult<(), DecodeError> {
     if let Val::List(items) = dst {
         if wire_type == WireType::LengthDelimited {
             let mut length =
@@ -281,7 +285,7 @@ pub(crate) fn oneof_variant_merge(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
     dst: &mut Val,
-) -> Result<(), DecodeError> {
+) -> StdResult<(), DecodeError> {
     let variant = unsafe { &merger.compound.oneof_variant };
     let variant_name = variant.0.clone();
     let variant_merger = variant.1.as_ref();
@@ -304,7 +308,7 @@ fn enum_inner(
     merger: &Merger,
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
-) -> Result<Val, DecodeError> {
+) -> StdResult<Val, DecodeError> {
     let varint = decode_varint(src).map_err(|_| DecodeError::new(INVALID_VARINT))?;
     let bytes_read = encoded_len_varint(varint) as u32;
     if bytes_read > *limit {
@@ -329,7 +333,7 @@ pub(crate) fn enum_explicit_merge(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
     dst: &mut Val,
-) -> Result<(), DecodeError> {
+) -> StdResult<(), DecodeError> {
     if wire_type == WireType::Varint {
         *dst = Val::Option(Some(Box::new(enum_inner(merger, limit, src)?)));
         Ok(())
@@ -344,7 +348,7 @@ pub(crate) fn enum_implicit_merge(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
     dst: &mut Val,
-) -> Result<(), DecodeError> {
+) -> StdResult<(), DecodeError> {
     if wire_type == WireType::Varint {
         *dst = enum_inner(merger, limit, src)?;
         Ok(())
@@ -359,7 +363,7 @@ pub(crate) fn enum_repeated_merge(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
     dst: &mut Val,
-) -> Result<(), DecodeError> {
+) -> StdResult<(), DecodeError> {
     if let Val::List(items) = dst {
         if wire_type == WireType::LengthDelimited {
             let mut length = read_length_check_overflow(limit, src)?;

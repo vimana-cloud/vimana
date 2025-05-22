@@ -1,6 +1,8 @@
 //! Encoding logic for scalar protobuf fields
 //! (anything besides messages, enums, and oneofs).
 
+use std::result::Result as StdResult;
+
 use prost::bytes::BufMut;
 use prost::encoding::{encode_varint, encoded_len_varint, WireType};
 use tonic::codec::EncodeBuf;
@@ -321,7 +323,7 @@ macro_rules! encode_fn {
             value: &Val,
             lengths: &mut Vec<u32>,
             buf: &mut EncodeBuf<'_>,
-        ) -> Result<(), EncodeError> {
+        ) -> StdResult<(), EncodeError> {
             if let $type(value) = value {
                 ($encode)(encoder.tag, value, lengths, buf)
             } else {
@@ -336,7 +338,7 @@ macro_rules! length_fn {
             encoder: &Encoder,
             value: &Val,
             lengths: &mut Vec<u32>,
-        ) -> Result<u32, EncodeError> {
+        ) -> StdResult<u32, EncodeError> {
             if let $type(value) = value {
                 ($length)(encoder.tag, value, lengths)
             } else {
@@ -581,7 +583,7 @@ macro_rules! scalar_var_length_fns {
 }
 
 #[inline(always)]
-fn bytes_encode_inner(value: &Vec<Val>, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn bytes_encode_inner(value: &Vec<Val>, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     encode_varint(value.len() as u64, buf);
     for item in value.iter() {
         if let Val::U8(byte) = item {
@@ -593,7 +595,7 @@ fn bytes_encode_inner(value: &Vec<Val>, buf: &mut EncodeBuf<'_>) -> Result<(), E
     Ok(())
 }
 #[inline(always)]
-fn bytes_length_inner(value: &Vec<Val>) -> Result<u32, EncodeError> {
+fn bytes_length_inner(value: &Vec<Val>) -> StdResult<u32, EncodeError> {
     Ok(u32::saturating_add(
         encoded_len_varint(value.len() as u64) as u32,
         u32::try_from(value.len()).unwrap_or(u32::MAX),
@@ -627,13 +629,13 @@ scalar_var_length_fns!(
 );
 
 #[inline(always)]
-fn string_encode_inner(value: &String, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn string_encode_inner(value: &String, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     encode_varint(value.len() as u64, buf);
     buf.put_slice(value.as_bytes());
     Ok(())
 }
 #[inline(always)]
-fn string_length_inner(value: &String) -> Result<u32, EncodeError> {
+fn string_length_inner(value: &String) -> StdResult<u32, EncodeError> {
     Ok(u32::saturating_add(
         encoded_len_varint(value.len() as u64) as u32,
         u32::try_from(value.len()).unwrap_or(u32::MAX),
@@ -667,7 +669,7 @@ scalar_var_length_fns!(
 );
 
 #[inline(always)]
-fn bool_encode_inner(value: &bool, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn bool_encode_inner(value: &bool, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     buf.put_u8(*value as u8);
     Ok(())
 }
@@ -697,12 +699,12 @@ scalar_fixed_length_fns!(
 );
 
 #[inline(always)]
-fn int32_encode_inner(value: &i32, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn int32_encode_inner(value: &i32, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     encode_varint(*value as u64, buf);
     Ok(())
 }
 #[inline(always)]
-fn int32_length_inner(value: &i32) -> Result<u32, EncodeError> {
+fn int32_length_inner(value: &i32) -> StdResult<u32, EncodeError> {
     Ok(encoded_len_varint(*value as u64) as u32)
 }
 #[inline(always)]
@@ -731,12 +733,12 @@ scalar_var_length_fns!(
 );
 
 #[inline(always)]
-fn sint32_encode_inner(value: &i32, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn sint32_encode_inner(value: &i32, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     encode_varint(((*value << 1) ^ (*value >> 31)) as u32 as u64, buf);
     Ok(())
 }
 #[inline(always)]
-fn sint32_length_inner(value: &i32) -> Result<u32, EncodeError> {
+fn sint32_length_inner(value: &i32) -> StdResult<u32, EncodeError> {
     Ok(encoded_len_varint(((*value << 1) ^ (*value >> 31)) as u32 as u64) as u32)
 }
 scalar_encode_fns!(
@@ -761,7 +763,7 @@ scalar_var_length_fns!(
 );
 
 #[inline(always)]
-fn sfixed32_encode_inner(value: &i32, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn sfixed32_encode_inner(value: &i32, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     buf.put_i32_le(*value);
     Ok(())
 }
@@ -787,12 +789,12 @@ scalar_fixed_length_fns!(
 );
 
 #[inline(always)]
-fn uint32_encode_inner(value: &u32, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn uint32_encode_inner(value: &u32, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     encode_varint(*value as u64, buf);
     Ok(())
 }
 #[inline(always)]
-fn uint32_length_inner(value: &u32) -> Result<u32, EncodeError> {
+fn uint32_length_inner(value: &u32) -> StdResult<u32, EncodeError> {
     Ok(encoded_len_varint(*value as u64) as u32)
 }
 #[inline(always)]
@@ -821,7 +823,7 @@ scalar_var_length_fns!(
 );
 
 #[inline(always)]
-fn fixed32_encode_inner(value: &u32, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn fixed32_encode_inner(value: &u32, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     buf.put_u32_le(*value);
     Ok(())
 }
@@ -847,12 +849,12 @@ scalar_fixed_length_fns!(
 );
 
 #[inline(always)]
-fn int64_encode_inner(value: &i64, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn int64_encode_inner(value: &i64, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     encode_varint(*value as u64, buf);
     Ok(())
 }
 #[inline(always)]
-fn int64_length_inner(value: &i64) -> Result<u32, EncodeError> {
+fn int64_length_inner(value: &i64) -> StdResult<u32, EncodeError> {
     Ok(encoded_len_varint(*value as u64) as u32)
 }
 #[inline(always)]
@@ -881,12 +883,12 @@ scalar_var_length_fns!(
 );
 
 #[inline(always)]
-fn sint64_encode_inner(value: &i64, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn sint64_encode_inner(value: &i64, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     encode_varint(((*value << 1) ^ (*value >> 63)) as u64, buf);
     Ok(())
 }
 #[inline(always)]
-fn sint64_length_inner(value: &i64) -> Result<u32, EncodeError> {
+fn sint64_length_inner(value: &i64) -> StdResult<u32, EncodeError> {
     Ok(encoded_len_varint(((*value << 1) ^ (*value >> 63)) as u64) as u32)
 }
 scalar_encode_fns!(
@@ -911,7 +913,7 @@ scalar_var_length_fns!(
 );
 
 #[inline(always)]
-fn sfixed64_encode_inner(value: &i64, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn sfixed64_encode_inner(value: &i64, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     buf.put_i64_le(*value);
     Ok(())
 }
@@ -937,12 +939,12 @@ scalar_fixed_length_fns!(
 );
 
 #[inline(always)]
-fn uint64_encode_inner(value: &u64, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn uint64_encode_inner(value: &u64, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     encode_varint(*value, buf);
     Ok(())
 }
 #[inline(always)]
-fn uint64_length_inner(value: &u64) -> Result<u32, EncodeError> {
+fn uint64_length_inner(value: &u64) -> StdResult<u32, EncodeError> {
     Ok(encoded_len_varint(*value) as u32)
 }
 #[inline(always)]
@@ -971,7 +973,7 @@ scalar_var_length_fns!(
 );
 
 #[inline(always)]
-fn fixed64_encode_inner(value: &u64, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn fixed64_encode_inner(value: &u64, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     buf.put_u64_le(*value);
     Ok(())
 }
@@ -997,7 +999,7 @@ scalar_fixed_length_fns!(
 );
 
 #[inline(always)]
-fn float_encode_inner(value: &f32, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn float_encode_inner(value: &f32, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     buf.put_f32_le(*value);
     Ok(())
 }
@@ -1027,7 +1029,7 @@ scalar_fixed_length_fns!(
 );
 
 #[inline(always)]
-fn double_encode_inner(value: &f64, buf: &mut EncodeBuf<'_>) -> Result<(), EncodeError> {
+fn double_encode_inner(value: &f64, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     buf.put_f64_le(*value);
     Ok(())
 }
