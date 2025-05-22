@@ -67,13 +67,16 @@ docker image rm --force "$kicbase_repo" 2> /dev/null
 }
 
 # Start minikube with:
-# - Custom base image allowing enabling the Workd runtime.
-# - The ability to load containers from the host computer without TLS.
+# - Custom base image enabling the Workd runtime.
+# - The ability to load containers from the host machine without TLS.
+# - The runtime class of the pod specified on container image pull requests:
+#   https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 # - Enough resources to run Istio: https://istio.io/latest/docs/setup/platform-setup/minikube.
 _minikube start \
   --base-image="$kicbase_repo" \
   --container-runtime=workd \
   --insecure-registry="$cluster_registry" \
+  --feature-gates=RuntimeClassInImageCriApi=true \
   --memory=16384 --cpus=4 \
   || exit 1
 

@@ -38,7 +38,7 @@ pub(crate) const GRPC_PORT: u16 = 80;
 /// and work begins immediately without having to poll them.
 pub(crate) struct PodInitializer {
     /// Means to fetch containers from an external registry.
-    containers: Arc<ContainerStore>,
+    containers: ContainerStore,
 }
 
 /// Pod initialization starts asynchronously during `RunPodSandbox`,
@@ -47,18 +47,8 @@ pub(crate) struct PodInitializer {
 pub(crate) type SharedResultFuture<T> = Shared<Pin<Box<dyn Future<Output = Result<T>> + Send>>>;
 
 impl PodInitializer {
-    pub(crate) fn new(registry: String, max_cache_capacity: u64, wasmtime: &WasmEngine) -> Self {
-        PodInitializer {
-            containers: Arc::new(ContainerStore::new(registry, max_cache_capacity, wasmtime)),
-        }
-    }
-
-    /// Attempt to populate a cache with the container for the given component
-    /// in a background thread.
-    /// Subsequent attempts to initialize pods based on that container
-    /// should proceed more quickly.
-    pub(crate) fn prefetch_container(&self, name: &ComponentName) {
-        self.containers.prefetch(name);
+    pub(crate) fn new(containers: ContainerStore) -> Self {
+        PodInitializer { containers }
     }
 
     /// Initialize a new gRPC pod for the named component using a background task.
@@ -96,7 +86,7 @@ impl PodInitializer {
 /// Initialize a new gRPC pod for the named component.
 async fn initialize_grpc(
     wasmtime: WasmEngine,
-    containers: Arc<ContainerStore>,
+    containers: ContainerStore,
     name: Arc<ComponentName>,
 ) -> Result<Arc<Routes>> {
     let container = containers.get(name.as_ref()).await?;
@@ -125,7 +115,6 @@ async fn initialize_grpc(
         )?;
 
         let (_, export_index) = container
-            .as_ref()
             .component
             .export_index(None, &method.function)
             .ok_or_else(|| {

@@ -11,20 +11,18 @@ use std::time::{Duration, SystemTime};
 use futures::future::Shared;
 use papaya::{Compute, HashMap as LockFreeConcurrentHashMap, Operation};
 use tokio::select;
-use tokio::sync::{oneshot, Mutex as AsyncMutex};
+use tokio::sync::oneshot;
 use tokio::task::{spawn, JoinHandle};
 use tokio::time::timeout;
 use tonic::service::Routes;
-use tonic::transport::channel::Channel;
 use tonic::transport::server::TcpIncoming;
 use tonic::transport::{Error as ServerError, Server};
 use tonic::Status;
-use wasmtime::{Config as WasmConfig, Engine as WasmEngine, Error as WasmError};
+use wasmtime::Engine as WasmEngine;
 
+use crate::containers::ContainerStore;
 use crate::ipam::{IpAddress, Ipam};
 use crate::pods::{PodInitializer, SharedResultFuture, GRPC_PORT};
-use api_proto::runtime::v1::image_service_client::ImageServiceClient;
-use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::{ContainerMetadata, PodSandboxMetadata};
 use error::{log_error, log_error_status, log_info, log_warn, Result};
 use names::{ComponentName, PodId, PodName};
@@ -58,13 +56,6 @@ pub(crate) struct WorkRuntime {
     /// upon completion of this shareable future.
     /// Individual pods can be shut down with their [killer](Pod::killer).
     shutdown: Shared<oneshot::Receiver<()>>,
-
-    /// Client to a downstream OCI container runtime (e.g. containerd or cri-o)
-    /// so work nodes can run traditional OCI containers as well.
-    pub(crate) oci_runtime: AsyncMutex<RuntimeServiceClient<Channel>>,
-
-    /// Client to the downstream OCI CRI image service.
-    pub(crate) oci_image: AsyncMutex<ImageServiceClient<Channel>>,
 }
 
 /// Pod lifecycle state.
@@ -171,45 +162,21 @@ pub(crate) struct Pod {
 impl WorkRuntime {
     /// Return a new runtime with no running pods.
     pub(crate) fn new(
-        registry: String,
-        max_container_cache_capacity: u64,
-        oci_runtime: RuntimeServiceClient<Channel>,
-        oci_image: ImageServiceClient<Channel>,
+        wasmtime: WasmEngine,
+        containers: ContainerStore,
         network_interface: String,
         ipam: Ipam,
         shutdown: Shared<oneshot::Receiver<()>>,
-    ) -> StdResult<Self, WasmError> {
-        let wasmtime = Self::default_engine()?;
-        let pod_store = PodInitializer::new(registry, max_container_cache_capacity, &wasmtime);
-        Ok(Self {
+    ) -> Self {
+        Self {
             wasmtime,
             pods: LockFreeConcurrentHashMap::new(),
             next_pod_id: AtomicUsize::new(0),
-            pod_store,
+            pod_store: PodInitializer::new(containers),
             ipam,
             network_interface,
             shutdown,
-            oci_runtime: AsyncMutex::new(oci_runtime),
-            oci_image: AsyncMutex::new(oci_image),
-        })
-    }
-
-    // A new instance of the default engine for this runtime.
-    fn default_engine() -> StdResult<WasmEngine, WasmError> {
-        WasmEngine::new(
-            WasmConfig::new()
-                // Allow host functions to be `async` Rust.
-                // Means you have to use `Func::call_async` instead of `Func::call`.
-                .async_support(true)
-                // Epoch interruption for preemptive multithreading.
-                // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.epoch_interruption
-                //.epoch_interruption(true)
-                // Enable support for various Wasm proposals...
-                .wasm_component_model(true)
-                .wasm_gc(true)
-                .wasm_tail_call(true)
-                .wasm_function_references(true),
-        )
+        }
     }
 
     /// Create a new [pod controller](PodController)

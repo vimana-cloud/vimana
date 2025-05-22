@@ -1,16 +1,21 @@
 //! Client used to fetch and compile containers from a registry,
 //! caching compiled components and container metadata locally.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::mem::drop;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use api_proto::runtime::v1;
 use bytes::Bytes;
-use moka::future::Cache;
 use prost::Message;
 use reqwest::header::ACCEPT;
 use reqwest::{Client, StatusCode as HttpStatusCode};
 use serde::Deserialize;
+use tokio::fs::{create_dir_all, metadata, File};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task::spawn;
+use tonic::Status;
 use wasmtime::component::Component;
 use wasmtime::Engine as WasmEngine;
 
@@ -18,118 +23,204 @@ use error::{log_error_status, log_info, Result};
 use metadata_proto::work::runtime::Metadata;
 use names::{hexify_string, ComponentName};
 
+/// Path to the root of the file hierarchy for pulled images.
+/// See [component_path].
+const STORE_ROOT: &str = "/etc/workd/images";
+
+/// Each image directory under [STORE_ROOT] has a file called `container`
+/// containing the pre-compiled [Component] and the [Metadata].
+const CONTAINER_FILENAME: &str = "container";
+
+/// Each image directory under [STORE_ROOT] also has a file called `image-spec.binpb`
+/// containing the [image spec](v1::ImageSpec)
+/// that was originally specified when pulling the image.
+const IMAGE_SPEC_FILENAME: &str = "image-spec.binpb";
+
 /// Client used to fetch and compile containers from a registry,
 /// caching compiled components and parsed container metadata locally.
 #[derive(Clone)]
-pub struct ContainerStore {
-    /// Local in-memory cache of compiled/parsed containers.
-    cache: Cache<ComponentName, Arc<Container>>,
-
+pub(crate) struct ContainerStore {
     /// Means to fetch containers from a remote container registry.
     client: ContainerClient,
+
+    /// Global Wasm engine to run hosted services.
+    /// This must be the exact same engine used in the [client](ContainerClient).
+    wasmtime: WasmEngine,
 }
 
 /// Ready-to-link container.
-pub struct Container {
+pub(crate) struct Container {
     /// Compiled component implementation.
-    pub component: Component,
+    pub(crate) component: Component,
 
     /// Parsed container metadata.
-    pub metadata: Metadata,
-
-    /// Size, in kibibytes, of the serialized container blobs,
-    /// which **approximates** the memory footprint of the cached container.
-    ///
-    /// 32 bits because that's what the Moka cache expects for entry weights.
-    /// Not measured in bytes because that would make the maximum size 4 GiB.
-    /// Using kibibytes instead gives us a max of 4TiB.
-    kibibytes: u32,
+    pub(crate) metadata: Metadata,
 }
 
 impl ContainerStore {
-    /// Return a new [store](ContainerStore)
-    /// that fetches Vimana container images (composed of a component and associated metadata)
-    /// from the given registry URL.
+    /// Return a new [store](ContainerStore).
     /// Components will be instantiated using the provided [`Engine`](WasmEngine).
-    /// Containers are cached locally in-memory
-    /// up to the limit specified by `max_cache_kibibytes`.
-    pub fn new(registry: String, max_cache_kibibytes: u64, wasmtime: &WasmEngine) -> Self {
+    pub(crate) fn new(insecure_registries: HashSet<String>, wasmtime: &WasmEngine) -> Self {
         Self {
-            cache: Cache::builder()
-                .weigher(|_, container: &Arc<Container>| container.kibibytes)
-                .max_capacity(max_cache_kibibytes)
-                .build(),
-            client: ContainerClient::new(registry, wasmtime),
+            client: ContainerClient::new(insecure_registries, wasmtime),
+            wasmtime: wasmtime.clone(),
         }
     }
 
-    /// Return a compiled component implementation and its metadata,
-    /// either copied from the local cache (if available),
-    /// or fetched from a remote repository (and used to update the local cache).
-    pub async fn get(&self, name: &ComponentName) -> Result<Arc<Container>> {
-        self.cache
-            .try_get_with_by_ref(name, self.client.fetch(name))
-            .await
-            .map_err(|status| status.as_ref().clone())
+    /// Fetch a container identified by `name` from the given registry.
+    /// Subsequent calls to `get` should succeed for that container.
+    pub(crate) async fn pull(
+        &self,
+        registry: &str,
+        name: &ComponentName,
+        image_spec: v1::ImageSpec,
+    ) -> Result<()> {
+        let container = self.client.fetch(registry, name).await?;
+
+        let component_path = component_path(&name);
+        create_dir_all(&component_path).await?;
+
+        let mut container_file = File::create(&component_path.join(CONTAINER_FILENAME)).await?;
+        let mut image_spec_file = File::create(&component_path.join(IMAGE_SPEC_FILENAME)).await?;
+
+        // Pre-compile the component for faster loading later.
+        let serialized_component = container
+            .component
+            .serialize()
+            .map_err(|_| Status::internal("TODO"))?;
+
+        // Write the length of the component to the file first (as a little-endian `u64`),
+        // then the component's pre-compiled bytes.
+        container_file
+            .write_u64_le(serialized_component.len() as u64)
+            .await?;
+        container_file.write_all(&serialized_component).await?;
+        // Free up the memory as soon as possible since it could be somewhat big.
+        drop(serialized_component);
+
+        let serialized_metadata = container.metadata.encode_to_vec();
+        container_file.write_all(&serialized_metadata).await?;
+        drop(serialized_metadata);
+
+        let serialized_image_spec = image_spec.encode_to_vec();
+        image_spec_file.write_all(&serialized_image_spec).await?;
+
+        Ok(())
     }
 
-    /// Attempt to populate the cache with the container for the given component
-    /// in a background thread.
-    /// A subsequent call to `get`, if successful, should finish more quickly.
-    pub fn prefetch(&self, name: &ComponentName) {
-        let store = self.clone();
-        let name = name.clone();
-        spawn(async move { store.get(&name).await });
+    /// Return a compiled component implementation and its metadata.
+    pub(crate) async fn get(&self, name: &ComponentName) -> Result<Container> {
+        let component_path = component_path(&name);
+
+        let mut container_file = File::open(&component_path.join(CONTAINER_FILENAME)).await?;
+
+        let component_size = container_file.read_u64_le().await?;
+        let mut serialized_component = Vec::with_capacity(component_size as usize);
+        container_file.read_exact(&mut serialized_component).await?;
+        let component = unsafe {
+            Component::deserialize(&self.wasmtime, &serialized_component)
+                .map_err(|_| Status::internal("TODO"))?
+        };
+        // Free up the memory as soon as possible since it could be somewhat big.
+        drop(serialized_component);
+
+        let mut serialized_metadata = Vec::new();
+        container_file.read_to_end(&mut serialized_metadata).await?;
+        let metadata = Metadata::decode(serialized_metadata.as_slice())
+            .map_err(|_| Status::internal("TODO"))?;
+        drop(serialized_metadata);
+
+        Ok(Container {
+            component,
+            metadata,
+        })
     }
+
+    /// Return metadata about the image originally requested when pulling the named container.
+    pub(crate) async fn get_image(&self, name: &ComponentName) -> Result<v1::Image> {
+        let component_path = component_path(&name);
+
+        let container_metadata = metadata(&component_path.join(CONTAINER_FILENAME)).await?;
+        let mut image_spec_file = File::open(&component_path.join(IMAGE_SPEC_FILENAME)).await?;
+
+        let mut serialized_image_spec = Vec::new();
+        image_spec_file
+            .read_to_end(&mut serialized_image_spec)
+            .await?;
+        let image_spec = v1::ImageSpec::decode(serialized_image_spec.as_slice())
+            .map_err(|_| Status::internal("TODO"))?;
+
+        Ok(v1::Image {
+            id: name.to_string(),
+            repo_tags: Vec::default(),
+            repo_digests: Vec::default(),
+            size: container_metadata.len() as u64,
+            uid: None,
+            username: String::default(),
+            spec: Some(image_spec),
+            pinned: false,
+        })
+    }
+}
+
+/// Assets for e.g. `00000000000000000000000000000001:bar.baz.Foo@1.0.0`
+/// would be stored under `<STORE_ROOT>/00000000000000000000000000000001/bar.baz.Foo/1.0.0/`.
+fn component_path(name: &ComponentName) -> PathBuf {
+    Path::new(STORE_ROOT)
+        .join(name.service.domain.to_string())
+        .join(&name.service.service)
+        .join(&name.version)
 }
 
 /// The container client fetches and processes blobs from a
 /// [container registry](https://specs.opencontainers.org/distribution-spec/).
 #[derive(Clone)]
-struct ContainerClient(Arc<ContainerClientInner>);
-
-/// Reference-counted to make [`ContainerClient`] cheaply cloneable
-/// for parallel downloads.
-struct ContainerClientInner {
+struct ContainerClient {
     /// Basic HTTP client.
     http: Client,
 
-    /// Scheme, host name, and optional port of the registry (e.g. `http://localhost:5000`).
-    registry: String,
+    /// Set of registries that should be fetched via HTTP rather than HTTPS.
+    insecure_registries: Arc<HashSet<String>>,
 
     /// Global Wasm engine to run hosted services.
+    /// This must be the exact same engine used in the [store](ContainerStore).
     wasmtime: WasmEngine,
 }
 
 const MANIFEST_MIME: &str = "application/vnd.oci.image.manifest.v1+json";
 
 impl ContainerClient {
-    fn new(registry: String, wasmtime: &WasmEngine) -> Self {
-        Self(Arc::new(ContainerClientInner {
+    fn new(insecure_registries: HashSet<String>, wasmtime: &WasmEngine) -> Self {
+        Self {
             http: Client::new(),
-            registry,
+            insecure_registries: Arc::new(insecure_registries),
             wasmtime: wasmtime.clone(),
-        }))
+        }
     }
 
-    async fn fetch(&self, name: &ComponentName) -> Result<Arc<Container>> {
-        log_info!("fetching-container", name, ());
+    async fn fetch(&self, registry: &str, name: &ComponentName) -> Result<Arc<Container>> {
+        log_info!("fetching-container", name, registry);
 
         // Any URL path for `1234567890abcdef1234567890abcdef:package.Service`
         // would begin with `/v2/1234567890abcdef1234567890abcdef/071636b6167656e235562767963656/`.
         let service_url = format!(
-            "{}/v2/{}/{}",
-            self.0.registry,
+            "{}://{}/v2/{}/{}",
+            if self.insecure_registries.contains(registry) {
+                "http"
+            } else {
+                "https"
+            },
+            registry,
             name.service.domain,
             // Repository namespace components must contain only lowercase letters and digits,
             // so hex-encode the service name.
             hexify_string(&name.service.service),
         );
+
         // Pull the manifest:
         // https://specs.opencontainers.org/distribution-spec/#pulling-manifests.
         let manifest_url = format!("{service_url}/manifests/{}", name.version);
         let response = self
-            .0
             .http
             .get(&manifest_url)
             .header(ACCEPT, MANIFEST_MIME)
@@ -168,22 +259,16 @@ impl ContainerClient {
                     .await;
 
                 // Propagate compilation errors first, then metadata parsing errors.
-                let (component, component_size) = component_fetch.await.map_err(
+                let component = component_fetch.await.map_err(
                     // Background task join error.
                     log_error_status!("fetch-component-join", name),
                 )??;
-                let (metadata, metadata_size) = metadata_result?;
-
-                // Total size (in bytes) of the container (serialized).
-                let total_size = usize::saturating_add(component_size, metadata_size);
-                // Round up converting to kibibytes.
-                let kibibytes = ((total_size as f64) / 1024.0).ceil() as u32;
+                let metadata = metadata_result?;
 
                 log_info!("fetched-container-success", name, ());
                 Ok(Arc::new(Container {
                     component,
                     metadata,
-                    kibibytes,
                 }))
             } else {
                 Err(log_error_status!("unexpected-container-layers", name)(
@@ -201,32 +286,24 @@ impl ContainerClient {
         }
     }
 
-    async fn fetch_component(self, url: String, name: ComponentName) -> Result<(Component, usize)> {
-        let byte_code = self.fetch_blob(url, &name).await?;
-        let size = byte_code.len();
-        Ok((
-            Component::new(&self.0.wasmtime, byte_code).map_err(
+    async fn fetch_component(self, url: String, name: ComponentName) -> Result<Component> {
+        Ok(
+            Component::new(&self.wasmtime, self.fetch_blob(url, &name).await?).map_err(
                 // Compilation error.
                 log_error_status!("compile-component", &name),
             )?,
-            size,
-        ))
+        )
     }
 
-    async fn fetch_metadata(&self, url: String, name: &ComponentName) -> Result<(Metadata, usize)> {
-        let serialized = self.fetch_blob(url, name).await?;
-        let size = serialized.len();
-        Ok((
-            Metadata::decode(serialized).map_err(
-                // Malformed metadata.
-                log_error_status!("decode-metadata", name),
-            )?,
-            size,
-        ))
+    async fn fetch_metadata(&self, url: String, name: &ComponentName) -> Result<Metadata> {
+        Ok(Metadata::decode(self.fetch_blob(url, name).await?).map_err(
+            // Malformed metadata.
+            log_error_status!("decode-metadata", name),
+        )?)
     }
 
     async fn fetch_blob(&self, url: String, name: &ComponentName) -> Result<Bytes> {
-        let response = self.0.http.get(&url).send().await.map_err(
+        let response = self.http.get(&url).send().await.map_err(
             // Fails if there was an error while sending request,
             // redirect loop was detected or redirect limit was exhausted.
             log_error_status!("get-blob", name),

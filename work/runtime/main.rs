@@ -10,16 +10,16 @@
 #![feature(array_chunks)]
 
 mod containers;
-mod cri {
-    pub(crate) mod runtime;
-}
+mod cri;
 mod host;
 mod ipam;
 mod pods;
 mod state;
 
+use std::collections::HashSet;
 use std::error::Error as StdError;
-use std::fs::{create_dir_all, remove_file};
+use std::fs::{create_dir_all, remove_file, File};
+use std::io::BufReader;
 use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -31,6 +31,8 @@ use log::{set_boxed_logger, set_max_level, LevelFilter};
 use opentelemetry_appender_log::OpenTelemetryLogBridge;
 use opentelemetry_sdk::logs::LoggerProvider;
 use opentelemetry_stdout::LogExporter as StdoutLogExporter;
+use serde::Deserialize;
+use serde_json::from_reader;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::select;
 use tokio::signal::unix::{signal, SignalKind};
@@ -38,18 +40,21 @@ use tokio::sync::oneshot;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Endpoint, Server};
 use tower::service_fn;
+use wasmtime::{Config as WasmConfig, Engine as WasmEngine};
 
 use api_proto::runtime::v1::image_service_client::ImageServiceClient;
 use api_proto::runtime::v1::image_service_server::ImageServiceServer;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
-use cri::runtime::{VimanaCriService, CONTAINER_RUNTIME_NAME, CONTAINER_RUNTIME_VERSION};
+use containers::ContainerStore;
+use cri::image::ProxyingImageService;
+use cri::runtime::{ProxyingRuntimeService, CONTAINER_RUNTIME_NAME, CONTAINER_RUNTIME_VERSION};
 use ipam::Ipam;
 use state::WorkRuntime;
 
-// TODO: Figure out if caching is even a good idea.
-/// Cache up to 1 GiB by default (meassured in KiB).
-const DEFAULT_CONTAINER_CACHE_MAX_CAPACITY: u64 = 1024 * 1024;
+/// Path to the JSON config file
+/// containing the list of insecure registries.
+const CONFIG_PATH: &str = "/etc/workd/config.json";
 
 #[derive(Parser)]
 #[command(name = CONTAINER_RUNTIME_NAME, version = CONTAINER_RUNTIME_VERSION)]
@@ -64,11 +69,6 @@ struct Args {
     /// to which the requests for OCI pods and images are forwarded.
     #[arg(long, value_name = "PATH")]
     downstream: String,
-
-    /// URL base of the container registry (scheme, host, optional port)
-    /// for non-OCI containers.
-    #[arg(long, value_name = "URL")]
-    registry: String,
 
     /// Path to a CNI plugin binary to handle IPAM,
     /// such as [`host-local`](https://www.cni.dev/plugins/current/ipam/host-local/).
@@ -85,11 +85,6 @@ struct Args {
     /// (e.g. `10.0.1.0/24` or `fc00:0001::/32`).
     #[arg(long, value_name = "CIDR")]
     pod_ips: String,
-
-    /// Maximum size (in bytes, approximate) of the local in-memory cache
-    /// for compiled containers.
-    #[arg(short, long, default_value_t = DEFAULT_CONTAINER_CACHE_MAX_CAPACITY)]
-    container_cache_max_capacity: u64,
 }
 
 #[tokio::main]
@@ -102,6 +97,13 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     set_boxed_logger(Box::new(OpenTelemetryLogBridge::new(&logger_provider)))
         .expect("Error setting up logger");
     set_max_level(LevelFilter::Info);
+
+    // Read the JSON config file.
+    let config = if let Ok(config_file) = File::open(CONFIG_PATH) {
+        from_reader(BufReader::new(config_file))?
+    } else {
+        WorkdConfig::default()
+    };
 
     // This seems to be the most idiomatic way to create a client with a UDS transport:
     // https://github.com/hyperium/tonic/blob/v0.12.3/examples/src/uds/client.rs.
@@ -138,15 +140,30 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         let _ = shutdown_tx.send(());
     };
 
-    let runtime = Arc::new(WorkRuntime::new(
-        args.registry,
-        args.container_cache_max_capacity,
-        oci_runtime_client,
-        oci_image_client,
+    // A new instance of the default engine for this runtime.
+    let wasmtime = WasmEngine::new(
+        WasmConfig::new()
+            // Allow host functions to be `async` Rust.
+            // Means you have to use `Func::call_async` instead of `Func::call`.
+            .async_support(true)
+            // Epoch interruption for preemptive multithreading.
+            // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.epoch_interruption
+            //.epoch_interruption(true)
+            // Enable support for various Wasm proposals...
+            .wasm_component_model(true)
+            .wasm_gc(true)
+            .wasm_tail_call(true)
+            .wasm_function_references(true),
+    )?;
+
+    let containers = ContainerStore::new(config.insecureRegistries, &wasmtime);
+    let runtime = WorkRuntime::new(
+        wasmtime,
+        containers.clone(),
         args.network_interface,
         ipam,
         shutdown_rx.shared(),
-    )?);
+    );
 
     // Bind to our CRI API socket.
     // This is last fallible thing before starting the CRI API server
@@ -157,8 +174,14 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         .expect(&format!("Cannot bind Unix socket '{}'", &args.incoming));
 
     let result = Server::builder()
-        .add_service(RuntimeServiceServer::new(VimanaCriService(runtime.clone())))
-        .add_service(ImageServiceServer::new(VimanaCriService(runtime)))
+        .add_service(RuntimeServiceServer::new(ProxyingRuntimeService::new(
+            runtime,
+            oci_runtime_client,
+        )))
+        .add_service(ImageServiceServer::new(ProxyingImageService::new(
+            containers,
+            oci_image_client,
+        )))
         .serve_with_incoming_shutdown(UnixListenerStream::new(cri_listener), shutdown_signal)
         .await;
 
@@ -168,4 +191,11 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
 
     result?;
     Ok(unlink_socket_result?)
+}
+
+/// JSON configuration file.
+#[allow(non_snake_case)]
+#[derive(Deserialize, Default)]
+struct WorkdConfig {
+    insecureRegistries: HashSet<String>,
 }

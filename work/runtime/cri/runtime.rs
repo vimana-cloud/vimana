@@ -1,6 +1,6 @@
 //! Implementation of the
 //! [Container Runtime Interface](https://kubernetes.io/docs/concepts/architecture/cri/)
-//! for the Work Node runtime.
+//! `RuntimeService` for the Work Node runtime.
 //!
 //! K8s control plane pods expect an OCI-compatible runtime.
 //! Since Vimana's Wasm component runtime is not OCI-compatible,
@@ -16,27 +16,29 @@
 //! to distinguish which runtime each belongs to.
 
 use std::collections::HashMap;
-use std::fmt::{Debug, Display};
-use std::sync::Arc;
+use std::fmt::Display;
 use std::time::Duration;
 
 use api_proto::runtime::v1;
-use api_proto::runtime::v1::image_service_server::ImageService;
+use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::transport::channel::Channel;
 use tonic::{async_trait, Request, Response, Status};
 
+use crate::cri::{component_name_from_labels, TonicResult};
 use crate::state::{now, Pod, PodState};
 use crate::WorkRuntime;
-use error::Result;
-use names::{ComponentName, DomainUuid, Name, PodName};
+use error::{log_info, Result};
+use names::{Name, PodName};
 
 /// "For now it expects 0.1.0." - https://github.com/cri-o/cri-o/blob/v1.31.3/server/version.go.
 const KUBELET_API_VERSION: &str = "0.1.0";
 /// Name of the Vimana container runtime.
-pub const CONTAINER_RUNTIME_NAME: &str = "workd";
+pub(crate) const CONTAINER_RUNTIME_NAME: &str = "workd";
 /// Version of the Vimana container runtime.
-pub const CONTAINER_RUNTIME_VERSION: &str = "0.0.0";
+pub(crate) const CONTAINER_RUNTIME_VERSION: &str = "0.0.0";
 /// Version of the CRI API supported by the runtime.
 const CONTAINER_RUNTIME_API_VERSION: &str = "v1";
 
@@ -64,23 +66,21 @@ const POD_STATES_CONTAINER_EXITED: [PodState; 3] =
 /// Pod states matching [`v1::ContainerState::ContainerUnknown`].
 const POD_STATES_CONTAINER_UNKNOWN: [PodState; 0] = [];
 
-// These labels must be present on every pod and container using the Vimana handler:
-
-const LABEL_DOMAIN_KEY: &str = "vimana.host/domain";
-const LABEL_SERVICE_KEY: &str = "vimana.host/service";
-const LABEL_VERSION_KEY: &str = "vimana.host/version";
-
 // Required conditions for [`v1::StatusResponse`]:
 
 const CONDITION_RUNTIME_READY: &str = "RuntimeReady";
 const CONDITION_NETWORK_READY: &str = "NetworkReady";
 
-/// Wrapper around [WorkRuntime] that can implement [RuntimeService] and [ImageService]
-/// without running afoul of Rust's rules on foreign types / traits.
-pub struct VimanaCriService(pub Arc<WorkRuntime>);
+/// Wrapper around [WorkRuntime] that implements [RuntimeService]
+/// with a downstream server for OCI requests.
+pub(crate) struct ProxyingRuntimeService {
+    /// The upstream runtime handler for all Vimana-related business logic.
+    runtime: WorkRuntime,
 
-/// Type boilerplate for a typical Tonic response result.
-type TonicResult<T> = Result<Response<T>>;
+    /// Client to a downstream OCI container runtime (e.g. containerd or cri-o)
+    /// so work nodes can run traditional OCI containers as well.
+    oci_runtime: AsyncMutex<RuntimeServiceClient<Channel>>,
+}
 
 /// If the given ID (mutable `String`) starts with the OCI prefix,
 /// mutate it in-place to remove the prefix
@@ -162,10 +162,9 @@ macro_rules! map_oci_prefix {
 }
 
 #[async_trait]
-impl RuntimeService for VimanaCriService {
+impl RuntimeService for ProxyingRuntimeService {
     async fn version(&self, r: Request<v1::VersionRequest>) -> TonicResult<v1::VersionResponse> {
         let request = r.into_inner();
-        log_object("Version", &request);
 
         Ok(Response::new(v1::VersionResponse {
             version: String::from(KUBELET_API_VERSION),
@@ -180,13 +179,11 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::RunPodSandboxRequest>,
     ) -> TonicResult<v1::RunPodSandboxResponse> {
         let request = r.into_inner();
-        log_object("RunPodSandbox", &request);
 
         // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
         // This supports running K8s control plane pods like `kube-controller-manager` etc.
         if request.runtime_handler != CONTAINER_RUNTIME_NAME {
             return self
-                .0
                 .oci_runtime
                 .lock()
                 .await
@@ -206,7 +203,7 @@ impl RuntimeService for VimanaCriService {
         }
 
         let name = self
-            .0
+            .runtime
             .init_pod(
                 component,
                 config.metadata.unwrap_or_default(),
@@ -226,11 +223,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::StopPodSandboxRequest>,
     ) -> TonicResult<v1::StopPodSandboxResponse> {
         let mut request = r.into_inner();
-        log_object("StopPodSandbox", &request);
 
         intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .stop_pod_sandbox(Request::new(request))
@@ -238,7 +233,7 @@ impl RuntimeService for VimanaCriService {
         });
 
         let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
-        self.0.kill_pod(&name).await?;
+        self.runtime.kill_pod(&name).await?;
 
         Ok(Response::new(v1::StopPodSandboxResponse {}))
     }
@@ -248,11 +243,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::RemovePodSandboxRequest>,
     ) -> TonicResult<v1::RemovePodSandboxResponse> {
         let mut request = r.into_inner();
-        log_object("RemovePodSandbox", &request);
 
         intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .remove_pod_sandbox(Request::new(request))
@@ -260,7 +253,7 @@ impl RuntimeService for VimanaCriService {
         });
 
         let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
-        self.0.delete_pod(&name)?;
+        self.runtime.delete_pod(&name)?;
 
         Ok(Response::new(v1::RemovePodSandboxResponse {}))
     }
@@ -270,11 +263,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::PodSandboxStatusRequest>,
     ) -> TonicResult<v1::PodSandboxStatusResponse> {
         let mut request = r.into_inner();
-        log_object("PodSandboxStatus", &request);
 
         intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .pod_sandbox_status(Request::new(request))
@@ -291,7 +282,7 @@ impl RuntimeService for VimanaCriService {
 
         let name = parse_pod_prefixed_name(&request.pod_sandbox_id)?;
         let mut pod_sandbox_status = Vec::with_capacity(1);
-        self.0.get_pod(
+        self.runtime.get_pod(
             &name,
             &Vec::default(),
             None,
@@ -317,7 +308,6 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ListPodSandboxRequest>,
     ) -> TonicResult<v1::ListPodSandboxResponse> {
         let mut request = r.into_inner();
-        log_object("ListPodSandbox", &request);
 
         // If there's a filter ID for a given runtime,
         // we can eliminate like half the work.
@@ -355,11 +345,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::CreateContainerRequest>,
     ) -> TonicResult<v1::CreateContainerResponse> {
         let mut request = r.into_inner();
-        log_object("CreateContainer", &request.pod_sandbox_id);
 
         intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .create_container(Request::new(request))
@@ -412,7 +400,7 @@ impl RuntimeService for VimanaCriService {
         // The CRI API has separate steps for creating pods and creating containers,
         // but a component pod is inseparable from its single container,
         // so "pods" and containers are created simultaneously.
-        self.0.create_container(
+        self.runtime.create_container(
             &name,
             &config.metadata,
             &config.labels,
@@ -430,11 +418,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::StartContainerRequest>,
     ) -> TonicResult<v1::StartContainerResponse> {
         let mut request = r.into_inner();
-        log_object("StartContainer", &request);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .start_container(Request::new(request))
@@ -442,7 +428,7 @@ impl RuntimeService for VimanaCriService {
         });
 
         let name = parse_container_prefixed_name(&request.container_id)?;
-        self.0.start_container(&name).await?;
+        self.runtime.start_container(&name).await?;
 
         Ok(Response::new(v1::StartContainerResponse {}))
     }
@@ -452,11 +438,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::StopContainerRequest>,
     ) -> TonicResult<v1::StopContainerResponse> {
         let mut request = r.into_inner();
-        log_object("StopContainer", &request);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .stop_container(Request::new(request))
@@ -465,7 +449,7 @@ impl RuntimeService for VimanaCriService {
 
         let name = parse_container_prefixed_name(&request.container_id)?;
         let timeout = Duration::from_secs(request.timeout.try_into().unwrap_or(0));
-        self.0.stop_container(&name, timeout).await?;
+        self.runtime.stop_container(&name, timeout).await?;
 
         Ok(Response::new(v1::StopContainerResponse {}))
     }
@@ -475,11 +459,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::RemoveContainerRequest>,
     ) -> TonicResult<v1::RemoveContainerResponse> {
         let mut request = r.into_inner();
-        log_object("RemoveContainer", &request);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .remove_container(Request::new(request))
@@ -487,7 +469,7 @@ impl RuntimeService for VimanaCriService {
         });
 
         let name = parse_container_prefixed_name(&request.container_id)?;
-        self.0.remove_container(&name)?;
+        self.runtime.remove_container(&name)?;
 
         Ok(Response::new(v1::RemoveContainerResponse {}))
     }
@@ -497,7 +479,6 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ListContainersRequest>,
     ) -> TonicResult<v1::ListContainersResponse> {
         let mut request = r.into_inner();
-        log_object("ListContainers", &request);
 
         // If there's a filter ID with a runtime prefix,
         // use it to eliminate like half the work.
@@ -533,11 +514,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ContainerStatusRequest>,
     ) -> TonicResult<v1::ContainerStatusResponse> {
         let mut request = r.into_inner();
-        log_object("ContainerStatus", &request.container_id);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .container_status(Request::new(request))
@@ -547,7 +526,7 @@ impl RuntimeService for VimanaCriService {
 
         let name = parse_container_prefixed_name(&request.container_id)?;
         let mut container_status = Vec::with_capacity(1);
-        self.0.get_container(
+        self.runtime.get_container(
             &name,
             &Vec::default(),
             &POD_STATES_CONTAINER_ALL,
@@ -569,11 +548,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::UpdateContainerResourcesRequest>,
     ) -> TonicResult<v1::UpdateContainerResourcesResponse> {
         let mut request = r.into_inner();
-        log_object("UpdateContainerResources", &request);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .update_container_resources(Request::new(request))
@@ -588,11 +565,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ReopenContainerLogRequest>,
     ) -> TonicResult<v1::ReopenContainerLogResponse> {
         let mut request = r.into_inner();
-        log_object("ReopenContainerLogRequest", &request);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .reopen_container_log(Request::new(request))
@@ -607,11 +582,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ExecSyncRequest>,
     ) -> TonicResult<v1::ExecSyncResponse> {
         let mut request = r.into_inner();
-        log_object("ExecSync", &request);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .exec_sync(Request::new(request))
@@ -623,11 +596,9 @@ impl RuntimeService for VimanaCriService {
 
     async fn exec(&self, r: Request<v1::ExecRequest>) -> TonicResult<v1::ExecResponse> {
         let mut request = r.into_inner();
-        log_object("Exec", &request);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .exec(Request::new(request))
@@ -639,11 +610,9 @@ impl RuntimeService for VimanaCriService {
 
     async fn attach(&self, r: Request<v1::AttachRequest>) -> TonicResult<v1::AttachResponse> {
         let mut request = r.into_inner();
-        log_object("Attach", &request);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .attach(Request::new(request))
@@ -658,11 +627,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::PortForwardRequest>,
     ) -> TonicResult<v1::PortForwardResponse> {
         let mut request = r.into_inner();
-        log_object("PortForward", &request);
 
         intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .port_forward(Request::new(request))
@@ -677,11 +644,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ContainerStatsRequest>,
     ) -> TonicResult<v1::ContainerStatsResponse> {
         let mut request = r.into_inner();
-        log_object("ContainerStats", &request);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .container_stats(Request::new(request))
@@ -697,11 +662,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ListContainerStatsRequest>,
     ) -> TonicResult<v1::ListContainerStatsResponse> {
         let request = r.into_inner();
-        log_object("ListContainerStats", &request);
 
         // TODO: Figure out how to list container stats upstream as well.
-        self.0
-            .oci_runtime
+        self.oci_runtime
             .lock()
             .await
             .list_container_stats(Request::new(request))
@@ -713,11 +676,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::PodSandboxStatsRequest>,
     ) -> TonicResult<v1::PodSandboxStatsResponse> {
         let mut request = r.into_inner();
-        log_object("PodSandboxStats", &request);
 
         intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .pod_sandbox_stats(Request::new(request))
@@ -733,11 +694,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ListPodSandboxStatsRequest>,
     ) -> TonicResult<v1::ListPodSandboxStatsResponse> {
         let request = r.into_inner();
-        log_object("ListPodSandboxStats", &request);
 
         // TODO: Figure out how to list pod stats upstream as well.
-        self.0
-            .oci_runtime
+        self.oci_runtime
             .lock()
             .await
             .list_pod_sandbox_stats(Request::new(request))
@@ -749,11 +708,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::UpdateRuntimeConfigRequest>,
     ) -> TonicResult<v1::UpdateRuntimeConfigResponse> {
         let request = r.into_inner();
-        log_object("UpdateRuntimeConfig", &request);
 
         // TODO: Figure out how to update config upstream as well.
-        self.0
-            .oci_runtime
+        self.oci_runtime
             .lock()
             .await
             .update_runtime_config(Request::new(request))
@@ -762,7 +719,6 @@ impl RuntimeService for VimanaCriService {
 
     async fn status(&self, r: Request<v1::StatusRequest>) -> TonicResult<v1::StatusResponse> {
         let request = r.into_inner();
-        log_object("Status", &request);
 
         // These are the only 2 required conditions.
         let mut runtime_ready_condition = v1::RuntimeCondition {
@@ -783,7 +739,6 @@ impl RuntimeService for VimanaCriService {
         let mut runtime_handlers = Vec::default();
 
         match self
-            .0
             .oci_runtime
             .lock()
             .await
@@ -817,11 +772,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::CheckpointContainerRequest>,
     ) -> TonicResult<v1::CheckpointContainerResponse> {
         let mut request = r.into_inner();
-        log_object("CheckpointContainer", &request);
 
         intercept_oci_prefix!(request.container_id, {
-            self.0
-                .oci_runtime
+            self.oci_runtime
                 .lock()
                 .await
                 .checkpoint_container(Request::new(request))
@@ -838,7 +791,6 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::GetEventsRequest>,
     ) -> TonicResult<Self::GetContainerEventsStream> {
         let request = r.into_inner();
-        log_object("GetContainerEvents", &request);
 
         // TODO: Figure out how streaming works.
         return Err(Status::internal("GetContainerEvents TODO"));
@@ -849,11 +801,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ListMetricDescriptorsRequest>,
     ) -> TonicResult<v1::ListMetricDescriptorsResponse> {
         let request = r.into_inner();
-        log_object("ListMetricDescriptors", &request);
 
         // TODO: Also merge in stats about the upstream system!
-        self.0
-            .oci_runtime
+        self.oci_runtime
             .lock()
             .await
             .list_metric_descriptors(Request::new(request))
@@ -865,11 +815,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::ListPodSandboxMetricsRequest>,
     ) -> TonicResult<v1::ListPodSandboxMetricsResponse> {
         let request = r.into_inner();
-        log_object("ListPodSandboxMetrics", &request);
 
         // TODO: Also merge in stats about the upstream system!
-        self.0
-            .oci_runtime
+        self.oci_runtime
             .lock()
             .await
             .list_pod_sandbox_metrics(Request::new(request))
@@ -881,11 +829,9 @@ impl RuntimeService for VimanaCriService {
         r: Request<v1::RuntimeConfigRequest>,
     ) -> TonicResult<v1::RuntimeConfigResponse> {
         let request = r.into_inner();
-        log_object("RuntimeConfig", &request);
 
         // TODO: Also merge in stats about the upstream system!
-        self.0
-            .oci_runtime
+        self.oci_runtime
             .lock()
             .await
             .runtime_config(Request::new(request))
@@ -893,127 +839,14 @@ impl RuntimeService for VimanaCriService {
     }
 }
 
-#[async_trait]
-impl ImageService for VimanaCriService {
-    async fn list_images(
-        &self,
-        r: Request<v1::ListImagesRequest>,
-    ) -> TonicResult<v1::ListImagesResponse> {
-        let request = r.into_inner();
-        log_object("ListImages", &request);
-
-        let filter = request.clone().filter.unwrap_or_default();
-        let spec = filter.image.unwrap_or_default();
-        let handler = spec.runtime_handler;
-
-        // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
-        // This supports running K8s control plane pods like `kube-controller-manager` etc.
-        if handler != "TODO-this-should-be-something-else-but-what?" {
-            return self
-                .0
-                .oci_image
-                .lock()
-                .await
-                .list_images(Request::new(request))
-                .await;
+impl ProxyingRuntimeService {
+    pub(crate) fn new(runtime: WorkRuntime, oci_runtime: RuntimeServiceClient<Channel>) -> Self {
+        Self {
+            runtime,
+            oci_runtime: AsyncMutex::new(oci_runtime),
         }
-
-        todo!()
     }
 
-    async fn image_status(
-        &self,
-        r: Request<v1::ImageStatusRequest>,
-    ) -> TonicResult<v1::ImageStatusResponse> {
-        let request = r.into_inner();
-        log_object("ImageStatus", &request);
-
-        let spec = request.clone().image.unwrap_or_default();
-        let handler = spec.runtime_handler;
-
-        // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
-        // This supports running K8s control plane pods like `kube-controller-manager` etc.
-        if handler != "TODO-this-should-be-something-else-but-what?" {
-            return self
-                .0
-                .oci_image
-                .lock()
-                .await
-                .image_status(Request::new(request))
-                .await;
-        }
-
-        todo!()
-    }
-
-    async fn pull_image(
-        &self,
-        r: Request<v1::PullImageRequest>,
-    ) -> TonicResult<v1::PullImageResponse> {
-        let request = r.into_inner();
-        log_object("PullImage", &request);
-
-        let spec = request.clone().image.unwrap_or_default();
-        let handler = spec.runtime_handler;
-
-        // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
-        // This supports running K8s control plane pods like `kube-controller-manager` etc.
-        if handler != "TODO-this-should-be-something-else-but-what?" {
-            return self
-                .0
-                .oci_image
-                .lock()
-                .await
-                .pull_image(Request::new(request))
-                .await;
-        }
-
-        todo!()
-    }
-
-    async fn remove_image(
-        &self,
-        r: Request<v1::RemoveImageRequest>,
-    ) -> TonicResult<v1::RemoveImageResponse> {
-        let request = r.into_inner();
-        log_object("RemoveImage", &request);
-
-        let spec = request.clone().image.unwrap_or_default();
-        let handler = spec.runtime_handler;
-
-        // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
-        // This supports running K8s control plane pods like `kube-controller-manager` etc.
-        if handler != "TODO-this-should-be-something-else-but-what?" {
-            return self
-                .0
-                .oci_image
-                .lock()
-                .await
-                .remove_image(Request::new(request))
-                .await;
-        }
-
-        todo!()
-    }
-
-    async fn image_fs_info(
-        &self,
-        r: Request<v1::ImageFsInfoRequest>,
-    ) -> TonicResult<v1::ImageFsInfoResponse> {
-        let request = r.into_inner();
-        log_object("ImageFsInfo", &request);
-
-        // TODO: Also merge in stats about the upstream system!
-        self.0
-            .oci_image
-            .lock()
-            .await
-            .image_fs_info(Request::new(request))
-            .await
-    }
-}
-
-impl VimanaCriService {
     /// Perform sandbox listing in the workd runtime.
     fn list_pod_sandbox_upstream(
         &self,
@@ -1038,7 +871,7 @@ impl VimanaCriService {
             if let Ok(name) = Name::parse(&filter.id).pod() {
                 // If it's a complete, parseable pod name (after the prefix),
                 // look it up and return it, if the other conditions are met.
-                self.0.get_pod(
+                self.runtime.get_pod(
                     &name,
                     &labels,
                     readiness,
@@ -1051,7 +884,7 @@ impl VimanaCriService {
         } else {
             // If the ID filter is absent,
             // search exhaustively based on the state and labels filters.
-            self.0
+            self.runtime
                 .list_pods(&labels, readiness, &cri_pod_sandbox, &mut response.items);
         }
 
@@ -1082,7 +915,7 @@ impl VimanaCriService {
             if let Ok(name) = Name::parse(&filter.id).pod() {
                 // If it's a complete, parseable pod name (after the prefix),
                 // look it up and return it, if the other conditions are met.
-                self.0.get_container(
+                self.runtime.get_container(
                     &name,
                     &labels,
                     matching_states,
@@ -1095,7 +928,7 @@ impl VimanaCriService {
         } else {
             // If the ID filter is absent,
             // search exhaustively based on the state and labels filters.
-            self.0.list_containers(
+            self.runtime.list_containers(
                 &labels,
                 matching_states,
                 &cri_container,
@@ -1112,7 +945,7 @@ impl VimanaCriService {
         &self,
         r: Request<v1::ListPodSandboxRequest>,
     ) -> TonicResult<v1::ListPodSandboxResponse> {
-        let result = self.0.oci_runtime.lock().await.list_pod_sandbox(r).await;
+        let result = self.oci_runtime.lock().await.list_pod_sandbox(r).await;
 
         return result.map(|mut response| {
             let r = response.get_mut();
@@ -1129,7 +962,7 @@ impl VimanaCriService {
         &self,
         r: Request<v1::ListContainersRequest>,
     ) -> TonicResult<v1::ListContainersResponse> {
-        let result = self.0.oci_runtime.lock().await.list_containers(r).await;
+        let result = self.oci_runtime.lock().await.list_containers(r).await;
 
         return result.map(|mut response| {
             let r = response.get_mut();
@@ -1294,32 +1127,4 @@ fn cri_image_id() -> String {
 fn cri_container_log_path() -> String {
     // Logging happens entirely via OTLP, not files.
     String::from("/dev/null")
-}
-
-fn component_name_from_labels(labels: &HashMap<String, String>) -> Result<ComponentName> {
-    ComponentName::new(
-        DomainUuid::parse(
-            labels
-                .get(LABEL_DOMAIN_KEY)
-                .ok_or_else(|| Status::invalid_argument("expected-domain-label"))?,
-        )?,
-        String::from(
-            labels
-                .get(LABEL_SERVICE_KEY)
-                .ok_or_else(|| Status::invalid_argument("expected-service-label"))?,
-        ),
-        String::from(
-            labels
-                .get(LABEL_VERSION_KEY)
-                .ok_or_else(|| Status::invalid_argument("expected-version-label"))?,
-        ),
-    )
-}
-
-fn log_object<R: Debug>(name: &str, request: R) {
-    //eprintln!("[{name}] {request:?}");
-}
-
-fn log_object_real<R: Debug>(name: &str, request: R) {
-    eprintln!("[{name}] {request:?}");
 }

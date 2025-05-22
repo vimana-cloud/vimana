@@ -220,14 +220,12 @@ def bootstrap(
                                     'containers': [
                                         {
                                             'name': 'grpc',
-                                            # TODO: Fix image pull logic.
-                                            #'image': '{}/{}/{}:{}'.format(
-                                            #    clusterRegistry,
-                                            #    domainId,
-                                            #    _hexify(serviceName),
-                                            #    componentVersion,
-                                            # ),
-                                            'image': 'registry.hub.docker.com/library/hello-world',
+                                            'image': '{}/{}/{}:{}'.format(
+                                                clusterRegistry,
+                                                domainId,
+                                                _hexify(serviceName),
+                                                componentVersion,
+                                            ),
                                             # TODO: Determine testability implications of image pull policy.
                                             # 'imagePullPolicy': 'Always',
                                             'env': [],
@@ -341,6 +339,14 @@ def deriveName(name: str, prefix: str) -> str:
     hasher = sha224()
     hasher.update(name.encode())
     return f'{prefix}-{hasher.hexdigest()}'
+
+
+def _hexify(name: str):
+    """Return the nibblewise little-endian hex encoding of the given string."""
+    # Compute nibblewise big-endian hex.
+    nbeHex = name.encode().hex()
+    # Swap each nibble pair.
+    return ''.join(little + big for little, big in zip(nbeHex[1::2], nbeHex[::2]))
 
 
 description = """

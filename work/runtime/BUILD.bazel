@@ -4,16 +4,18 @@ load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
 # The Workd runtime implements the K8s CRI.
 rust_binary(
     name = "runtime",
-    binary_name = "workd",
     srcs = [
         "containers.rs",
-        "cri.rs",
+        "cri/image.rs",
+        "cri/mod.rs",
+        "cri/runtime.rs",
         "host.rs",
         "ipam.rs",
         "main.rs",
         "pods.rs",
         "state.rs",
     ],
+    binary_name = "workd",
     visibility = ["//visibility:public"],
     deps = [
         ":cri-api-prost",
@@ -31,7 +33,6 @@ rust_binary(
         "@crates//:hyper-util",
         "@crates//:lazy_static",
         "@crates//:log",
-        "@crates//:moka",
         "@crates//:opentelemetry-appender-log",
         "@crates//:opentelemetry-stdout",
         "@crates//:opentelemetry_sdk",
