@@ -66,6 +66,7 @@ class ListTest(WorkdTestCase):
             cls.fooVersion,
             cls.fooComponentName,
             cls.fooLabels,
+            cls.fooImageSpec,
         ) = cls.setupImage(
             service='foo.AdderService',
             version='1.2.3',
@@ -78,6 +79,7 @@ class ListTest(WorkdTestCase):
             cls.barVersion,
             cls.barComponentName,
             cls.barLabels,
+            cls.barImageSpec,
         ) = cls.setupImage(
             service='bar.AdderService',
             version='0.0.0',
@@ -94,6 +96,7 @@ class ListTest(WorkdTestCase):
             cls.fooContainerMetadata,
             cls.fooComponentName,
             cls.fooLabels,
+            cls.fooImageSpec,
         )
         cls.initiatedFooPodId, _ = setupFooPod(Phase.RunPodSandbox)
         cls.createdFooPodId, cls.createdFooContainerId = setupFooPod(
@@ -119,6 +122,7 @@ class ListTest(WorkdTestCase):
             cls.barContainerMetadata,
             cls.barComponentName,
             cls.barLabels,
+            cls.barImageSpec,
         )
         cls.createdBarPodId, cls.createdBarContainerId = setupBarPod(
             Phase.CreateContainer
@@ -131,6 +135,7 @@ class ListTest(WorkdTestCase):
         containerMetadata: ContainerMetadata,
         componentName: str,
         labels: dict[str, str],
+        imageSpec: ImageSpec,
         until: Phase,
     ) -> tuple[str, str]:
         """
@@ -157,7 +162,7 @@ class ListTest(WorkdTestCase):
                 pod_sandbox_id=podSandboxId,
                 config=ContainerConfig(
                     metadata=containerMetadata,
-                    image=imageSpec(componentName),
+                    image=imageSpec,
                     labels=labels,
                 ),
             ),
@@ -219,10 +224,11 @@ class ListTest(WorkdTestCase):
         metadata: ContainerMetadata,
         state: ContainerState,
         labels: dict[str, str],
+        imageSpec: ImageSpec,
     ):
         """Assert on every detail return by `ListPodContainers`."""
         self.assertEqual(container.metadata, metadata)
-        self.assertEqual(container.image, imageSpec(componentName))
+        self.assertEqual(container.image, imageSpec)
         self.assertEqual(container.image_ref, 'TODO')
         self.assertEqual(container.state, state)
         now = time_ns()
@@ -294,6 +300,7 @@ class ListTest(WorkdTestCase):
             self.fooContainerMetadata,
             ContainerState.CONTAINER_CREATED,
             self.fooLabels,
+            self.fooImageSpec,
         )
         self.assertContainer(
             findById(response.containers, self.runningFooContainerId),
@@ -301,6 +308,7 @@ class ListTest(WorkdTestCase):
             self.fooContainerMetadata,
             ContainerState.CONTAINER_RUNNING,
             self.fooLabels,
+            self.fooImageSpec,
         )
         self.assertContainer(
             findById(response.containers, self.stoppedFooContainerId),
@@ -308,6 +316,7 @@ class ListTest(WorkdTestCase):
             self.fooContainerMetadata,
             ContainerState.CONTAINER_EXITED,
             self.fooLabels,
+            self.fooImageSpec,
         )
         self.assertContainer(
             findById(response.containers, self.createdBarContainerId),
@@ -315,6 +324,7 @@ class ListTest(WorkdTestCase):
             self.barContainerMetadata,
             ContainerState.CONTAINER_CREATED,
             self.barLabels,
+            self.barImageSpec,
         )
 
     def test_ListPodSandbox_FilterById(self):
@@ -500,14 +510,6 @@ def randomContainerMetadata():
     return ContainerMetadata(
         name=hexUuid(),
         attempt=1,
-    )
-
-
-def imageSpec(componentName: str) -> ImageSpec:
-    return ImageSpec(
-        image=componentName,
-        user_specified_image=componentName,
-        runtime_handler='workd',
     )
 
 

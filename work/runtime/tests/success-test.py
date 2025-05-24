@@ -18,6 +18,7 @@ from work.runtime.tests.api_pb2 import (
     PodSandboxConfig,
     PodSandboxMetadata,
     PodSandboxStatusRequest,
+    PullImageRequest,
     RemoveContainerRequest,
     RemovePodSandboxRequest,
     RunPodSandboxRequest,
@@ -56,7 +57,7 @@ class SuccessTest(WorkdTestCase):
         self.assertTrue(response.pod_sandbox_id.startswith('O:'))
 
     def test_SimpleContainerLifecycle(self):
-        domain, service, version, componentName, labels = self.setupImage(
+        domain, service, version, componentName, labels, imageSpec = self.setupImage(
             service='package.Serviss',
             version='1.2.3-fureal',
             module='work/runtime/tests/components/adder-c.component.wasm',
@@ -71,7 +72,6 @@ class SuccessTest(WorkdTestCase):
                         name=f'{domain}-name',
                         uid=f'{domain}-uid',
                         namespace=f'{domain}-namespace',
-                        attempt=6,
                     ),
                     hostname='TODO',
                     labels=labels,
@@ -101,10 +101,7 @@ class SuccessTest(WorkdTestCase):
                         name=f'{domain}-container-name',
                         attempt=3,
                     ),
-                    image=ImageSpec(
-                        image=componentName,
-                        runtime_handler='workd',
-                    ),
+                    image=imageSpec,
                     envs=[KeyValue(key='some-key', value='some-value')],
                     labels=labels,
                 ),
@@ -157,7 +154,7 @@ class SuccessTest(WorkdTestCase):
         )
 
     def test_ContainerStatus(self):
-        domain, service, version, componentName, labels = self.setupImage(
+        domain, service, version, componentName, labels, imageSpec = self.setupImage(
             service='some.Service',
             version='1.2.3',
             module='work/runtime/tests/components/adder-c.component.wasm',
@@ -176,7 +173,7 @@ class SuccessTest(WorkdTestCase):
                         name=f'{domain}-name',
                         uid=f'{domain}-uid',
                         namespace=f'{domain}-namespace',
-                        attempt=6,
+                        attempt=666,
                     ),
                     hostname='simple-pod-hostname',
                     labels=podLabels,
@@ -189,11 +186,6 @@ class SuccessTest(WorkdTestCase):
         containerMetadata = ContainerMetadata(
             name=containerName,
             attempt=1,
-        )
-        imageSpec = ImageSpec(
-            image=componentName,
-            user_specified_image=componentName,
-            runtime_handler='workd',
         )
 
         response = self.runtimeService.CreateContainer(

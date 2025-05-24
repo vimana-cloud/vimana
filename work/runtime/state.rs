@@ -23,7 +23,7 @@ use wasmtime::Engine as WasmEngine;
 use crate::containers::ContainerStore;
 use crate::ipam::{IpAddress, Ipam};
 use crate::pods::{PodInitializer, SharedResultFuture, GRPC_PORT};
-use api_proto::runtime::v1::{ContainerMetadata, PodSandboxMetadata};
+use api_proto::runtime::v1::{ContainerMetadata, ImageSpec, PodSandboxMetadata};
 use logging::{log_info, log_warn};
 use names::{ComponentName, PodId, PodName};
 
@@ -143,6 +143,9 @@ pub(crate) struct Pod {
     /// Environment variable keys and values.
     environment: HashMap<String, String>,
 
+    /// Image specified when creating the container.
+    pub(crate) image_spec: Option<ImageSpec>,
+
     // --------------------------------
     // The following are populated after `StartContainer`:
     // --------------------------------
@@ -226,6 +229,7 @@ impl WorkRuntime {
             container_labels: HashMap::default(),
             container_annotations: HashMap::default(),
             environment: HashMap::default(),
+            image_spec: None,
             container_started_at: 0,
             killer: SingleUse::default(),
             container_finished_at: 0,
@@ -253,6 +257,7 @@ impl WorkRuntime {
         labels: &HashMap<String, String>,
         annotations: &HashMap<String, String>,
         environment: &HashMap<String, String>,
+        image_spec: &ImageSpec,
     ) -> Result<()> {
         let pods = self.pods.pin();
         match pods.compute(name.pod, |entry| match entry {
@@ -277,6 +282,7 @@ impl WorkRuntime {
                         pod.container_labels = labels.clone();
                         pod.container_annotations = annotations.clone();
                         pod.environment = environment.clone();
+                        pod.image_spec = Some(image_spec.clone());
                         pod.container_created_at = now();
                         Operation::Insert(pod)
                         //}

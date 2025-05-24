@@ -422,6 +422,7 @@ impl RuntimeService for ProxyingRuntimeService {
                 &config.labels,
                 &config.annotations,
                 &environment,
+                &image_spec,
             )
             .log_error(&name)?;
 
@@ -1031,7 +1032,7 @@ fn cri_container(name: &PodName, pod: &Pod) -> v1::Container {
         id: container_prefix(name),
         pod_sandbox_id: pod_prefix(name),
         metadata: pod.container_metadata.clone(),
-        image: Some(cri_image_spec(name)),
+        image: pod.image_spec.clone(),
         image_ref: cri_image_ref(),
         state: pod_state_to_cri_container_state(pod.state) as i32,
         created_at: pod.container_created_at,
@@ -1082,7 +1083,7 @@ fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
         started_at: pod.container_started_at,
         finished_at: pod.container_finished_at,
         exit_code: 0, // TODO: Populate this in case a container fails at runtime.
-        image: Some(cri_image_spec(name)),
+        image: pod.image_spec.clone(),
         image_ref: cri_image_ref(),
         reason: String::from("TODO"),
         message: String::from("TODO"),
@@ -1136,17 +1137,6 @@ fn pod_state_to_cri_container_state(state: PodState) -> v1::ContainerState {
         PodState::Created | PodState::Starting => v1::ContainerState::ContainerCreated,
         PodState::Running => v1::ContainerState::ContainerRunning,
         PodState::Stopped => v1::ContainerState::ContainerExited,
-    }
-}
-
-fn cri_image_spec(name: &PodName) -> v1::ImageSpec {
-    let component_name = name.component.to_string();
-    v1::ImageSpec {
-        // TODO: `image` should probably be some sort of digest.
-        image: component_name.clone(),
-        annotations: HashMap::default(),
-        user_specified_image: component_name,
-        runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
     }
 }
 

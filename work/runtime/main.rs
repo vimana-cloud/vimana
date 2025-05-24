@@ -39,6 +39,7 @@ use tokio::sync::oneshot;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Endpoint, Server};
 use tower::service_fn;
+use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::Registry;
 use wasmtime::{Config as WasmConfig, Engine as WasmEngine};
@@ -53,63 +54,120 @@ use cri::runtime::{ProxyingRuntimeService, CONTAINER_RUNTIME_NAME, CONTAINER_RUN
 use ipam::Ipam;
 use state::WorkRuntime;
 
-/// Path to the JSON config file
-/// containing the list of insecure registries.
-const CONFIG_PATH: &str = "/etc/workd/config.json";
+/// Default value for [`WorkdConfig::incoming`].
+const DEFAULT_INCOMING: &str = "/run/vimana/workd.sock";
+/// Default value for [`WorkdConfig::downstream`].
+const DEFAULT_DOWNSTREAM: &str = "/run/containerd/containerd.sock";
+/// Default value for [`WorkdConfig::image_store`].
+const DEFAULT_IMAGE_STORE: &str = "/etc/workd/images";
+/// Default value for [`WorkdConfig::ipam_plugin`].
+const DEFAULT_IPAM_PLUGIN: &str = "/opt/cni/bin/host-local";
+/// Default value for [`WorkdConfig::network_interface`].
+const DEFAULT_NETWORK_INTERFACE: &str = "eth0";
+/// Default value for [`WorkdConfig::pod_ips`].
+const DEFAULT_POD_IPS: &str = "10.1.0.0/16";
 
-#[derive(Parser)]
-#[command(name = CONTAINER_RUNTIME_NAME, version = CONTAINER_RUNTIME_VERSION)]
-struct Args {
+/// Vimana work node runtime.
+///
+/// Every option is configurable as a command-line argument or in the configuration file located at `config`.
+/// Command-line options take precedence.
+#[derive(Parser, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[command(name = CONTAINER_RUNTIME_NAME, version = CONTAINER_RUNTIME_VERSION, verbatim_doc_comment)]
+struct WorkdConfig {
+    /// Path to the config file
+    #[arg(long, value_name = "PATH")]
+    config: Option<String>,
+
     /// Path to the Unix-domain socket
-    /// on which the work node runtime listens for CRI requests from the Kubelet.
-    /// This should probably be '/run/vimana/workd.sock'.
+    /// on which to listen for CRI requests from Kubelet
     #[arg(long, value_name = "PATH")]
-    incoming: String,
+    incoming: Option<String>,
 
     /// Path to the Unix-domain socket
-    /// to which the requests for OCI pods and images are forwarded.
+    /// to which requests for OCI pods and images are forwarded
     #[arg(long, value_name = "PATH")]
-    downstream: String,
+    downstream: Option<String>,
 
-    /// Path to a CNI plugin binary to handle IPAM,
-    /// such as [`host-local`](https://www.cni.dev/plugins/current/ipam/host-local/).
+    /// Root filesystem path under which to save pulled images
     #[arg(long, value_name = "PATH")]
-    ipam_plugin: String,
+    image_store: Option<String>,
 
-    /// Name of the network interface to use (e.g. `eth0`).
+    /// Container registries that should be pulled from using HTTP rather than HTTPS
+    #[arg(long, value_name = "HOST")]
+    insecure_registries: Vec<String>,
+
+    /// Path to a CNI plugin to handle IPAM
+    #[arg(long, value_name = "PATH")]
+    ipam_plugin: Option<String>,
+
+    /// Name of the network interface to use for data plane traffic
     #[arg(long, value_name = "NAME")]
-    network_interface: String,
+    network_interface: Option<String>,
 
     // TODO: This must be coordinated with the downstream runtime
     //   to avoid IP address collisions.
     /// Exclusive subnet for all IP addresses that can be allocated to pods on this node
-    /// (e.g. `10.0.1.0/24` or `fc00:0001::/32`).
     #[arg(long, value_name = "CIDR")]
-    pod_ips: String,
+    pod_ips: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> StdResult<(), Box<dyn StdError>> {
-    let args = Args::parse();
+    // Read configuration from the command-line first,
+    // falling back on the JSON configuration file for unset fields.
+    let args = WorkdConfig::parse();
+    let config = args.config.map_or(WorkdConfig::default(), |config_path| {
+        from_reader(BufReader::new(
+            File::open(&config_path)
+                .expect(&format!("Error opening config file '{}'", config_path)),
+        ))
+        .expect(&format!("Error parsing config file '{}'", config_path))
+    });
+
+    // Select all options from command-line first, config file second, default value third.
+    let incoming = args
+        .incoming
+        .or(config.incoming)
+        .unwrap_or(String::from(DEFAULT_INCOMING));
+    let downstream = args
+        .downstream
+        .or(config.downstream)
+        .unwrap_or(String::from(DEFAULT_DOWNSTREAM));
+    let image_store = args
+        .image_store
+        .or(config.image_store)
+        .unwrap_or(String::from(DEFAULT_IMAGE_STORE));
+    let insecure_registries = args
+        .insecure_registries
+        .into_iter()
+        .chain(config.insecure_registries.into_iter())
+        .collect::<HashSet<_>>();
+    let ipam_plugin = args
+        .ipam_plugin
+        .or(config.ipam_plugin)
+        .unwrap_or(String::from(DEFAULT_IPAM_PLUGIN));
+    let network_interface = args
+        .network_interface
+        .or(config.network_interface)
+        .unwrap_or(String::from(DEFAULT_NETWORK_INTERFACE));
+    let pod_ips = args
+        .pod_ips
+        .or(config.pod_ips)
+        .unwrap_or(String::from(DEFAULT_POD_IPS));
 
     let logger_provider = LoggerProvider::builder()
         .with_simple_exporter(StdoutLogExporter::default())
         .build();
     Registry::default()
+        .with(LevelFilter::INFO)
         .with(OpenTelemetryTracingBridge::new(&logger_provider))
         .init();
-
-    // Read the JSON config file.
-    let config = if let Ok(config_file) = File::open(CONFIG_PATH) {
-        from_reader(BufReader::new(config_file))?
-    } else {
-        WorkdConfig::default()
-    };
 
     // This seems to be the most idiomatic way to create a client with a UDS transport:
     // https://github.com/hyperium/tonic/blob/v0.12.3/examples/src/uds/client.rs.
     // The socket path must be cloneable to enable re-invoking the connector function.
-    let oci_socket_path = Arc::new(args.downstream);
+    let oci_socket_path = Arc::new(downstream);
     let oci_channel = Endpoint::from_static("http://unused")
         .connect_with_connector(service_fn(move |_| {
             let oci_socket_path = oci_socket_path.clone();
@@ -123,7 +181,7 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     let oci_image_client = ImageServiceClient::new(oci_channel.clone());
     let oci_runtime_client = RuntimeServiceClient::new(oci_channel);
 
-    let ipam = Ipam::host_local(args.ipam_plugin, &args.pod_ips);
+    let ipam = Ipam::host_local(ipam_plugin, &pod_ips);
 
     // systemd sends SIGTERM to stop services, CTRL+C sends SIGINT.
     // Listen for those to shut down the servers somewhat gracefully.
@@ -157,11 +215,11 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
             .wasm_function_references(true),
     )?;
 
-    let containers = ContainerStore::new(config.insecureRegistries, &wasmtime);
+    let containers = ContainerStore::new(&image_store, insecure_registries, &wasmtime);
     let runtime = WorkRuntime::new(
         wasmtime,
         containers.clone(),
-        args.network_interface,
+        network_interface,
         ipam,
         shutdown_rx.shared(),
     );
@@ -170,9 +228,9 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     // This is last fallible thing before starting the CRI API server
     // because any failures that occur after this should cause the socket to be unlinked
     // so the service can be restarted successfully.
-    create_dir_all(Path::new(&args.incoming).parent().unwrap())?;
-    let cri_listener = UnixListener::bind(&args.incoming)
-        .expect(&format!("Cannot bind Unix socket '{}'", &args.incoming));
+    create_dir_all(Path::new(&incoming).parent().unwrap())?;
+    let cri_listener =
+        UnixListener::bind(&incoming).expect(&format!("Cannot bind Unix socket '{}'", &incoming));
 
     let result = Server::builder()
         .add_service(RuntimeServiceServer::new(ProxyingRuntimeService::new(
@@ -188,15 +246,8 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
 
     // Remove the UDS path after shutdown so we can rebind on restart.
     // Do this before propagating potential CRI API server errors.
-    let unlink_socket_result = remove_file(&args.incoming);
+    let unlink_socket_result = remove_file(&incoming);
 
     result?;
     Ok(unlink_socket_result?)
-}
-
-/// JSON configuration file.
-#[allow(non_snake_case)]
-#[derive(Deserialize, Default)]
-struct WorkdConfig {
-    insecureRegistries: HashSet<String>,
 }

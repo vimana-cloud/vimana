@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::mem::drop;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
@@ -23,16 +23,12 @@ use logging::log_info;
 use metadata_proto::work::runtime::Metadata;
 use names::{hexify_string, ComponentName};
 
-/// Path to the root of the file hierarchy for pulled images.
-/// See [component_path].
-const STORE_ROOT: &str = "/etc/workd/images";
-
-/// Each image directory under [STORE_ROOT] has a file called `container`
-/// containing the pre-compiled [Component] and the [Metadata].
+/// Each component directory under [store root](ContainerStore::root)
+/// has a file called `container` containing the pre-compiled [Component] and the [Metadata].
 const CONTAINER_FILENAME: &str = "container";
 
-/// Each image directory under [STORE_ROOT] also has a file called `image-spec.binpb`
-/// containing the [image spec](v1::ImageSpec)
+/// Each image directory under [store root](ContainerStore::root)
+/// also has a file called `image-spec.binpb` containing the [image spec](v1::ImageSpec)
 /// that was originally specified when pulling the image.
 const IMAGE_SPEC_FILENAME: &str = "image-spec.binpb";
 
@@ -40,6 +36,10 @@ const IMAGE_SPEC_FILENAME: &str = "image-spec.binpb";
 /// caching compiled components and parsed container metadata locally.
 #[derive(Clone)]
 pub(crate) struct ContainerStore {
+    /// Root of the filesystem tree where images are save locally on pull.
+    /// See [`component_path`](Self::component_path).
+    root: PathBuf,
+
     /// Means to fetch containers from a remote container registry.
     client: ContainerClient,
 
@@ -60,8 +60,13 @@ pub(crate) struct Container {
 impl ContainerStore {
     /// Return a new [store](ContainerStore).
     /// Components will be instantiated using the provided [`Engine`](WasmEngine).
-    pub(crate) fn new(insecure_registries: HashSet<String>, wasmtime: &WasmEngine) -> Self {
+    pub(crate) fn new(
+        root: &str,
+        insecure_registries: HashSet<String>,
+        wasmtime: &WasmEngine,
+    ) -> Self {
         Self {
+            root: PathBuf::from(&root),
             client: ContainerClient::new(insecure_registries, wasmtime),
             wasmtime: wasmtime.clone(),
         }
@@ -77,17 +82,18 @@ impl ContainerStore {
     ) -> Result<()> {
         let container = self.client.fetch(registry, name).await?;
 
-        let component_path = component_path(&name);
+        let component_path = self.component_path(&name);
         create_dir_all(&component_path)
             .await
             .with_context(|| format!("Failed to create image directory: {:?}", component_path))?;
-
-        let mut container_file = File::create(&component_path.join(CONTAINER_FILENAME))
+        let container_path = component_path.join(CONTAINER_FILENAME);
+        let mut container_file = File::create(&container_path)
             .await
-            .context("Failed to create container file")?;
-        let mut image_spec_file = File::create(&component_path.join(IMAGE_SPEC_FILENAME))
+            .with_context(|| format!("Failed to create container file: {:?}", container_path))?;
+        let image_spec_path = component_path.join(IMAGE_SPEC_FILENAME);
+        let mut image_spec_file = File::create(&image_spec_path)
             .await
-            .context("Failed to create image spec file")?;
+            .with_context(|| format!("Failed to create image spec file: {:?}", image_spec_path))?;
 
         // Pre-compile the component for faster loading later.
         // TODO: Prefer to use wasmtime's `Engine::precompile_component`.
@@ -124,22 +130,30 @@ impl ContainerStore {
 
     /// Return a compiled component implementation and its metadata.
     pub(crate) async fn get(&self, name: &ComponentName) -> Result<Container> {
-        let component_path = component_path(&name);
-
-        let mut container_file = File::open(&component_path.join(CONTAINER_FILENAME))
+        let component_path = self.component_path(&name);
+        let container_path = component_path.join(CONTAINER_FILENAME);
+        let mut container_file = File::open(&container_path)
             .await
-            .context("Failed to open container file")?;
+            .with_context(|| format!("Failed to open container file: {:?}", container_path))?;
 
         let component_size = container_file
             .read_u64_le()
             .await
-            .context("Failed reading length from container file")?;
-        let mut serialized_component = Vec::with_capacity(component_size as usize);
+            .context("Failed reading length from container file")?
+            as usize;
+        let mut serialized_component = Vec::with_capacity(component_size);
+        unsafe { serialized_component.set_len(component_size) };
         container_file
             .read_exact(&mut serialized_component)
             .await
             .context("Failed reading component from container file")?;
-        let component = unsafe { Component::deserialize(&self.wasmtime, &serialized_component)? };
+        let component = unsafe { Component::deserialize(&self.wasmtime, &serialized_component) }
+            .with_context(|| {
+                format!(
+                    "Failed deserializing component (length = {})",
+                    serialized_component.len(),
+                )
+            })?;
         // Free space as soon as possible since it could be big.
         drop(serialized_component);
 
@@ -159,14 +173,18 @@ impl ContainerStore {
 
     /// Return metadata about the image originally requested when pulling the named container.
     pub(crate) async fn get_image(&self, name: &ComponentName) -> Result<v1::Image> {
-        let component_path = component_path(&name);
-
-        let container_metadata = metadata(&component_path.join(CONTAINER_FILENAME))
+        let component_path = self.component_path(&name);
+        let container_path = component_path.join(CONTAINER_FILENAME);
+        let container_metadata = metadata(&container_path).await.with_context(|| {
+            format!(
+                "Failed to get metadata for container file: {:?}",
+                container_path
+            )
+        })?;
+        let image_spec_path = component_path.join(IMAGE_SPEC_FILENAME);
+        let mut image_spec_file = File::open(&image_spec_path)
             .await
-            .context("Failed to get metadata for container file")?;
-        let mut image_spec_file = File::open(&component_path.join(IMAGE_SPEC_FILENAME))
-            .await
-            .context("Failed to open image spec file")?;
+            .with_context(|| format!("Failed to open image spec file: {:?}", image_spec_path))?;
 
         let mut serialized_image_spec = Vec::new();
         image_spec_file
@@ -187,15 +205,15 @@ impl ContainerStore {
             pinned: false,
         })
     }
-}
 
-/// Assets for e.g. `00000000000000000000000000000001:bar.baz.Foo@1.0.0`
-/// would be stored under `<STORE_ROOT>/00000000000000000000000000000001/bar.baz.Foo/1.0.0/`.
-fn component_path(name: &ComponentName) -> PathBuf {
-    Path::new(STORE_ROOT)
-        .join(name.service.domain.to_string())
-        .join(&name.service.service)
-        .join(&name.version)
+    /// Assets for e.g. `00000000000000000000000000000001:bar.baz.Foo@1.0.0`
+    /// would be stored under `<root>/00000000000000000000000000000001/bar.baz.Foo/1.0.0/`.
+    fn component_path(&self, name: &ComponentName) -> PathBuf {
+        self.root
+            .join(name.service.domain.to_string())
+            .join(&name.service.service)
+            .join(&name.version)
+    }
 }
 
 /// The container client fetches and processes blobs from a

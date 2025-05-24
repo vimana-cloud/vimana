@@ -22,7 +22,7 @@ from socket import AF_INET, SOCK_STREAM, socket
 from stat import S_IEXEC, S_IREAD
 from subprocess import PIPE, Popen
 from sys import stderr
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from threading import Thread
 from time import sleep
 from typing import Any, TextIO
@@ -41,6 +41,7 @@ from work.runtime.tests.api_pb2 import (
     ExecResponse,
     ExecSyncResponse,
     ImageFsInfoResponse,
+    ImageSpec,
     ImageStatusResponse,
     ListContainersResponse,
     ListContainerStatsResponse,
@@ -49,9 +50,11 @@ from work.runtime.tests.api_pb2 import (
     ListPodSandboxMetricsResponse,
     ListPodSandboxResponse,
     ListPodSandboxStatsResponse,
+    PodSandboxConfig,
     PodSandboxStatsResponse,
     PodSandboxStatusResponse,
     PortForwardResponse,
+    PullImageRequest,
     PullImageResponse,
     RemoveContainerResponse,
     RemoveImageResponse,
@@ -90,6 +93,10 @@ _timeout = timedelta(seconds=5)
 # and "wrap" the IPAM executable with a temporary script
 # that passes the database path as an argument.
 # This allows tests running in parallel to have independent IPAM systems.
+#
+# There should be precisely one IPAM system per Bazel test target
+# because the network namespace is partitioned by Bazel,
+# hence using global variables to manage the temporary file lifecycle.
 _ipamDatabase = NamedTemporaryFile()
 _ipamWrapper = NamedTemporaryFile(mode='w', delete_on_close=False)
 _ipamWrapper.write(f"""#!/usr/bin/env bash
@@ -107,7 +114,9 @@ class WorkdTestCase(TestCase):
         cls.tester = WorkdTester().__enter__()
         # Set up convenient aliases for fields in `tester`.
         cls.runtimeService = cls.tester.runtimeService
+        cls.imageService = cls.tester.imageService
         cls.setupImage = cls.tester.setupImage
+        cls.imageId = cls.tester.imageId
 
     @classmethod
     def tearDownClass(cls):
@@ -143,9 +152,11 @@ class WorkdTester:
                     lambda: exists(ociSocket)
                     and not _isPortAvailable(self._imageRegistryPort),
                 )
+                self._imageStore = TemporaryDirectory()
                 self._workd, self._workdSocket = startWorkd(
                     ociSocket,
                     self._imageRegistryPort,
+                    self._imageStore.name,
                     _ipamWrapper.name,
                 )
                 try:
@@ -230,8 +241,14 @@ class WorkdTester:
         if status != 0:
             raise RuntimeError(f'Failed to push image (status={status}).')
 
-    def setupImage(self, service: str, version: str, module: str, metadata: str):
-        """Boilerplate to create consistent metadata with a random domain."""
+    def setupImage(
+        self, service: str, version: str, module: str, metadata: str
+    ) -> tuple[str, str, str, str, dict[str, str], ImageSpec]:
+        """
+        Boilerplate to create a component name with a random domain,
+        push the given module and metadata as an image to the registry,
+        and pull that same image into the runtime.
+        """
         domain = hexUuid()
         componentName = f'{domain}:{service}@{version}'
         labels = {
@@ -240,7 +257,23 @@ class WorkdTester:
             'vimana.host/version': version,
         }
         self.pushImage(domain, service, version, module, metadata)
-        return (domain, service, version, componentName, labels)
+        imageSpec = ImageSpec(
+            image=self.imageId(domain, service, version),
+            runtime_handler='workd',
+        )
+        self.imageService.PullImage(
+            PullImageRequest(
+                image=imageSpec,
+                sandbox_config=PodSandboxConfig(labels=labels),
+            ),
+        )
+        return (domain, service, version, componentName, labels, imageSpec)
+
+    def imageId(self, domain: str, service: str, version: str) -> str:
+        # TODO: Rewrite the image pusher in Python and use it to construct the URL for pulling.
+        serviceHex = service.encode().hex()
+        serviceHex = ''.join(l + u for l, u in zip(serviceHex[1::2], serviceHex[0::2]))
+        return f'localhost:{self._imageRegistryPort}/{domain}/{serviceHex}:{version}'
 
     def workdLogs(self) -> list[str]:
         """
@@ -268,21 +301,25 @@ class WorkdTester:
 
 
 def startWorkd(
-    ociRuntimeSocket: str, imageRegistryPort: int, ipamPath: str
+    ociRuntimeSocket: str,
+    imageRegistryPort: int,
+    imageStorePath: str,
+    ipamPath: str,
 ) -> tuple[Popen, str]:
     """Start a background process running the work node daemon.
 
     Return the running process and the UNIX socket path where it's listening.
     """
     socket = _tmpName()
-    registry = f'http://localhost:{imageRegistryPort}'
+    insecureRegistry = f'localhost:{imageRegistryPort}'
     networkInterface = 'lo'  # Loopback device.
     podIps = 'fc00:0001::/32'
     command = [
         _workdPath,
         f'--incoming={socket}',
         f'--downstream={ociRuntimeSocket}',
-        f'--registry={registry}',
+        f'--image-store={imageStorePath}',
+        f'--insecure-registries={insecureRegistry}',
         f'--ipam-plugin={ipamPath}',
         f'--network-interface={networkInterface}',
         f'--pod-ips={podIps}',
