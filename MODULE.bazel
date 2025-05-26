@@ -29,7 +29,7 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "db72a6b01da2e2036535320ef579aa3b2385dba4",
+    commit = "889a31bd563a898e5d64457fe98841467f3575e8",
     remote = "git@github.com:vimana-cloud/rules_k8s.git",
 )
 
@@ -366,10 +366,10 @@ oci.pull(
 )
 
 # Kicbase is the base for the Minikube node image used in end-to-end tests.
-# https://github.com/kubernetes/minikube/blob/v1.35.0/pkg/drivers/kic/types.go#L30
+# https://github.com/kubernetes/minikube/blob/v1.36.0/pkg/drivers/kic/types.go#L30
 oci.pull(
     name = "kicbase",
-    digest = "sha256:fd2d445ddcc33ebc5c6b68a17e6219ea207ce63c005095ea1525296da2d1a279",
+    digest = "sha256:6ed579c9292b4370177b7ef3c42cc4b4a6dcd0735a1814916cbc22c8bf38412b",
     image = "gcr.io/k8s-minikube/kicbase",
     platforms = ["linux/amd64"],
 )
