@@ -14,6 +14,7 @@ from work.runtime.tests.api_pb2 import (
     ContainerUser,
     CreateContainerRequest,
     ImageSpec,
+    ImageStatusRequest,
     KeyValue,
     PodSandboxConfig,
     PodSandboxMetadata,
@@ -29,7 +30,7 @@ from work.runtime.tests.api_pb2 import (
 )
 from work.runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
 from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
-from work.runtime.tests.util import WorkdTestCase, ipHostName
+from work.runtime.tests.util import RUNTIME_NAME, WorkdTestCase, ipHostName
 
 
 class SuccessTest(WorkdTestCase):
@@ -38,7 +39,7 @@ class SuccessTest(WorkdTestCase):
 
         response = self.runtimeService.Version(request)
 
-        self.assertEqual(response.runtime_name, 'workd')
+        self.assertEqual(response.runtime_name, RUNTIME_NAME)
         self.assertEqual(response.runtime_api_version, 'v1')
         self.assertEqual(response.version, '0.1.0')
 
@@ -56,6 +57,23 @@ class SuccessTest(WorkdTestCase):
 
         self.assertTrue(response.pod_sandbox_id.startswith('O:'))
 
+    def test_ImageStatus_NotFound(self):
+        response = self.imageService.ImageStatus(
+            ImageStatusRequest(
+                image=ImageSpec(
+                    image=self.imageId(
+                        'a4f7b91e3c0d8e5a2f9c6d4b7e1a3c8f',
+                        'this.should.never.be.Found',
+                        '10.10.10',
+                    ),
+                    runtime_handler=RUNTIME_NAME,
+                ),
+            ),
+        )
+
+        # An absent image indicates to Kubelet that it must be pulled.
+        self.assertFalse(response.HasField('image'))
+
     def test_SimpleContainerLifecycle(self):
         domain, service, version, componentName, labels, imageSpec = self.setupImage(
             service='package.Serviss',
@@ -66,7 +84,7 @@ class SuccessTest(WorkdTestCase):
 
         response = self.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
-                runtime_handler='workd',
+                runtime_handler=RUNTIME_NAME,
                 config=PodSandboxConfig(
                     metadata=PodSandboxMetadata(
                         name=f'{domain}-name',
@@ -167,7 +185,7 @@ class SuccessTest(WorkdTestCase):
 
         response = self.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
-                runtime_handler='workd',
+                runtime_handler=RUNTIME_NAME,
                 config=PodSandboxConfig(
                     metadata=PodSandboxMetadata(
                         name=f'{domain}-name',

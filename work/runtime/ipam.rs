@@ -264,6 +264,7 @@ fn ipam_container_id(pod: &PodName) -> String {
 
 /// Used to parse the JSON result of the IPAM plugin for the `ADD` command.
 #[allow(non_snake_case)]
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct IpamAddResult {
     cniVersion: String,

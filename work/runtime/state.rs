@@ -29,6 +29,8 @@ use names::{ComponentName, PodId, PodName};
 
 const VIMANA_LABEL_PREFIX: &str = "vimana.host/";
 
+const K8S_CONTAINER_RESTART_COUNT_ANNOTATION: &str = "io.kubernetes.container.restartCount";
+
 /// Global runtime state for a work node.
 pub(crate) struct WorkRuntime {
     /// Global Wasm engine to run hosted services.
@@ -109,10 +111,6 @@ pub(crate) struct Pod {
     /// Canonical name of the component that will run in this pod (used for logs).
     pub(crate) component_name: Arc<ComponentName>,
 
-    /// Axum router implementing the pod.
-    /// Starts initializing as soon as possible.
-    routes: SharedResultFuture<Routes>,
-
     /// K8s metadata. Must be returned as-is for status requests.
     pub(crate) pod_sandbox_metadata: PodSandboxMetadata,
 
@@ -128,6 +126,10 @@ pub(crate) struct Pod {
     // --------------------------------
     // The following are populated after `CreateContainer`:
     // --------------------------------
+    /// Axum router implementing the pod.
+    /// Kubelet ensures that the image has been pulled right before calling `CreateContainer`.
+    routes: Option<SharedResultFuture<Routes>>,
+
     /// Creation timestamp of the container in nanoseconds. Must be > 0.
     pub(crate) container_created_at: i64,
 
@@ -201,29 +203,21 @@ impl WorkRuntime {
         let pod_id = self.next_pod_id.fetch_add(1, Ordering::Relaxed);
         let pod_name = PodName::new(component_name.as_ref().clone(), pod_id);
 
-        // Start initializing the pod immediately in a background task.
-        let (routes_future, abort_routes) =
-            self.pod_store.grpc(&self.wasmtime, component_name.clone());
-
         let ip_address = self
             .ipam
             .address(&pod_name, &self.network_interface)
-            .await
-            .map_err(|error| {
-                abort_routes.abort();
-                error
-            })?;
+            .await?;
 
         let pod = Pod {
             state: PodState::Initiated,
             ip_address,
             component_name,
-            routes: routes_future,
             pod_sandbox_metadata,
             pod_labels: labels,
             pod_annotations: annotations,
             pod_created_at: now(),
             // These are set at later states:
+            routes: None,
             container_created_at: 0,
             container_metadata: None,
             container_labels: HashMap::default(),
@@ -257,8 +251,9 @@ impl WorkRuntime {
         labels: &HashMap<String, String>,
         annotations: &HashMap<String, String>,
         environment: &HashMap<String, String>,
-        image_spec: &ImageSpec,
+        image_spec: &Option<ImageSpec>,
     ) -> Result<()> {
+        let mut circumstance = CreateContainerCircumstance::Initial;
         let pods = self.pods.pin();
         match pods.compute(name.pod, |entry| match entry {
             Some((_, pod)) => {
@@ -276,29 +271,64 @@ impl WorkRuntime {
                         //    Operation::Abort(Some(error))
                         //} else {
                         // The Vimana labels match. Transition to `Created`.
+                        circumstance = CreateContainerCircumstance::Initial;
                         let mut pod = pod.clone();
+                        pod.routes = Some(
+                            self.pod_store
+                                .grpc(&self.wasmtime, pod.component_name.clone()),
+                        );
                         pod.state = PodState::Created;
                         pod.container_metadata = container_metadata.clone();
                         pod.container_labels = labels.clone();
                         pod.container_annotations = annotations.clone();
                         pod.environment = environment.clone();
-                        pod.image_spec = Some(image_spec.clone());
+                        pod.image_spec = image_spec.clone();
                         pod.container_created_at = now();
                         Operation::Insert(pod)
                         //}
                     }
                     PodState::Created | PodState::Starting | PodState::Running => {
-                        // Support idempotency if the parameters are exactly the same.
-                        if pod.container_metadata == *container_metadata
-                            && pod.container_labels == *labels
-                            && pod.container_annotations == *annotations
-                            && pod.environment == *environment
+                        // Support idempotency if the parameters are equal
+                        // (modulo 'attempt' and 'restart-count').
+                        if container_metadata_equal(&pod.container_metadata, container_metadata)
+                            && &pod.container_labels == labels
+                            && container_annotations_equal(&pod.container_annotations, annotations)
+                            && &pod.environment == environment
+                            && &pod.image_spec == image_spec
                         {
-                            log_info!(pod: name, "Idempotent container creation");
-                            Operation::Abort(None)
+                            let mut pod = pod.clone();
+                            pod.state = PodState::Created;
+                            let pod_initialization_failed =
+                                pod.routes.as_ref().map_or(true, |routes| {
+                                    routes.peek().map_or(true, StdResult::is_err)
+                                });
+                            let subsequent_attempt =
+                                container_metadata.as_ref().map_or(false, |new_metadata| {
+                                    pod.container_metadata
+                                        .as_ref()
+                                        .map_or(false, |old_metadata| {
+                                            new_metadata.attempt > old_metadata.attempt
+                                        })
+                                });
+                            if pod_initialization_failed && subsequent_attempt {
+                                // `StartContainer` failed because initializing the gRPC pod failed.
+                                // Retry initializing the pod on subsequent attempts.
+                                circumstance = CreateContainerCircumstance::Reattempt;
+                                pod.routes = Some(
+                                    self.pod_store
+                                        .grpc(&self.wasmtime, pod.component_name.clone()),
+                                );
+                            } else {
+                                circumstance = CreateContainerCircumstance::Idempotent;
+                            }
+                            pod.container_metadata = container_metadata.clone();
+                            pod.container_annotations = annotations.clone();
+                            pod.container_created_at = now();
+                            Operation::Insert(pod)
                         } else {
-                            // Cannot re-create the container with a different environment.
-                            Operation::Abort(Some(anyhow!("Container already created")))
+                            Operation::Abort(Some(anyhow!(
+                                "Container cannot be recreated with different parameters"
+                            )))
                         }
                     }
                     PodState::Stopped | PodState::Killed => {
@@ -310,7 +340,17 @@ impl WorkRuntime {
             None => Operation::Abort(Some(anyhow!("Pod not found"))),
         }) {
             Compute::Updated { old: _, new: _ } => {
-                log_info!(pod: name, "Successful container creation");
+                match circumstance {
+                    CreateContainerCircumstance::Initial => {
+                        log_info!(pod: name, "Successful container creation")
+                    }
+                    CreateContainerCircumstance::Reattempt => {
+                        log_info!(pod: name, "Reattempted container creation")
+                    }
+                    CreateContainerCircumstance::Idempotent => {
+                        log_info!(pod: name, "Idempotent container creation")
+                    }
+                }
                 Ok(())
             }
             Compute::Aborted(None) => Ok(()),
@@ -351,33 +391,54 @@ impl WorkRuntime {
         &self,
         name: &PodName,
     ) -> Result<Option<SharedResultFuture<Routes>>> {
+        let mut ready_routes: Option<Arc<Routes>> = None;
         let pods = self.pods.pin();
         match pods.compute(name.pod, |entry| match entry {
             Some((_, pod)) => match pod.state {
-                PodState::Created | PodState::Stopped => match pod.routes.peek() {
-                    Some(Ok(_)) => {
-                        // The server is ready! Now just bind to a socket and start it.
-                        // Claim responsibility for doing so by transitioning to *starting*.
-                        // All other paths end in abortion.
-                        let mut pod = pod.clone();
-                        pod.state = PodState::Starting;
-                        Operation::Insert(pod)
-                    }
-                    Some(Err(init_error)) => {
-                        // Propagate any initialization errors up the stack.
-                        // It should have already been logged where it first occurred.
-                        Operation::Abort(StartContainerAbort::Error(init_error.take().unwrap_or(
-                            // If you see this in the logs,
-                            // the actual root cause should have been logged recently.
-                            anyhow!("Failed starting pod: cause already logged"),
-                        )))
-                    }
-                    None => {
-                        // Still initializing; await the future then retry.
-                        log_info!(pod: name, "Waiting to start container");
-                        Operation::Abort(StartContainerAbort::Waiting(pod.routes.clone()))
-                    }
-                },
+                PodState::Created => pod.routes.as_ref().map_or_else(
+                    || {
+                        Operation::Abort(StartContainerAbort::Error(anyhow!(concat!(
+                            "Logical impossibility",
+                            " (routes future should exist after container creation)",
+                        ))))
+                    },
+                    |routes| match routes.peek() {
+                        Some(Ok(routes)) => {
+                            // The server is ready! Now just bind to a socket and start it.
+                            // Claim responsibility for doing so by transitioning to *starting*.
+                            ready_routes = Some(routes.clone());
+                            let mut pod = pod.clone();
+                            pod.state = PodState::Starting;
+                            Operation::Insert(pod)
+                        }
+                        Some(Err(init_error)) => {
+                            // Propagate any initialization errors up the stack.
+                            // It should have already been logged where it first occurred.
+                            Operation::Abort(StartContainerAbort::Error(
+                                init_error
+                                    .take()
+                                    .map(|error| error.context("Failed starting pod"))
+                                    .unwrap_or(
+                                        // If you see this in the logs,
+                                        // the actual root cause should have been logged recently.
+                                        anyhow!("Failed starting pod: cause already logged"),
+                                    ),
+                            ))
+                        }
+                        None => {
+                            // Still initializing; await the future then retry.
+                            log_info!(pod: name, "Waiting to start container");
+                            Operation::Abort(StartContainerAbort::Waiting(routes.clone()))
+                        }
+                    },
+                ),
+                PodState::Stopped => {
+                    // If we're coming from `Stopped`, the container has been killed.
+                    // TODO: I think we just have to re-bind the TCP port then?
+                    Operation::Abort(StartContainerAbort::Error(anyhow!(
+                        "Restarting a stopped container is not yet implemented",
+                    )))
+                }
                 PodState::Starting | PodState::Running => {
                     log_info!(pod: name, "Idempotent container start");
                     Operation::Abort(StartContainerAbort::Done)
@@ -398,19 +459,11 @@ impl WorkRuntime {
             } => {
                 log_info!(pod: name, "Container starting");
 
-                // The only code path that results in `Compute::Updated`
-                // should have verified that the routes are ready and OK.
-                let routes = pod
-                    .routes
-                    .peek()
-                    .clone()
-                    .ok_or(anyhow!(
-                        "Logical impossibility (routes future absent after checking)",
-                    ))?
-                    .clone()
-                    .map_err(|_| {
-                        anyhow!("Logical impossibility (routes future failed after checking)")
-                    })?;
+                // The only code paths that result in `Compute::Updated`
+                // should have populated `ready_routes`.
+                let routes = ready_routes.ok_or(anyhow!(
+                    "Logical impossibility (routes absent after checking)",
+                ))?;
                 let address = SocketAddr::new(pod.ip_address.address, GRPC_PORT);
                 // TODO: Revisit implications of nodelay.
                 let nodelay = true;
@@ -919,6 +972,21 @@ fn check_vimana_labels(
     }
 }
 
+/// Kubelet may invoke `CreateContainer` under one of three circumstances,
+/// affecting how `CreateContainer` should behave.
+enum CreateContainerCircumstance {
+    /// The first time Kubelet has tried to create this container.
+    Initial,
+    /// When `StartContainer` fails,
+    /// Kubelet will retry `CreateContainer` followed by `StartContainer` again.
+    /// This situation can be detected by checking [`attempt`](ContainerMetadata::attempt).
+    /// In that case, `CreateContainer` should try to re-initialize the gRPC pod.
+    Reattempt,
+    /// A fluke situation where Kubelet might call `CreateContainer` twice
+    /// with exactly the same parameters (including 'attempt` and 'restart-count').
+    Idempotent,
+}
+
 /// Possible reasons why starting a container might be aborted.
 /// See [`start_container`](WorkRuntime::start_container).
 enum StartContainerAbort {
@@ -928,6 +996,39 @@ enum StartContainerAbort {
     Error(Error),
     /// Support idempotency if the pod is already started.
     Done,
+}
+
+/// Return true iff `left` equals `right`, ignoring [`attempt`](ContainerMetadata::attempt).
+fn container_metadata_equal(
+    left: &Option<ContainerMetadata>,
+    right: &Option<ContainerMetadata>,
+) -> bool {
+    if let Some(left) = left {
+        if let Some(right) = right {
+            let mut left = left.clone();
+            left.attempt = 0;
+            let mut right = right.clone();
+            right.attempt = 0;
+            left == right
+        } else {
+            false
+        }
+    } else {
+        right.is_none()
+    }
+}
+
+/// Return true iff `left` equals `right`,
+/// ignoring the key `io.kubernetes.container.restartCount`.
+fn container_annotations_equal(
+    left: &HashMap<String, String>,
+    right: &HashMap<String, String>,
+) -> bool {
+    let mut left = left.clone();
+    left.remove(K8S_CONTAINER_RESTART_COUNT_ANNOTATION);
+    let mut right = right.clone();
+    right.remove(K8S_CONTAINER_RESTART_COUNT_ANNOTATION);
+    left == right
 }
 
 /// Used to shut down a running container. Can only be used once.

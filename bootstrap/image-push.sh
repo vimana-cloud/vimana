@@ -3,6 +3,9 @@
 # Push a Vimana "container" image,
 # consisting of a component module and matching metadata,
 # to an OCI container registry.
+# TODO: Switch to the standard Wasm OCI artifact layout:
+#       https://tag-runtime.cncf.io/wgs/wasm/deliverables/wasm-oci-artifact/
+#       both here and in work/runtime/containers.rs
 
 registry="$1"   # e.g. `http://localhost:5000`.
 domain="$2"     # e.g. `1234567890abcdef1234567890abcdef`.

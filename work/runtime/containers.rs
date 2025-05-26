@@ -125,6 +125,28 @@ impl ContainerStore {
             .await
             .context("Failed writing to image spec file")?;
 
+        // Tokio's filesystem API requires explicitly calling `flush`.
+        container_file
+            .flush()
+            .await
+            .context("Failed flushing container file")?;
+        image_spec_file
+            .flush()
+            .await
+            .context("Failed flushing image spec file")?;
+
+        // Make sure the files are physically written to disk.
+        container_file
+            .sync_all()
+            .await
+            .context("Failed syncing container file")?;
+        image_spec_file
+            .sync_all()
+            .await
+            .context("Failed syncing image spec file")?;
+
+        log_info!(component: name, "Successful image pull");
+
         Ok(())
     }
 

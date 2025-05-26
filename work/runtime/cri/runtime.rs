@@ -305,7 +305,7 @@ impl RuntimeService for ProxyingRuntimeService {
         let timestamp = now();
 
         pod_sandbox_status.pop().map_or_else(
-            || Err(anyhow!("Pod sandbox not found: {:?}", name)).log_error(&name),
+            || Err(Status::not_found(name.to_string())),
             |(pod_status, container_statuses)| {
                 Ok(Response::new(v1::PodSandboxStatusResponse {
                     status: Some(pod_status),
@@ -422,7 +422,7 @@ impl RuntimeService for ProxyingRuntimeService {
                 &config.labels,
                 &config.annotations,
                 &environment,
-                &image_spec,
+                &Some(image_spec),
             )
             .log_error(&name)?;
 
@@ -568,7 +568,7 @@ impl RuntimeService for ProxyingRuntimeService {
         );
 
         container_status.pop().map_or_else(
-            || Err(anyhow!("Container not found: {:?}", name)).log_error(&name),
+            || Err(Status::not_found(name.to_string())),
             |status| {
                 Ok(Response::new(v1::ContainerStatusResponse {
                     status: Some(status),

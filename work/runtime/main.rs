@@ -59,7 +59,7 @@ const DEFAULT_INCOMING: &str = "/run/vimana/workd.sock";
 /// Default value for [`WorkdConfig::downstream`].
 const DEFAULT_DOWNSTREAM: &str = "/run/containerd/containerd.sock";
 /// Default value for [`WorkdConfig::image_store`].
-const DEFAULT_IMAGE_STORE: &str = "/etc/workd/images";
+const DEFAULT_IMAGE_STORE: &str = "/var/lib/vimana/images";
 /// Default value for [`WorkdConfig::ipam_plugin`].
 const DEFAULT_IPAM_PLUGIN: &str = "/opt/cni/bin/host-local";
 /// Default value for [`WorkdConfig::network_interface`].

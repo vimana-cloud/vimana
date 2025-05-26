@@ -12,7 +12,7 @@ use axum::routing::method_routing::post;
 use futures::future::Shared;
 use futures::FutureExt;
 use http::{Request as HttpRequest, Response as HttpResponse};
-use tokio::task::{spawn, AbortHandle};
+use tokio::task::spawn;
 use tonic::body::BoxBody;
 use tonic::codec::{Codec as TonicCodec, EnabledCompressionEncodings};
 use tonic::metadata::KeyAndValueRef;
@@ -66,30 +66,21 @@ impl PodInitializer {
         &self,
         wasmtime: &WasmEngine,
         name: Arc<ComponentName>,
-    ) -> (SharedResultFuture<Routes>, AbortHandle) {
-        // Complete all work in a background task so it can proceed without polling.
-        let task = spawn(initialize_grpc(
+    ) -> SharedResultFuture<Routes> {
+        spawn(initialize_grpc(
             wasmtime.clone(),
             self.containers.clone(),
             name.clone(),
-        ));
-
-        // In case we need to abort initialization for some external reason.
-        let abort = task.abort_handle();
-
-        // Only potential join errors have to be handled in the foreground.
-        let future = task
-            .map(|result| {
-                result
-                    .context("Failure joining initialize-gRPC background task")
-                    .map_err(SingleUse::of)?
-                    .context("Failure initializing gRPC pod")
-                    .map_err(SingleUse::of)
-            })
-            .boxed()
-            .shared();
-
-        (future, abort)
+        ))
+        .map(|result| {
+            result
+                .context("Failure joining initialize-gRPC background task")
+                .map_err(SingleUse::of)?
+                .context("Failure initializing gRPC pod")
+                .map_err(SingleUse::of)
+        })
+        .boxed()
+        .shared()
     }
 }
 

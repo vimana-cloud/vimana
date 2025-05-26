@@ -105,6 +105,9 @@ exec {quote(_ipamPath)} {quote(_ipamDatabase.name)}
 _ipamWrapper.close()
 chmod(_ipamWrapper.name, S_IEXEC | S_IREAD)
 
+# The name of the Vimana Work runtime.
+RUNTIME_NAME = 'workd'
+
 
 class WorkdTestCase(TestCase):
     @classmethod
@@ -259,7 +262,7 @@ class WorkdTester:
         self.pushImage(domain, service, version, module, metadata)
         imageSpec = ImageSpec(
             image=self.imageId(domain, service, version),
-            runtime_handler='workd',
+            runtime_handler=RUNTIME_NAME,
         )
         self.imageService.PullImage(
             PullImageRequest(

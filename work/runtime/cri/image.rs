@@ -8,6 +8,7 @@
 //! enabling colocation of pods using diverse runtimes on a single node.
 
 use std::collections::HashMap;
+use std::io::{Error as IoError, ErrorKind};
 
 use anyhow::{anyhow, Context, Result};
 use api_proto::runtime::v1;
@@ -84,10 +85,24 @@ impl ImageService for ProxyingImageService {
             .with_context(|| format!("Invalid image ID: {:?}", image_spec.image))
             .log_error(GlobalLogs)?;
 
-        let image = self.containers.get_image(&name).await.log_error(&name)?;
+        // If the container file was not found,
+        // swallow the error and return an empty image,
+        // which is what Kubelet expects to indicate that the image must be pulled.
+        let image = match self.containers.get_image(&name).await {
+            Ok(image) => Some(image),
+            Err(error) => {
+                if let Some(ErrorKind::NotFound) =
+                    error.downcast_ref::<IoError>().map(IoError::kind)
+                {
+                    None
+                } else {
+                    return Err(error).log_error(&name);
+                }
+            }
+        };
 
         Ok(Response::new(v1::ImageStatusResponse {
-            image: Some(image),
+            image,
             info: HashMap::default(),
         }))
     }

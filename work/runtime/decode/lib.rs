@@ -4,7 +4,7 @@ mod compound;
 mod scalar;
 
 use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter, Result as FmtResult, Write};
+use std::fmt::{Display, Formatter, Result as FmtResult, Write};
 use std::mem::{transmute, ManuallyDrop};
 use std::ptr::fn_addr_eq;
 use std::result::Result as StdResult;
