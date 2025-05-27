@@ -19,8 +19,8 @@ from work.runtime.tests.api_pb2 import (
     PodSandboxConfig,
     PodSandboxMetadata,
     PodSandboxStatusRequest,
-    PullImageRequest,
     RemoveContainerRequest,
+    RemoveImageRequest,
     RemovePodSandboxRequest,
     RunPodSandboxRequest,
     StartContainerRequest,
@@ -73,6 +73,50 @@ class SuccessTest(WorkdTestCase):
 
         # An absent image indicates to Kubelet that it must be pulled.
         self.assertFalse(response.HasField('image'))
+
+    def test_ImageFsUsage(self):
+        noneUsedBytes, noneInodesUsed = self.verifyFsUsage()
+
+        domain, _, _, _, _, firstImageSpec = self.setupImage(
+            service='just.some.Image',
+            version='1.2.3',
+            module='work/runtime/tests/components/adder-c.component.wasm',
+            metadata='work/runtime/tests/components/adder.binpb',
+        )
+
+        singleUsedBytes, singleInodesUsed = self.verifyFsUsage()
+        self.assertGreater(singleUsedBytes, noneUsedBytes)
+        self.assertEqual(singleInodesUsed, noneInodesUsed + 5)
+
+        # Push a new version. This should share a service directory.
+        _, _, _, _, _, secondImageSpec = self.setupImage(
+            service='just.some.Image',
+            version='4.5.6',
+            module='work/runtime/tests/components/adder-c.component.wasm',
+            metadata='work/runtime/tests/components/adder.binpb',
+            domain=domain,
+        )
+
+        doubleUsedBytes, doubleInodesUsed = self.verifyFsUsage()
+        self.assertEqual(
+            doubleUsedBytes - singleUsedBytes,
+            singleUsedBytes - noneUsedBytes,
+        )
+        self.assertEqual(doubleInodesUsed, singleInodesUsed + 3)
+
+        # Remove the first image, leaving only the second image.
+        self.imageService.RemoveImage(RemoveImageRequest(image=firstImageSpec))
+
+        secondUsedBytes, secondInodesUsed = self.verifyFsUsage()
+        self.assertEqual(secondUsedBytes, singleUsedBytes)
+        self.assertEqual(secondInodesUsed, singleInodesUsed)
+
+        # Remove the second image as well.
+        self.imageService.RemoveImage(RemoveImageRequest(image=secondImageSpec))
+
+        removedUsedBytes, removedInodesUsed = self.verifyFsUsage()
+        self.assertEqual(removedUsedBytes, noneUsedBytes)
+        self.assertEqual(removedInodesUsed, noneInodesUsed)
 
     def test_SimpleContainerLifecycle(self):
         domain, service, version, componentName, labels, imageSpec = self.setupImage(

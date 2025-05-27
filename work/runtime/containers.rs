@@ -338,10 +338,14 @@ impl ContainerStore {
             filesystem_usage.bytes -= image_spec_metadata.len();
             filesystem_usage.inodes -= 1;
 
-            sync_remove_dir(component_path.as_path()).with_context(|| {
-                format!("Failed removing component directory: {:?}", component_path)
-            })?;
-            filesystem_usage.inodes -= 1;
+            // Remove the version, service, and domain directories if they're empty.
+            for directory in component_path.ancestors().take(3) {
+                if sync_remove_dir(directory).is_ok() {
+                    filesystem_usage.inodes -= 1;
+                } else {
+                    break;
+                }
+            }
 
             Ok(())
         })

@@ -5,14 +5,15 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta
+from functools import partial
 from hashlib import sha256
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import IPv4Address, IPv6Address
 from itertools import chain
 from json import loads as parseJson
-from os import chmod
-from os.path import exists
+from os import chmod, stat, walk
+from os.path import exists, join
 from queue import Empty, Queue, ShutDown
 from random import randrange
 from re import Match
@@ -40,6 +41,7 @@ from work.runtime.tests.api_pb2 import (
     CreateContainerResponse,
     ExecResponse,
     ExecSyncResponse,
+    ImageFsInfoRequest,
     ImageFsInfoResponse,
     ImageSpec,
     ImageStatusResponse,
@@ -125,6 +127,9 @@ class WorkdTestCase(TestCase):
     def tearDownClass(cls):
         # Shut down the various servers and subprocesses.
         cls.tester.__exit__(None, None, None)
+
+    def setUp(self):
+        self.verifyFsUsage = partial(self.tester.verifyFsUsage, self)
 
     def tearDown(self):
         self.tester.printWorkdLogs(self)
@@ -245,14 +250,21 @@ class WorkdTester:
             raise RuntimeError(f'Failed to push image (status={status}).')
 
     def setupImage(
-        self, service: str, version: str, module: str, metadata: str
+        self,
+        service: str,
+        version: str,
+        module: str,
+        metadata: str,
+        domain: str = None,
     ) -> tuple[str, str, str, str, dict[str, str], ImageSpec]:
         """
-        Boilerplate to create a component name with a random domain,
+        Boilerplate to create a component name,
         push the given module and metadata as an image to the registry,
         and pull that same image into the runtime.
+
+        If the domain is not supplied, use a random domain.
         """
-        domain = hexUuid()
+        domain = domain or hexUuid()
         componentName = f'{domain}:{service}@{version}'
         labels = {
             'vimana.host/domain': domain,
@@ -277,6 +289,33 @@ class WorkdTester:
         serviceHex = service.encode().hex()
         serviceHex = ''.join(l + u for l, u in zip(serviceHex[1::2], serviceHex[0::2]))
         return f'localhost:{self._imageRegistryPort}/{domain}/{serviceHex}:{version}'
+
+    def verifyFsUsage(self, testCase: TestCase) -> (int, int):
+        """
+        Exercise `ImageService.ImageFsInfo`
+        and compare the results to an independent calculation.
+        Return (`used-bytes`, `inodes-used`).
+        """
+        response = self.imageService.ImageFsInfo(ImageFsInfoRequest())
+        # Expect the Vimana usage information to be first in the results.
+        reportedUsage = response.image_filesystems[0]
+
+        testCase.assertEqual(reportedUsage.fs_id.mountpoint, self._imageStore.name)
+
+        usedBytes = 0
+        inodesUsed = 0
+        for directory, _, filenames in walk(self._imageStore.name):
+            # The runtime does not count the root directory when counting inodes.
+            if directory != self._imageStore.name:
+                inodesUsed += 1
+            for filename in filenames:
+                inodesUsed += 1
+                usedBytes += stat(join(directory, filename)).st_size
+
+        testCase.assertEqual(reportedUsage.used_bytes.value, usedBytes)
+        testCase.assertEqual(reportedUsage.inodes_used.value, inodesUsed)
+
+        return (usedBytes, inodesUsed)
 
     def workdLogs(self) -> list[str]:
         """
