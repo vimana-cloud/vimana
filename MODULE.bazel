@@ -46,7 +46,8 @@ use_repo(switched_rules, "com_google_googleapis_imports")
 RUST_EDITION = "2021"
 
 # Must use nightly to take advantage of experimental features (`#![feature]`).
-RUST_VERSION = "nightly/2025-03-18"
+# https://github.com/bazelbuild/rules_rust/blob/0.61.0/rust/private/common.bzl#L36
+RUST_VERSION = "nightly/2025-04-03"
 
 # Make sure we have a toolchain that can cross-compile to x86-64 / Linux / musl.
 # https://github.com/bazelbuild/rules_rust/blob/0.59.1/examples/musl_cross_compiling/MODULE.bazel

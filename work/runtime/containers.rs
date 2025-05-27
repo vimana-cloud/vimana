@@ -2,22 +2,25 @@
 //! caching compiled components and container metadata locally.
 
 use std::collections::{HashMap, HashSet};
-use std::mem::drop;
+use std::fs::{
+    create_dir_all as sync_create_dir_all, metadata as sync_metadata,
+    remove_dir as sync_remove_dir, remove_file as sync_remove_file, File as SyncFile,
+};
+use std::io::{Read, Write};
+use std::mem::{drop, size_of};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex as SyncMutex;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context, Error, Result};
 use api_proto::runtime::v1;
 use bytes::Bytes;
-use futures::future::BoxFuture;
-use futures::FutureExt;
 use prost::Message;
 use reqwest::header::ACCEPT;
 use reqwest::{Client, StatusCode as HttpStatusCode};
 use serde::Deserialize;
-use tokio::fs::{create_dir_all, metadata, read_dir, remove_dir, remove_file, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::task::spawn;
+use tokio::task::{spawn, spawn_blocking};
 use wasmtime::component::Component;
 use wasmtime::Engine as WasmEngine;
 
@@ -42,6 +45,9 @@ pub(crate) struct ContainerStore {
     /// See [`component_path`](Self::component_path).
     root: PathBuf,
 
+    /// The total number of bytes and inodes used to store images locally.
+    filesystem_usage: Arc<SyncMutex<FilesystemUsage>>,
+
     /// Means to fetch containers from a remote container registry.
     client: ContainerClient,
 
@@ -60,6 +66,7 @@ pub(crate) struct Container {
 }
 
 /// Information about filesystem usage for this Vimana image store.
+#[derive(Clone)]
 pub(crate) struct FilesystemUsage {
     /// Total number of bytes from every file under the [root](ContainerStore::root).
     pub(crate) bytes: u64,
@@ -78,6 +85,10 @@ impl ContainerStore {
     ) -> Self {
         Self {
             root: PathBuf::from(&root),
+            filesystem_usage: Arc::new(SyncMutex::new(FilesystemUsage {
+                bytes: 0,
+                inodes: 0,
+            })),
             client: ContainerClient::new(insecure_registries, wasmtime),
             wasmtime: wasmtime.clone(),
         }
@@ -97,94 +108,134 @@ impl ContainerStore {
         image_spec: &v1::ImageSpec,
     ) -> Result<()> {
         let container = self.client.fetch(registry, name).await?;
-
-        let component_path = self.component_path(&name);
-        create_dir_all(&component_path)
-            .await
-            .with_context(|| format!("Failed to create image directory: {:?}", component_path))?;
-        let container_path = component_path.join(CONTAINER_FILENAME);
-        let mut container_file = File::create(&container_path)
-            .await
-            .with_context(|| format!("Failed to create container file: {:?}", container_path))?;
-        let image_spec_path = component_path.join(IMAGE_SPEC_FILENAME);
-        let mut image_spec_file = File::create(&image_spec_path)
-            .await
-            .with_context(|| format!("Failed to create image spec file: {:?}", image_spec_path))?;
-
-        // Pre-compile the component for faster loading later.
         // TODO: Prefer to use wasmtime's `Engine::precompile_component`.
         let serialized_component = container.component.serialize()?;
-
-        // Write the length of the component to the file first (as a little-endian `u64`),
-        // then the component's pre-compiled bytes.
-        container_file
-            .write_u64_le(serialized_component.len() as u64)
-            .await
-            .context("Failed writing length to container file")?;
-        container_file
-            .write_all(&serialized_component)
-            .await
-            .context("Failed writing component to container file")?;
-        // Free space as soon as possible since it could be big.
-        drop(serialized_component);
-
         let serialized_metadata = container.metadata.encode_to_vec();
-        container_file
-            .write_all(&serialized_metadata)
-            .await
-            .context("Failed writing metadata to container file")?;
-        drop(serialized_metadata);
-
         let serialized_image_spec = image_spec.encode_to_vec();
-        image_spec_file
-            .write_all(&serialized_image_spec)
-            .await
-            .context("Failed writing to image spec file")?;
 
-        // Tokio's filesystem API requires explicitly calling `flush`.
-        container_file
-            .flush()
-            .await
-            .context("Failed flushing container file")?;
-        image_spec_file
-            .flush()
-            .await
-            .context("Failed flushing image spec file")?;
+        let component_path = self.component_path(name);
+        let container_path = component_path.join(CONTAINER_FILENAME);
+        let image_spec_path = component_path.join(IMAGE_SPEC_FILENAME);
+        let filesystem_usage = self.filesystem_usage.clone();
 
-        // Make sure the files are physically written to disk.
-        container_file
-            .sync_all()
-            .await
-            .context("Failed syncing container file")?;
-        image_spec_file
-            .sync_all()
-            .await
-            .context("Failed syncing image spec file")?;
+        let result = spawn_blocking(move || {
+            // This locks the mutex so you can't remove or pull anything else until it's finished.
+            let mut filesystem_usage = filesystem_usage
+                .lock()
+                .map_err(|_| anyhow!("Filesystem usage lock poisoned"))?;
 
-        log_info!(component: name, "Successful image pull");
+            // Determine how many new inodes will be created by this process.
+            let (dir_inodes, container_inode, image_spec_inode) = if component_path.exists() {
+                // If for some reason the files already existed, don't count them as new inodes.
+                (
+                    0,
+                    (!container_path.exists()) as u64,
+                    (!image_spec_path.exists()) as u64,
+                )
+            } else {
+                let service_path = component_path.parent().unwrap();
+                if service_path.exists() {
+                    (1, 1, 1)
+                } else {
+                    let domain_path = service_path.parent().unwrap();
+                    if domain_path.exists() {
+                        (2, 1, 1)
+                    } else {
+                        (3, 1, 1)
+                    }
+                }
+            };
 
-        Ok(())
+            sync_create_dir_all(component_path.as_path()).with_context(|| {
+                format!("Failed to create image directory: {:?}", component_path)
+            })?;
+            filesystem_usage.inodes += dir_inodes;
+            let mut container_file =
+                SyncFile::create(container_path.as_path()).with_context(|| {
+                    format!("Failed to create container file: {:?}", container_path)
+                })?;
+            filesystem_usage.inodes += container_inode;
+            let mut image_spec_file =
+                SyncFile::create(image_spec_path.as_path()).with_context(|| {
+                    format!("Failed to create image spec file: {:?}", image_spec_path)
+                })?;
+            filesystem_usage.inodes += image_spec_inode;
+
+            // Write the length of the component to the file first (as a little-endian `u64`),
+            // then the component's pre-compiled bytes.
+            let module_length = serialized_component.len() as u64;
+            container_file
+                .write_all(&module_length.to_le_bytes())
+                .context("Failed writing length to container file")?;
+            filesystem_usage.bytes += size_of::<u64>() as u64;
+            container_file
+                .write_all(&serialized_component)
+                .context("Failed writing component to container file")?;
+            filesystem_usage.bytes += module_length;
+            // Free space as soon as possible since it could be big.
+            drop(serialized_component);
+
+            container_file
+                .write_all(&serialized_metadata)
+                .context("Failed writing metadata to container file")?;
+            filesystem_usage.bytes += serialized_metadata.len() as u64;
+            drop(serialized_metadata);
+
+            image_spec_file
+                .write_all(&serialized_image_spec)
+                .context("Failed writing to image spec file")?;
+            filesystem_usage.bytes += serialized_image_spec.len() as u64;
+
+            // Make sure the files are physically written to disk.
+            container_file
+                .sync_all()
+                .context("Failed syncing container file")?;
+            image_spec_file
+                .sync_all()
+                .context("Failed syncing image spec file")?;
+
+            Ok(())
+        })
+        .await
+        .context("Failed joining blocking thread to pull image")?;
+
+        if result.is_ok() {
+            log_info!(component: name, "Successful image pull");
+        }
+
+        result
     }
 
     /// Return a compiled component implementation and its metadata.
     pub(crate) async fn get(&self, name: &ComponentName) -> Result<Container> {
-        let component_path = self.component_path(&name);
+        let component_path = self.component_path(name);
         let container_path = component_path.join(CONTAINER_FILENAME);
-        let mut container_file = File::open(&container_path)
-            .await
-            .with_context(|| format!("Failed to open container file: {:?}", container_path))?;
 
-        let component_size = container_file
-            .read_u64_le()
-            .await
-            .context("Failed reading length from container file")?
-            as usize;
-        let mut serialized_component = Vec::with_capacity(component_size);
-        unsafe { serialized_component.set_len(component_size) };
-        container_file
-            .read_exact(&mut serialized_component)
-            .await
-            .context("Failed reading component from container file")?;
+        let (serialized_component, serialized_metadata) = spawn_blocking(move || {
+            let mut container_file = SyncFile::open(container_path.as_path())
+                .with_context(|| format!("Failed to open container file: {:?}", container_path))?;
+
+            let mut component_size_bytes = [0; size_of::<u64>()];
+            container_file
+                .read_exact(&mut component_size_bytes)
+                .context("Failed reading length from container file")?;
+            let component_size = u64::from_le_bytes(component_size_bytes);
+            let mut serialized_component = Vec::with_capacity(component_size as usize);
+            unsafe { serialized_component.set_len(component_size as usize) };
+            container_file
+                .read_exact(&mut serialized_component)
+                .context("Failed reading component from container file")?;
+
+            let mut serialized_metadata = Vec::new();
+            container_file
+                .read_to_end(&mut serialized_metadata)
+                .context("Failed reading metadata from container file")?;
+
+            Ok::<_, Error>((serialized_component, serialized_metadata))
+        })
+        .await
+        .context("Failed joining blocking thread to read image")??;
+
         let component = unsafe { Component::deserialize(&self.wasmtime, &serialized_component) }
             .with_context(|| {
                 format!(
@@ -195,11 +246,6 @@ impl ContainerStore {
         // Free space as soon as possible since it could be big.
         drop(serialized_component);
 
-        let mut serialized_metadata = Vec::new();
-        container_file
-            .read_to_end(&mut serialized_metadata)
-            .await
-            .context("Failed reading metadata from container file")?;
         let metadata = Metadata::decode(serialized_metadata.as_slice())
             .context("Failed to decode metadata from container file")?;
 
@@ -211,24 +257,33 @@ impl ContainerStore {
 
     /// Return metadata about the image originally requested when pulling the named container.
     pub(crate) async fn get_image(&self, name: &ComponentName) -> Result<v1::Image> {
-        let component_path = self.component_path(&name);
+        let component_path = self.component_path(name);
         let container_path = component_path.join(CONTAINER_FILENAME);
-        let container_metadata = metadata(&container_path).await.with_context(|| {
-            format!(
-                "Failed to get metadata for container file: {:?}",
-                container_path
-            )
-        })?;
         let image_spec_path = component_path.join(IMAGE_SPEC_FILENAME);
-        let mut image_spec_file = File::open(&image_spec_path)
-            .await
-            .with_context(|| format!("Failed to open image spec file: {:?}", image_spec_path))?;
 
-        let mut serialized_image_spec = Vec::new();
-        image_spec_file
-            .read_to_end(&mut serialized_image_spec)
-            .await
-            .context("Failed reading image spec from file")?;
+        let (container_size, serialized_image_spec) = spawn_blocking(move || {
+            let container_metadata =
+                sync_metadata(container_path.as_path()).with_context(|| {
+                    format!(
+                        "Failed to get metadata for container file: {:?}",
+                        container_path
+                    )
+                })?;
+            let mut image_spec_file =
+                SyncFile::open(image_spec_path.as_path()).with_context(|| {
+                    format!("Failed to open image spec file: {:?}", image_spec_path)
+                })?;
+
+            let mut serialized_image_spec = Vec::new();
+            image_spec_file
+                .read_to_end(&mut serialized_image_spec)
+                .context("Failed reading image spec from file")?;
+
+            Ok::<_, Error>((container_metadata.len(), serialized_image_spec))
+        })
+        .await
+        .context("Failed joining blocking thread to read image metadata")??;
+
         let image_spec = v1::ImageSpec::decode(serialized_image_spec.as_slice())
             .context("Failed to decode image spec from file")?;
 
@@ -236,7 +291,7 @@ impl ContainerStore {
             id: name.to_string(),
             repo_tags: Vec::default(),
             repo_digests: Vec::default(),
-            size: container_metadata.len() as u64,
+            size: container_size,
             uid: None,
             username: String::default(),
             spec: Some(image_spec),
@@ -246,30 +301,67 @@ impl ContainerStore {
 
     /// Delete an image that has been pulled and saved locally.
     pub(crate) async fn remove(&self, name: &ComponentName) -> Result<()> {
-        let component_path = self.component_path(&name);
+        let component_path = self.component_path(name);
         let container_path = component_path.join(CONTAINER_FILENAME);
-        remove_file(&container_path)
-            .await
-            .with_context(|| format!("Failed removing container file: {:?}", container_path))?;
         let image_spec_path = component_path.join(IMAGE_SPEC_FILENAME);
-        remove_file(&image_spec_path)
-            .await
-            .with_context(|| format!("Failed removing image spec file: {:?}", image_spec_path))?;
-        remove_dir(&component_path)
-            .await
-            .with_context(|| format!("Failed removing component directory: {:?}", component_path))
+        let filesystem_usage = self.filesystem_usage.clone();
+
+        spawn_blocking(move || {
+            // This locks the mutex so you can't remove or pull anything else until it's finished.
+            let mut filesystem_usage = filesystem_usage
+                .lock()
+                .map_err(|_| anyhow!("Filesystem usage lock poisoned"))?;
+
+            // Read file metadata so we know how many bytes we're freeing up.
+            let container_metadata =
+                sync_metadata(container_path.as_path()).with_context(|| {
+                    format!(
+                        "Failed to get metadata for container file: {:?}",
+                        container_path
+                    )
+                })?;
+            sync_remove_file(container_path.as_path())
+                .with_context(|| format!("Failed removing container file: {:?}", container_path))?;
+            filesystem_usage.bytes -= container_metadata.len();
+            filesystem_usage.inodes -= 1;
+
+            let image_spec_metadata =
+                sync_metadata(image_spec_path.as_path()).with_context(|| {
+                    format!(
+                        "Failed to get metadata for image spec file: {:?}",
+                        image_spec_path
+                    )
+                })?;
+            sync_remove_file(image_spec_path.as_path()).with_context(|| {
+                format!("Failed removing image spec file: {:?}", image_spec_path)
+            })?;
+            filesystem_usage.bytes -= image_spec_metadata.len();
+            filesystem_usage.inodes -= 1;
+
+            sync_remove_dir(component_path.as_path()).with_context(|| {
+                format!("Failed removing component directory: {:?}", component_path)
+            })?;
+            filesystem_usage.inodes -= 1;
+
+            Ok(())
+        })
+        .await
+        .context("Failed joining blocking thread to remove image")?
     }
 
     /// Return the total number of inodes and bytes used to store images locally.
     pub(crate) async fn filesystem_usage(&self) -> Result<FilesystemUsage> {
-        // Make sure the root directory exists before trying to scan.
-        create_dir_all(self.root.as_path()).await.with_context(|| {
-            format!(
-                "Cannot create root image directory: {}",
-                self.root.to_string_lossy()
-            )
-        })?;
-        filesystem_usage_from(self.root.clone()).await
+        let filesystem_usage = self.filesystem_usage.clone();
+        spawn_blocking(move || {
+            // This locks the mutex so you can't remove or pull anything else until it's finished.
+            let filesystem_usage = filesystem_usage
+                .lock()
+                .map_err(|_| anyhow!("Filesystem usage lock poisoned"))?;
+
+            Ok(filesystem_usage.clone())
+        })
+        .await
+        .context("Failed joining blocking thread to get filesystem usage")?
     }
 
     /// Assets for e.g. `00000000000000000000000000000001:bar.baz.Foo@1.0.0`
@@ -280,45 +372,6 @@ impl ContainerStore {
             .join(&name.service.service)
             .join(&name.version)
     }
-}
-
-/// Return the total number inodes (files and subdirectories)
-/// and the total number of bytes of all the files
-/// under the given root directory.
-///
-/// Any errors encountered below the root directory are silently ignored.
-fn filesystem_usage_from(root: PathBuf) -> BoxFuture<'static, Result<FilesystemUsage>> {
-    // TODO: This has massive performance issues due to rampant overuse of `spawn_blocking`:
-    //       https://docs.rs/tokio/latest/tokio/fs/#tuning-your-file-io.
-    async move {
-        let mut directory = read_dir(root.as_path())
-            .await
-            .with_context(|| format!("Failed scanning directory: {:?}", root))?;
-        let mut bytes = 0;
-        let mut inodes = 0;
-        while let Some(entry) = directory
-            .next_entry()
-            .await
-            .with_context(|| format!("Failed iterating directory: {:?}", root))?
-        {
-            if let Ok(file_type) = entry.file_type().await {
-                inodes += 1;
-                let entry_path = entry.path();
-                if file_type.is_file() {
-                    if let Ok(metadata) = metadata(entry_path.as_path()).await {
-                        bytes += metadata.len();
-                    }
-                } else if file_type.is_dir() {
-                    if let Ok(entry_usage) = filesystem_usage_from(entry_path).await {
-                        bytes += entry_usage.bytes;
-                        inodes += entry_usage.inodes;
-                    }
-                }
-            }
-        }
-        Ok(FilesystemUsage { bytes, inodes })
-    }
-    .boxed()
 }
 
 /// The container client fetches and processes blobs from a
@@ -403,7 +456,6 @@ impl ContainerClient {
                     .context("Failure joining fetch-component background task")??;
                 let metadata = metadata_result?;
 
-                log_info!(component: name, "Successful image fetch");
                 Ok(Arc::new(Container {
                     component,
                     metadata,
