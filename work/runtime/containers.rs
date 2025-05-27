@@ -9,11 +9,13 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context, Result};
 use api_proto::runtime::v1;
 use bytes::Bytes;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use prost::Message;
 use reqwest::header::ACCEPT;
 use reqwest::{Client, StatusCode as HttpStatusCode};
 use serde::Deserialize;
-use tokio::fs::{create_dir_all, metadata, File};
+use tokio::fs::{create_dir_all, metadata, read_dir, remove_dir, remove_file, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task::spawn;
 use wasmtime::component::Component;
@@ -57,6 +59,15 @@ pub(crate) struct Container {
     pub(crate) metadata: Metadata,
 }
 
+/// Information about filesystem usage for this Vimana image store.
+pub(crate) struct FilesystemUsage {
+    /// Total number of bytes from every file under the [root](ContainerStore::root).
+    pub(crate) bytes: u64,
+
+    /// Total number of files and directories under the [root](ContainerStore::root).
+    pub(crate) inodes: u64,
+}
+
 impl ContainerStore {
     /// Return a new [store](ContainerStore).
     /// Components will be instantiated using the provided [`Engine`](WasmEngine).
@@ -70,6 +81,11 @@ impl ContainerStore {
             client: ContainerClient::new(insecure_registries, wasmtime),
             wasmtime: wasmtime.clone(),
         }
+    }
+
+    /// Return the path to the root directory where images are stored on pull.
+    pub(crate) fn mountpoint(&self) -> String {
+        String::from(self.root.to_string_lossy())
     }
 
     /// Fetch a container identified by `name` from the given registry.
@@ -228,6 +244,34 @@ impl ContainerStore {
         })
     }
 
+    /// Delete an image that has been pulled and saved locally.
+    pub(crate) async fn remove(&self, name: &ComponentName) -> Result<()> {
+        let component_path = self.component_path(&name);
+        let container_path = component_path.join(CONTAINER_FILENAME);
+        remove_file(&container_path)
+            .await
+            .with_context(|| format!("Failed removing container file: {:?}", container_path))?;
+        let image_spec_path = component_path.join(IMAGE_SPEC_FILENAME);
+        remove_file(&image_spec_path)
+            .await
+            .with_context(|| format!("Failed removing image spec file: {:?}", image_spec_path))?;
+        remove_dir(&component_path)
+            .await
+            .with_context(|| format!("Failed removing component directory: {:?}", component_path))
+    }
+
+    /// Return the total number of inodes and bytes used to store images locally.
+    pub(crate) async fn filesystem_usage(&self) -> Result<FilesystemUsage> {
+        // Make sure the root directory exists before trying to scan.
+        create_dir_all(self.root.as_path()).await.with_context(|| {
+            format!(
+                "Cannot create root image directory: {}",
+                self.root.to_string_lossy()
+            )
+        })?;
+        filesystem_usage_from(self.root.clone()).await
+    }
+
     /// Assets for e.g. `00000000000000000000000000000001:bar.baz.Foo@1.0.0`
     /// would be stored under `<root>/00000000000000000000000000000001/bar.baz.Foo/1.0.0/`.
     fn component_path(&self, name: &ComponentName) -> PathBuf {
@@ -236,6 +280,45 @@ impl ContainerStore {
             .join(&name.service.service)
             .join(&name.version)
     }
+}
+
+/// Return the total number inodes (files and subdirectories)
+/// and the total number of bytes of all the files
+/// under the given root directory.
+///
+/// Any errors encountered below the root directory are silently ignored.
+fn filesystem_usage_from(root: PathBuf) -> BoxFuture<'static, Result<FilesystemUsage>> {
+    // TODO: This has massive performance issues due to rampant overuse of `spawn_blocking`:
+    //       https://docs.rs/tokio/latest/tokio/fs/#tuning-your-file-io.
+    async move {
+        let mut directory = read_dir(root.as_path())
+            .await
+            .with_context(|| format!("Failed scanning directory: {:?}", root))?;
+        let mut bytes = 0;
+        let mut inodes = 0;
+        while let Some(entry) = directory
+            .next_entry()
+            .await
+            .with_context(|| format!("Failed iterating directory: {:?}", root))?
+        {
+            if let Ok(file_type) = entry.file_type().await {
+                inodes += 1;
+                let entry_path = entry.path();
+                if file_type.is_file() {
+                    if let Ok(metadata) = metadata(entry_path.as_path()).await {
+                        bytes += metadata.len();
+                    }
+                } else if file_type.is_dir() {
+                    if let Ok(entry_usage) = filesystem_usage_from(entry_path).await {
+                        bytes += entry_usage.bytes;
+                        inodes += entry_usage.inodes;
+                    }
+                }
+            }
+        }
+        Ok(FilesystemUsage { bytes, inodes })
+    }
+    .boxed()
 }
 
 /// The container client fetches and processes blobs from a

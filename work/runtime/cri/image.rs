@@ -23,6 +23,7 @@ use tonic::{async_trait, Request, Response};
 use crate::containers::ContainerStore;
 use crate::cri::runtime::CONTAINER_RUNTIME_NAME;
 use crate::cri::{component_name_from_labels, GlobalLogs, LogErrorToStatus, TonicResult};
+use crate::state::now;
 use names::{unhexify_string, ComponentName, DomainUuid};
 
 /// Wrapper around [WorkRuntime] that implements [ImageService]
@@ -174,7 +175,18 @@ impl ImageService for ProxyingImageService {
             }
         }
 
-        todo!()
+        let image_spec = request.image.unwrap_or_default();
+        let (_, name) = registry_and_component_from_image_spec(&image_spec.image)
+            .with_context(|| format!("Invalid image ID: {:?}", image_spec.image))
+            .log_error(GlobalLogs)?;
+
+        self.containers
+            .remove(&name)
+            .await
+            .with_context(|| format!("Error removing image: {:?}", image_spec.image))
+            .log_error(&name)?;
+
+        Ok(Response::new(v1::RemoveImageResponse {}))
     }
 
     async fn image_fs_info(
@@ -183,12 +195,35 @@ impl ImageService for ProxyingImageService {
     ) -> TonicResult<v1::ImageFsInfoResponse> {
         let request = r.into_inner();
 
-        // TODO: Also merge in stats about the upstream system!
-        self.oci_image
+        // Start by getting the downstream info.
+        let mut image_fs_info = self
+            .oci_image
             .lock()
             .await
             .image_fs_info(Request::new(request))
+            .await?;
+
+        // Insert the upstream info.
+        let usage = self
+            .containers
+            .filesystem_usage()
             .await
+            .log_error(GlobalLogs)?;
+        image_fs_info.get_mut().image_filesystems.insert(
+            0,
+            v1::FilesystemUsage {
+                timestamp: now(),
+                fs_id: Some(v1::FilesystemIdentifier {
+                    mountpoint: self.containers.mountpoint(),
+                }),
+                used_bytes: Some(v1::UInt64Value { value: usage.bytes }),
+                inodes_used: Some(v1::UInt64Value {
+                    value: usage.inodes,
+                }),
+            },
+        );
+
+        Ok(image_fs_info)
     }
 }
 
