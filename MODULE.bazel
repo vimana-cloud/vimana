@@ -358,6 +358,7 @@ use_repo(pip, "pypi")
 oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 
 # Distroless base for the API server image.
+# TODO: Delete this once the API is built to Wasm.
 # https://console.cloud.google.com/artifacts/docker/distroless/us/gcr.io/base
 oci.pull(
     name = "distroless-base",
@@ -370,8 +371,7 @@ oci.pull(
 # https://github.com/kubernetes/minikube/blob/v1.36.0/pkg/drivers/kic/types.go#L30
 oci.pull(
     name = "kicbase",
-    digest = "sha256:6ed579c9292b4370177b7ef3c42cc4b4a6dcd0735a1814916cbc22c8bf38412b",
-    image = "gcr.io/k8s-minikube/kicbase",
+    image = "gcr.io/k8s-minikube/kicbase@sha256:6ed579c9292b4370177b7ef3c42cc4b4a6dcd0735a1814916cbc22c8bf38412b",
     platforms = ["linux/amd64"],
 )
 use_repo(

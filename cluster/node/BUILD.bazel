@@ -1,0 +1,31 @@
+""" Build the K8s node image for use in a production Vimana cluster. """
+
+load("@rules_k8s//:provision.bzl", "packer_build_vmdk")
+load("//dev:platform-binary.bzl", "platform_binary")
+
+packer_build_vmdk(
+    name = "build",
+    data = [
+        "provision-vimana.sh",
+        "workd.prod.service",
+        ":workd-x86_64-linux",
+        "@rules_k8s//:host-local-x86_64-linux",
+    ],
+    output_variable = "output_directory",
+    template = "vimana-node.pkr.hcl",
+    variables = {
+        "archlinux_release": "2025.05.01",
+        "provision_script": "../$(rlocationpath provision-vimana.sh)",
+        "workd_binary": "../$(rlocationpath :workd-x86_64-linux)",
+        "workd_service": "../$(rlocationpath workd.prod.service)",
+        "host_local_ipam": "../$(rlocationpath @rules_k8s//:host-local-x86_64-linux)",
+    },
+)
+
+# Build a statically-linked `workd` Linux binary suitable for a container or a VM.
+platform_binary(
+    name = "workd-x86_64-linux",
+    platform = "//dev:x86_64-linux-musl",
+    target = "//work/runtime",
+    visibility = ["//dev/minikube:__pkg__"],
+)

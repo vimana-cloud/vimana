@@ -1,6 +1,5 @@
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
-load("//dev:platform-binary.bzl", "platform_binary")
 
 # Name of some registry we can push / pull images to / from.
 local_registry = "localhost:5000"
@@ -49,10 +48,10 @@ sh_binary(
         "$(rootpath @rules_k8s//:minikube)",
         "$(rootpath @rules_k8s//:minikube-bin)",
         "$(rootpath @rules_k8s//:kubectl)",
-        "$(rootpath :workd-x86_64-linux)",
+        "$(rootpath //cluster/node:workd-x86_64-linux)",
     ],
     data = [
-        ":workd-x86_64-linux",
+        "//cluster/node:workd-x86_64-linux",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
         "@rules_k8s//:minikube-bin",
@@ -64,30 +63,7 @@ oci_image(
     name = "kicbase-image",
     base = "@kicbase",
     # Layer `workd` on top of it to enable Vimana on Minikube.
-    tars = [":workd-tar"],
-)
-
-pkg_tar(
-    name = "workd-tar",
-    srcs = [
-        # Workd SystemD unit file.
-        ":workd.kicbase.service",
-        # Workd binary built for the container.
-        ":workd-x86_64-linux",
-        # We need a more modern version of `crictl` than the one that ships with Kicbase by default.
-        "@rules_k8s//:crictl-x86_64-linux",
-        # Standard `host-local` IPAM CNI plugin.
-        "@rules_k8s//:host-local-x86_64-linux",
-    ],
-    remap_paths = {
-        "/workd.kicbase.service": "/etc/systemd/system/workd.service",
-        "/workd-x86_64-linux": "/usr/bin/workd",
-        # Override these things that should already be on the image,
-        # because we want specific versions.
-        # Bazel downloader adds the `.exe` suffix no matter what the execution platform is.
-        "/crictl-x86_64-linux.exe": "/usr/bin/crictl",
-        "/host-local-x86_64-linux.exe": "/opt/cni/bin/host-local",
-    },
+    tars = [":kicbase-workd-tar"],
 )
 
 oci_push(
@@ -103,8 +79,25 @@ oci_load(
     repo_tags = [kicbase_image_name + ":" + kicbase_tag],
 )
 
-platform_binary(
-    name = "workd-x86_64-linux",
-    platform = "//dev:x86_64-linux-musl",
-    target = "//work/runtime",
+pkg_tar(
+    name = "kicbase-workd-tar",
+    srcs = [
+        # Workd SystemD unit file.
+        ":workd.kicbase.service",
+        # Workd binary built for the container.
+        "//cluster/node:workd-x86_64-linux",
+        # We need a more modern version of `crictl` than the one that ships with Kicbase by default.
+        "@rules_k8s//:crictl-x86_64-linux",
+        # Standard `host-local` IPAM CNI plugin.
+        "@rules_k8s//:host-local-x86_64-linux",
+    ],
+    remap_paths = {
+        "/workd.kicbase.service": "/etc/systemd/system/workd.service",
+        "/workd-x86_64-linux": "/usr/bin/workd",
+        # Override these things that should already be on the image,
+        # because we want specific versions.
+        # Bazel downloader adds the `.exe` suffix no matter what the platform is.
+        "/crictl-x86_64-linux.exe": "/usr/bin/crictl",
+        "/host-local-x86_64-linux.exe": "/opt/cni/bin/host-local",
+    },
 )

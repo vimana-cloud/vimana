@@ -1,0 +1,11 @@
+[Unit]
+Description=Vimana Work Runtime Service
+Requires=containerd.service
+After=containerd.service
+
+[Service]
+Type=exec
+ExecStart=workd
+
+[Install]
+WantedBy=multi-user.target

@@ -29,7 +29,7 @@ platform(
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
     ],
-    visibility = [":__subpackages__"],
+    visibility = ["//cluster/node:__pkg__"],
 )
 
 constraint_setting(
