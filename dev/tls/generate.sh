@@ -14,10 +14,10 @@
 if [ -t 2 ]
 then
   # https://en.wikipedia.org/wiki/ANSI_escape_code
-  reset='\033[0m' # No formatting.
-  bold='\033[1m'
-  red='\033[1;31m'
-  green='\033[1;32m'
+  reset="$(tput sgr0)"
+  bold="$(tput bold)"
+  red="$(tput setaf 1)"
+  green="$(tput setaf 2)"
 else
   # Make them all empty (no formatting) if stderr is piped.
   reset=''

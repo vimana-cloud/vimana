@@ -15,9 +15,9 @@
 if [ -t 2 ]
 then
   # Terminal escape codes used for formatted output.
-  reset='\033[0m' # No formatting.
-  bold='\033[1m'
-  red='\033[1;31m'
+  reset="$(tput sgr0)"
+  bold="$(tput bold)"
+  red="$(tput setaf 1)"
 else
   # Make them all empty (no color) if we're printing to a pipe.
   reset=''

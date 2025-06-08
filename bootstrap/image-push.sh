@@ -138,11 +138,11 @@ curl -X PUT --silent --location --fail "$put_url" \
 if [ -t 2 ]
 then
   # https://en.wikipedia.org/wiki/ANSI_escape_code
-  reset='\033[0m' # No formatting.
-  bold='\033[1m'
-  yellow='\033[1;33m'
-  blue='\033[1;34m'
-  magenta='\033[1;35m'
+  reset="$(tput sgr0)"
+  bold="$(tput bold)"
+  yellow="$(tput setaf 3)"
+  blue="$(tput setaf 4)"
+  magenta="$(tput setaf 5)"
 else
   # Make them all empty (no formatting) if stderr is piped.
   reset=''
