@@ -21,8 +21,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bazel-
       - name: Run Tests
-        # Run all tests except for the ones located under `e2e/`
-        run: bazel test //... -- -//e2e/...
+        run: |
+          # Import deploy keys necessary to download modules from private repo(s)
+          # during the build.
+          eval "$(ssh-agent -s)"
+          <<< '${{ secrets.RULES_K8S_DEPLOY_KEY }}' ssh-add -
+
+          # Run all tests except for the ones located under `e2e/`
+          bazel test //... -- -//e2e/...
       - name: Upload Log
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
