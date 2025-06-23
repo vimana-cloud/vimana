@@ -12,13 +12,17 @@ variable "output_directory" {
   type = string
 }
 
-# Arch Linux ISO release version: https://archlinux.org/releng/releases/
-variable "archlinux_release" {
+# Debian release version: https://cdimage.debian.org/debian-cd/
+variable "debian_version" {
+  type = string
+}
+
+variable "kubernetes_version" {
   type = string
 }
 
 # Path to the provisioning script to run over SSH.
-variable "provision_script" {
+variable "preseed_template" {
   type = string
 }
 
@@ -37,7 +41,7 @@ variable "host_local_ipam" {
   type = string
 }
 
-source "virtualbox-iso" "archlinux-64" {
+source "virtualbox-iso" "debian-64" {
   output_directory = "${var.output_directory}"
   # The guest OS type being installed.
   # By default this is `other`,
@@ -45,16 +49,17 @@ source "virtualbox-iso" "archlinux-64" {
   # To view all available values for this run `VBoxManage list ostypes`.
   # Setting the correct value hints to VirtualBox how to optimize the virtual hardware
   # to work best with that operating system.
-  guest_os_type = "ArchLinux_64"
+  guest_os_type = "Debian_64"
   # Download installation media.
   iso_urls = [
-    "https://mirrors.edge.kernel.org/archlinux/iso/${var.archlinux_release}/archlinux-${var.archlinux_release}-x86_64.iso",
-    "https://mirrors.mit.edu/archlinux/iso/${var.archlinux_release}/archlinux-${var.archlinux_release}-x86_64.iso",
+    "https://cdimage.debian.org/debian-cd/${var.debian_version}/amd64/iso-cd/debian-${var.debian_version}-amd64-netinst.iso",
+    "https://mirrors.ocf.berkeley.edu/debian-cd/${var.debian_version}/amd64/iso-cd/debian-${var.debian_version}-amd64-netinst.iso",
   ]
-  iso_checksum = "file:https://archlinux.org/iso/${var.archlinux_release}/sha256sums.txt"
+  # TODO: Verify checksum signatures.
+  iso_checksum = "file:https://cdimage.debian.org/debian-cd/${var.debian_version}/amd64/iso-cd/SHA256SUMS"
   # Don't bother showing the VirtualBox GUI.
   # Most of the provisioning occurs via SSH anyway.
-  headless = true
+  #headless = true
   # The time to wait after booting the initial virtual machine
   # before typing the `boot_command`.
   boot_wait = "10s"
@@ -64,16 +69,28 @@ source "virtualbox-iso" "archlinux-64" {
   # Arch Linux is pretty much ready to go.
   # We just have to set a password for `root` so the SSH provisioner can connect.
   boot_command = [
-    # Get past GRUB and give SystemD plenty of time to boot.
-    "<enter><wait60s>",
+    # Exit the TUI installer.
+    "<wait10s><esc><wait1s>",
     # Set the password for `root` to `root`.
     # These are the SSH credentials for the installation media, not the resulting VM.
-    "passwd<enter><wait1s>",
+    #"passwd<enter><wait1s>",
     # Type the password.
-    "root<enter><wait1s>",
+    #"root<enter><wait1s>",
     # Re-type the same password.
-    "root<enter>",
+    #"root<enter><wait1s>",
+    "install",
+    # Delay the locale and keyboard questions
+    # until after there has been a chance to preseed them.
+    " auto-install/enable=true",
+    # The installer asks for a hostname and domain before downloading the preseed file,
+    # so these have to be set on the command line.
+    " netcfg/get_hostname=unassigned-hostname",
+    " netcfg/get_domain=unassigned-domain",
+    " preseed/url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg<wait10s><enter>",
   ]
+  http_content = {
+    "/preseed.cfg" = templatefile("${var.preseed_template}", { kubernetes_version = "${var.kubernetes_version}" })
+  }
   ssh_username = "root"
   ssh_password = "root"
   # The command to use to gracefully shut down the machine once all the provisioning is done.
@@ -84,7 +101,7 @@ source "virtualbox-iso" "archlinux-64" {
 }
 
 build {
-  sources = ["source.virtualbox-iso.archlinux-64"]
+  sources = ["source.virtualbox-iso.debian-64"]
 
   # Files are uploaded to the installation media.
   # The provisioner script still has to copy them to the hard disk.
@@ -104,7 +121,7 @@ build {
     destination = "/host-local"
   }
 
-  provisioner "shell" {
-    script = "${var.provision_script}"
-  }
+  #provisioner "shell" {
+  #  script = "${var.provision_script}"
+  #}
 }
