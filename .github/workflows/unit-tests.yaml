@@ -1,0 +1,31 @@
+name: Unit Tests
+on:
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+  workflow_dispatch:
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      # https://github.com/actions/cache/blob/v4.2.3/examples.md#---bazel
+      - name: Cache Bazel
+        uses: actions/cache@v4
+        with:
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelrc', 'MODULE.bazel') }}
+          path: |
+            ~/.cache/bazel
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+      - name: Run Tests
+        # Run all tests except for the ones located under `e2e/`
+        run: bazel test //... -- -//e2e/...
+      - name: Upload Log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bazel-testlogs
+          path: bazel-testlogs/
