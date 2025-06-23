@@ -8,8 +8,8 @@ After=containerd.service
 
 [Service]
 Type=exec
-# The config file should be populated by Minikube with insecure registries.
-ExecStart=workd --insecure-registries=host.minikube.internal:5000
+# The config file is populated by Minikube with insecure registries.
+ExecStart=workd --config=/etc/workd/config.json
 
 [Install]
 WantedBy=multi-user.target
