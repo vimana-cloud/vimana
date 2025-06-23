@@ -131,6 +131,10 @@ crate.spec(
     version = "1.7.2",
 )
 crate.spec(
+    package = "heck",
+    version = "0.5.0",
+)
+crate.spec(
     package = "opentelemetry",
     version = "0.27.0",
 )
