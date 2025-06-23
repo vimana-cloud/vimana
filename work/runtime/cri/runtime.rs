@@ -872,6 +872,13 @@ impl RuntimeService for ProxyingRuntimeService {
             .runtime_config(Request::new(request))
             .await
     }
+
+    async fn update_pod_sandbox_resources(
+        &self,
+        r: Request<v1::UpdatePodSandboxResourcesRequest>,
+    ) -> TonicResult<v1::UpdatePodSandboxResourcesResponse> {
+        todo!()
+    }
 }
 
 impl ProxyingRuntimeService {
@@ -1097,6 +1104,7 @@ fn cri_container_status(name: &PodName, pod: &Pod) -> v1::ContainerStatus {
         image_id: cri_image_id(),
         // Wasm modules do not use user-based privileges.
         user: None,
+        stop_signal: v1::Signal::Sigterm as i32,
     }
 }
 

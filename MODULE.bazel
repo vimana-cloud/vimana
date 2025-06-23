@@ -21,9 +21,8 @@ bazel_dep(name = "rules_wasm", version = "1.1.1")
 bazel_dep(name = "cri-api")
 git_override(
     module_name = "cri-api",
-    commit = "010fdf8d785a7f35fa5a1cc80c40bde0c13e1dfd",
-    patches = ["dev/patches/cri-api.patch"],
-    remote = "git@github.com:kubernetes/cri-api.git",
+    commit = "c133bdabf253886f640d764d1748aa9ac644ab1c",
+    remote = "https://github.com/vimana-cloud/cri-api.git",
 )
 
 bazel_dep(name = "rules_k8s")
