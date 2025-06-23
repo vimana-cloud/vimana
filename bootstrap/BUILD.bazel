@@ -5,7 +5,10 @@ exports_files(["image-push.sh"])
 py_binary(
     name = "bootstrap",
     srcs = ["bootstrap.py"],
-    data = ["@rules_k8s//:tls-generate"],
+    data = [
+        "@openssl//:openssl",
+        "@rules_k8s//:tls-generate",
+    ],
 )
 
 sh_binary(

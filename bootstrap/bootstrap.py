@@ -21,10 +21,13 @@ GRPC_GATEWAY_PORT = 443
 # gRPC services must always use this port number internally.
 GRPC_CONTAINER_PORT = 80
 
-# Path to the `tls-generate` binary used to generate private keys and certificates.
+# Paths to the `openssl` and `tls-generate` binaries
+# used to generate private keys and certificates.
 # `RUNFILES_DIR` is set when invoked via `bazel build`.
 # `..` is the parent for external repo data dependencies when invoked via `bazel run`.
-TLS_GENERATE_PATH = joinPath(getenv('RUNFILES_DIR', '..'), 'rules_k8s+', 'tls-generate')
+RUNFILES_DIR = getenv('RUNFILES_DIR', '..')
+OPENSSL_PATH = joinPath(RUNFILES_DIR, 'openssl+', 'openssl')
+TLS_GENERATE_PATH = joinPath(RUNFILES_DIR, 'rules_k8s+', 'tls-generate')
 
 
 def bootstrap(
@@ -274,6 +277,7 @@ def generateDomainTls(
                 f'--cert={certFile.name}',
                 f'--root-key={caKey}',
                 f'--root-cert={caCert}',
+                f'--openssl={OPENSSL_PATH}',
             ]
             if Popen(command).wait() != 0:
                 raise RuntimeError(
@@ -312,7 +316,13 @@ def generateRootCa(pathPrefix: str) -> (str, str):
     keyPath = f'{pathPrefix}.key'
     certPath = f'{pathPrefix}.cert'
 
-    command = [TLS_GENERATE_PATH, '--ca', f'--key={keyPath}', f'--cert={certPath}']
+    command = [
+        TLS_GENERATE_PATH,
+        '--ca',
+        f'--key={keyPath}',
+        f'--cert={certPath}',
+        f'--openssl={OPENSSL_PATH}',
+    ]
     if Popen(command).wait() != 0:
         raise RuntimeError(f'Failed to generate root CA.')
 

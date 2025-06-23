@@ -6,7 +6,7 @@ bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "gazelle", version = "0.40.0")
 bazel_dep(name = "googleapis", version = "0.0.0-20240819-fe8ba054a")
 bazel_dep(name = "grpc", version = "1.69.0")
-bazel_dep(name = "openssl", version = "3.3.1.bcr.1")
+bazel_dep(name = "openssl", version = "3.3.1.bcr.3")
 bazel_dep(name = "platforms", version = "0.0.11")
 bazel_dep(name = "protobuf", version = "29.2")
 bazel_dep(name = "toolchains_musl", version = "0.1.20")
@@ -29,7 +29,7 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "889a31bd563a898e5d64457fe98841467f3575e8",
+    commit = "58a9ab68ac19d59361e0a7df2459c8dfc59c9a53",
     remote = "git@github.com:vimana-cloud/rules_k8s.git",
 )
 
