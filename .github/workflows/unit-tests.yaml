@@ -27,6 +27,17 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      # https://github.com/actions/cache/blob/v4.2.3/examples.md#---bazel
+      - name: Cache Bazel
+        uses: actions/cache@v4
+        with:
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel') }}
+          path: |
+            ~/.cache/bazel
+          restore-keys: |
+            ${{ runner.os }}-bazel-
       - name: Set Up Environment
         run: |
           # Install basic dependencies.
@@ -52,17 +63,6 @@ jobs:
           # Import deploy keys necessary to download modules from private repo(s) during the build.
           eval "$(ssh-agent -s)"
           <<< '${{ secrets.RULES_K8S_DEPLOY_KEY }}' ssh-add -
-      - name: Checkout
-        uses: actions/checkout@v4
-      # https://github.com/actions/cache/blob/v4.2.3/examples.md#---bazel
-      - name: Cache Bazel
-        uses: actions/cache@v4
-        with:
-          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel') }}
-          path: |
-            ~/.cache/bazel
-          restore-keys: |
-            ${{ runner.os }}-bazel-
       - name: Run Tests
         id: run-tests
         run: |
