@@ -30,6 +30,8 @@ else
   blue=''
 fi
 
+buildozer="$(realpath $1)"
+
 # Move to the top level of the Git Repo for this function.
 # The source repo becomes the working directory.
 # Source files can be mutated, in contrast to Bazel's usual hermeticity.
@@ -40,8 +42,6 @@ then
   exit 1
 fi
 pushd "$BUILD_WORKSPACE_DIRECTORY" > /dev/null
-
-buildozer="$1"
 
 # The following creates a Buildozer command file to run a batch of commands together,
 # storing the contents in a variable.

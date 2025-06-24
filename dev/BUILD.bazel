@@ -14,7 +14,7 @@ buildifier(
 sh_binary(
     name = "update-dependencies",
     srcs = ["update-dependencies.sh"],
-    args = ["$(execpath @buildtools//:buildozer)"],
+    args = ["$(location @buildtools//:buildozer)"],
     data = ["@buildtools//:buildozer"],
 )
 
