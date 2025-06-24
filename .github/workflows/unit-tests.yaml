@@ -6,7 +6,7 @@ on:
     branches: ['main']
   workflow_dispatch:
 jobs:
-  linux:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -21,17 +21,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bazel-
       - name: Run Tests
+        id: run-tests
         run: |
           # Import deploy keys necessary to download modules from private repo(s)
           # during the build.
           eval "$(ssh-agent -s)"
           <<< '${{ secrets.RULES_K8S_DEPLOY_KEY }}' ssh-add -
 
-          # Run all tests except for the ones located under `e2e/`
+          # Store the absolute path to the Bazel testlogs as an output parameter
+          # so it can be uploaded as an artifact in case of failure.
+          echo "bazel-testlogs=$(bazel info bazel-testlogs)" >> "$GITHUB_OUTPUT"
+
+          # Run all tests except for the ones located under `e2e/`.
           bazel test //... -- -//e2e/...
       - name: Upload Log
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: bazel-testlogs
-          path: bazel-testlogs/
+          path: ${{ steps.run-tests.outputs.bazel-testlogs }}
