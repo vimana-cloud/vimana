@@ -8,14 +8,57 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The tests under `//work/runtime/tests` use Bazel's `requires-fakeroot` tag,
+    # which enables them to manage IP addresses on the loopback network device.
+    # That tag is only available for `linux-sandbox`:
+    # https://bazel.build/reference/be/common-definitions#common-attributes.
+    # However, GitHub Actions normally run in a VM,
+    # and Bazel falls back on the simpler `processwrapper-sandbox` in that environment:
+    # https://bazel.build/docs/sandboxing#sandboxing-strategies.
+    # That means the tests will not run with root privileges
+    # and will be unable to manage IP addresses.
+    #
+    # Work around this by running in a container with explicit `NET_ADMIN` privileges.
+    container:
+      image: debian:stable-slim
+      options: --cap-add=NET_ADMIN
+    # Running inside a container uses the Bourne shell be default. Use Bash instead.
+    defaults:
+      run:
+        shell: bash
     steps:
+      - name: Set Up Environment
+        run: |
+          # Install basic dependencies.
+          apt update
+          apt install -y curl jq openssh-client git gcc g++ iproute2
+
+          # Install the latest release of Bazelisk from GitHub.
+          LATEST_BAZELISK="$(
+            curl --silent https://api.github.com/repos/bazelbuild/bazelisk/releases/latest \
+              | jq --raw-output '.tag_name'
+          )"
+          curl --location --remote-name \
+            "https://github.com/bazelbuild/bazelisk/releases/download/${LATEST_BAZELISK}/bazelisk-amd64.deb"
+          dpkg --install bazelisk-amd64.deb
+
+          # Import GitHub's SSH pubkey securely using the API.
+          mkdir --parents ~/.ssh
+          echo "github.com $(
+            curl --silent https://api.github.com/meta \
+              | jq --raw-output 'first(.ssh_keys[] | select(startswith("ssh-rsa")))'
+          )" >> ~/.ssh/known_hosts
+
+          # Import deploy keys necessary to download modules from private repo(s) during the build.
+          eval "$(ssh-agent -s)"
+          <<< '${{ secrets.RULES_K8S_DEPLOY_KEY }}' ssh-add -
       - name: Checkout
         uses: actions/checkout@v4
       # https://github.com/actions/cache/blob/v4.2.3/examples.md#---bazel
       - name: Cache Bazel
         uses: actions/cache@v4
         with:
-          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelrc', 'MODULE.bazel') }}
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel') }}
           path: |
             ~/.cache/bazel
           restore-keys: |
@@ -23,18 +66,13 @@ jobs:
       - name: Run Tests
         id: run-tests
         run: |
-          # Import deploy keys necessary to download modules from private repo(s)
-          # during the build.
-          eval "$(ssh-agent -s)"
-          <<< '${{ secrets.RULES_K8S_DEPLOY_KEY }}' ssh-add -
-
           # Store the absolute path to the Bazel testlogs as an output parameter
           # so it can be uploaded as an artifact in case of failure.
           echo "bazel-testlogs=$(bazel info bazel-testlogs)" >> "$GITHUB_OUTPUT"
 
           # Run all tests except for the ones located under `e2e/`.
           # TODO: Un-disable tests under `//api` once mature.
-          bazel test //... -- -//e2e/... -//api/...
+          bazel test --cache_test_results=no //... -- -//e2e/... -//api/...
       - name: Upload Log
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4

@@ -239,7 +239,10 @@ async fn ip_addr(
         Ok(())
     } else {
         Err(anyhow!(
-            "Error status from `ip addr`: {}",
+            "Error status from `ip addr {} {} dev {}`: {}",
+            command,
+            masked_address,
+            interface,
             String::from_utf8_lossy(&output.stderr)
         ))
     }
