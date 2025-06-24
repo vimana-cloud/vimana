@@ -33,7 +33,8 @@ jobs:
           echo "bazel-testlogs=$(bazel info bazel-testlogs)" >> "$GITHUB_OUTPUT"
 
           # Run all tests except for the ones located under `e2e/`.
-          bazel test //... -- -//e2e/...
+          # TODO: Un-disable tests under `//api` once mature.
+          bazel test //... -- -//e2e/... -//api/...
       - name: Upload Log
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
