@@ -1,22 +1,22 @@
 module(name = "vimana")
 
-bazel_dep(name = "buildifier_prebuilt", version = "7.3.1", dev_dependency = True, repo_name = "buildtools")
+bazel_dep(name = "buildifier_prebuilt", version = "8.2.0.2", dev_dependency = True, repo_name = "buildtools")
 
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
-bazel_dep(name = "gazelle", version = "0.40.0")
-bazel_dep(name = "googleapis", version = "0.0.0-20240819-fe8ba054a")
-bazel_dep(name = "grpc", version = "1.69.0")
+bazel_dep(name = "gazelle", version = "0.44.0")
+bazel_dep(name = "googleapis", version = "0.0.0-20241220-5e258e33.bcr.1")
+bazel_dep(name = "grpc", version = "1.73.0-pre1")
 bazel_dep(name = "openssl", version = "3.3.1.bcr.3")
-bazel_dep(name = "platforms", version = "0.0.11")
-bazel_dep(name = "protobuf", version = "29.2")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "protobuf", version = "31.1")
 bazel_dep(name = "toolchains_musl", version = "0.1.20")
-bazel_dep(name = "rules_go", version = "0.53.0")
-bazel_dep(name = "rules_nodejs", version = "6.3.0")
-bazel_dep(name = "rules_oci", version = "2.0.1")
-bazel_dep(name = "rules_pkg", version = "1.0.1")
-bazel_dep(name = "rules_python", version = "0.40.0")
-bazel_dep(name = "rules_rust", version = "0.57.1")
-bazel_dep(name = "rules_rust_prost", version = "0.56.0")
+bazel_dep(name = "rules_go", version = "0.55.1")
+bazel_dep(name = "rules_nodejs", version = "6.4.0")
+bazel_dep(name = "rules_oci", version = "2.2.6")
+bazel_dep(name = "rules_pkg", version = "1.1.0")
+bazel_dep(name = "rules_python", version = "1.5.0-rc2")
+bazel_dep(name = "rules_rust", version = "0.61.0")
+bazel_dep(name = "rules_rust_prost", version = "0.61.0")
 bazel_dep(name = "rules_wasm", version = "1.1.1")
 bazel_dep(name = "cri-api")
 git_override(
@@ -119,7 +119,7 @@ toolchains_musl.config(
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 crate.spec(
     package = "anyhow",
-    version = "1.0.94",
+    version = "1.0.98",
 )
 crate.spec(
     package = "axum",
@@ -127,7 +127,7 @@ crate.spec(
 )
 crate.spec(
     package = "bytes",
-    version = "1.7.2",
+    version = "1.10.1",
 )
 crate.spec(
     package = "heck",
@@ -135,25 +135,25 @@ crate.spec(
 )
 crate.spec(
     package = "opentelemetry",
-    version = "0.27.0",
+    version = "0.30.0",
 )
 crate.spec(
     package = "opentelemetry-appender-tracing",
-    version = "0.27.0",
+    version = "0.30.1",
 )
 crate.spec(
     features = ["rt-tokio"],
     package = "opentelemetry_sdk",
-    version = "0.27.0",
+    version = "0.30.0",
 )
 crate.spec(
     package = "opentelemetry-stdout",
-    version = "0.27.0",
+    version = "0.30.0",
 )
 crate.spec(
     features = ["derive"],
     package = "clap",
-    version = "4.5.19",
+    version = "4.5.40",
 )
 crate.spec(
     package = "futures",
@@ -161,7 +161,7 @@ crate.spec(
 )
 crate.spec(
     package = "http",
-    version = "1.1.0",
+    version = "1.3.1",
 )
 crate.spec(
     package = "httpdate",
@@ -173,7 +173,7 @@ crate.spec(
 )
 crate.spec(
     package = "http-body-util",
-    version = "0.1.2",
+    version = "0.1.3",
 )
 crate.spec(
     features = [
@@ -181,12 +181,12 @@ crate.spec(
         "http1",
     ],
     package = "hyper",
-    version = "1.4.1",
+    version = "1.6.0",
 )
 crate.spec(
     features = ["tokio"],
     package = "hyper-util",
-    version = "0.1.8",
+    version = "0.1.14",
 )
 crate.spec(
     package = "lazy_static",
@@ -194,15 +194,15 @@ crate.spec(
 )
 crate.spec(
     package = "papaya",
-    version = "0.1.3",
+    version = "0.2.1",
 )
 crate.spec(
     package = "prost",
-    version = "0.13.2",
+    version = "0.13.5",
 )
 crate.spec(
     package = "prost-types",
-    version = "0.13.2",
+    version = "0.13.5",
 )
 crate.spec(
     package = "protoc-gen-prost",
@@ -214,7 +214,7 @@ crate.spec(
 )
 crate.spec(
     package = "regex",
-    version = "1.10.6",
+    version = "1.11.1",
 )
 crate.spec(
     features = [
@@ -222,15 +222,15 @@ crate.spec(
         "json",
     ],
     package = "reqwest",
-    version = "0.12.8",
+    version = "0.12.20",
 )
 crate.spec(
     package = "serde",
-    version = "1.0.217",
+    version = "1.0.219",
 )
 crate.spec(
     package = "sha2",
-    version = "0.10.8",
+    version = "0.11.0-rc.0",
 )
 crate.spec(
     features = ["std"],
@@ -247,20 +247,20 @@ crate.spec(
         "sync",
     ],
     package = "tokio",
-    version = "1.40.0",
+    version = "1.45.1",
 )
 crate.spec(
     features = ["net"],
     package = "tokio-stream",
-    version = "0.1.16",
+    version = "0.1.17",
 )
 crate.spec(
     package = "tonic",
-    version = "0.12.2",
+    version = "0.12.3",
 )
 crate.spec(
     package = "tower",
-    version = "0.5.1",
+    version = "0.5.2",
 )
 crate.spec(
     package = "tower-service",
@@ -277,7 +277,7 @@ crate.spec(
 )
 crate.spec(
     package = "wasmtime",
-    version = "24.0.0",
+    version = "34.0.0",
 )
 
 # Generate certain binaries needed for building.

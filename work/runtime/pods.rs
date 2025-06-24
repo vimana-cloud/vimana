@@ -114,9 +114,9 @@ async fn initialize_grpc(
             name.clone(),
         )?;
 
-        let (_, export_index) = container
+        let export_index = container
             .component
-            .export_index(None, &method.function)
+            .get_export_index(None, &method.function)
             .ok_or_else(|| anyhow!("Function not found: {:?}", method.function))?;
 
         let method = Method(Arc::new(MethodInner {

@@ -28,7 +28,7 @@ use clap::Parser;
 use futures::FutureExt;
 use hyper_util::rt::TokioIo;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_sdk::logs::LoggerProvider;
+use opentelemetry_sdk::logs::LoggerProviderBuilder;
 use opentelemetry_stdout::LogExporter as StdoutLogExporter;
 use serde::Deserialize;
 use serde_json::from_reader;
@@ -156,7 +156,7 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         .or(config.pod_ips)
         .unwrap_or(String::from(DEFAULT_POD_IPS));
 
-    let logger_provider = LoggerProvider::builder()
+    let logger_provider = LoggerProviderBuilder::default()
         .with_simple_exporter(StdoutLogExporter::default())
         .build();
     Registry::default()
