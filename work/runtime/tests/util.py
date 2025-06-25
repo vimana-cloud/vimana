@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import IPv4Address, IPv6Address
 from itertools import chain
 from json import loads as parseJson
-from os import chmod, stat, walk
+from os import chmod, getpid, stat, walk
 from os.path import exists, join
 from queue import Empty, Queue, ShutDown
 from random import randrange
@@ -355,7 +355,7 @@ def startWorkd(
     socket = _tmpName()
     insecureRegistry = f'localhost:{imageRegistryPort}'
     networkInterface = 'lo'  # Loopback device.
-    podIps = 'fc00:0001::/32'
+    podIps = _uniquePidBasedCidr()
     command = [
         _workdPath,
         f'--incoming={socket}',
@@ -370,6 +370,24 @@ def startWorkd(
     # and convert all CR/LF sequences to plain LF.
     process = Popen(command, stdout=PIPE, text=True, bufsize=1)
     return (process, socket)
+
+
+def _uniquePidBasedCidr():
+    """Return a unique IPv6 address range based on the current PID.
+
+    Per-process unique ranges allow tests running in parallel to share a network device,
+    in case the test has to run in a weaker sandbox
+    (i.e. Bazel's `processwrapper-sandbox` instead of `linux-sandbox`,
+    as occurs within a containerized CI workflow).
+    """
+    # Format the current PID as an 8-character hex string.
+    # In case the PID is greater than 2^32, use only the least-significant digits.
+    # That should never happen in practice;
+    # the default maximum PID on 64-bit Linux is usually 2^22.
+    pidHex = f'{getpid():08x}'[8::-1]
+    # Use the PID as part of a unique 48-bit address prefix,
+    # allowing space for 2^80 pods.
+    return f'fc00:{pidHex[:4]}:{pidHex[4:]}::/48'
 
 
 def startImageRegistry() -> tuple[HTTPServer, int]:
