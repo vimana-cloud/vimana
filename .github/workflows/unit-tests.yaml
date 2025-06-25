@@ -19,6 +19,7 @@ jobs:
     # and will be unable to manage IP addresses.
     #
     # Work around this by running in a container with explicit `NET_ADMIN` privileges.
+    # Processes will run as root within the Debian container.
     container:
       image: debian:stable-slim
       options: --cap-add=NET_ADMIN
@@ -50,8 +51,8 @@ jobs:
           )" >> "${HOME}/.ssh/known_hosts"
           git config --global core.sshCommand "ssh -o UserKnownHostsFile=${HOME}/.ssh/known_hosts"
 
-          # Import deploy key(s) necessary to download modules from private repo(s) during the build.
-          # Export the SSH agent environment variables to be picked up by subsequent steps.
+          # Import deploy key(s) necessary to download modules from private repo(s) during the build,
+          # and export the SSH agent environment variables to be picked up by subsequent steps.
           eval "$(ssh-agent -s)"
           <<< '${{ secrets.RULES_K8S_DEPLOY_KEY }}' ssh-add -
           echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}" >> "$GITHUB_ENV"

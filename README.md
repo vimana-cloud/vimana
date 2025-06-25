@@ -1,5 +1,7 @@
 # Vimana Monorepo
 
+[![Unit test status](https://github.com/vimana-cloud/vimana/actions/workflows/unit-tests.yaml/badge.svg)](https://github.com/vimana-cloud/vimana/actions/workflows/unit-tests.yaml)
+
 For an introduction to how Vimana works,
 see the [internal overview](docs/internal-overview.md).
 
