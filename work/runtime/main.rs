@@ -22,8 +22,8 @@ use std::fs::{create_dir_all, remove_file, File};
 use std::io::BufReader;
 use std::path::Path;
 use std::result::Result as StdResult;
-use std::sync::Arc;
 
+use anyhow::Context;
 use clap::Parser;
 use futures::FutureExt;
 use hyper_util::rt::TokioIo;
@@ -167,17 +167,19 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     // This seems to be the most idiomatic way to create a client with a UDS transport:
     // https://github.com/hyperium/tonic/blob/v0.12.3/examples/src/uds/client.rs.
     // The socket path must be cloneable to enable re-invoking the connector function.
-    let oci_socket_path = Arc::new(downstream);
+    let oci_socket_path = downstream.clone();
     let oci_channel = Endpoint::from_static("http://unused")
         .connect_with_connector(service_fn(move |_| {
             let oci_socket_path = oci_socket_path.clone();
             async move {
-                Ok::<_, std::io::Error>(TokioIo::new(
-                    UnixStream::connect(oci_socket_path.as_ref()).await?,
-                ))
+                Ok::<_, std::io::Error>(TokioIo::new(UnixStream::connect(&oci_socket_path).await?))
             }
         }))
-        .await?;
+        .await
+        .context(format!(
+            "Unable to connect to OCI runtime socket: {:?}",
+            downstream
+        ))?;
     let oci_image_client = ImageServiceClient::new(oci_channel.clone());
     let oci_runtime_client = RuntimeServiceClient::new(oci_channel);
 
