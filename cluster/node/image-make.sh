@@ -5,16 +5,11 @@ source 'dev/bash-utils.sh'
 workd_binary_path="$1"
 workd_service_path="$2"
 
+assert-bazel-run
 assert-command-available git
 
-# Move to the top level of the Git Repo to get the current commit hash.
-# https://bazel.build/docs/user-manual#running-executables
-assert-bazel-run
-pushd "$BUILD_WORKSPACE_DIRECTORY" > /dev/null
-# The version of the image is the short form of the commit hash,
-# possibly appended with `-dirty` if there are any uncommitted file changes.
-image_version="$(git rev-parse --short HEAD)$(git diff-index --quiet HEAD || echo '-dirty')"
-popd > /dev/null
+# The version of the image is the short form of the current commit hash.
+image_version="$(git -C "$BUILD_WORKSPACE_DIRECTORY" rev-parse --short HEAD)"
 
 function make-image-gcp {
   assert-command-available gcloud
@@ -25,6 +20,7 @@ function make-image-gcp {
 
   # These variables are non-local
   # because some of them are referenced by nested functions.
+  # TODO: Do not publish this project name. Make it parameterized before open-sourcing.
   gcp_project='vimana-node-images'
   stock_image_project='debian-cloud'
   stock_image_family='debian-12'
@@ -32,8 +28,11 @@ function make-image-gcp {
   instance_zone='us-west1-a'
   instance_type='e2-medium'
   snapshot_name="${instance_name}-snapshot"
-  image_family='vimana'
   image_name="node-${image_version}"
+  # Append `-dirty` to the image family if there are any uncommitted file changes.
+  image_family="vimana$(git -C "$BUILD_WORKSPACE_DIRECTORY" diff-index --quiet HEAD || echo '-dirty')"
+  log-info "Image name: ${bold}${image_name}${reset}"
+  log-info "Image family: ${bold}${image_family}${reset}"
 
   log-info "Creating instance ${bold}${instance_name}${reset} from ${bold}${stock_image_project}/${stock_image_family}${reset}"
   gcloud compute instances create "$instance_name" \
@@ -119,7 +118,7 @@ EOF
     --family="$image_family" \
     --source-snapshot="$snapshot_name"
 
-  log-info "Successfully created image ${bold}${image_name}${reset} 🙂"
+  log-info "Successfully created image ${bold}${image_name}${reset} under family ${bold}${image_family}${reset} 🙂"
 }
 
 # TODO: Also support other cloud platforms.
