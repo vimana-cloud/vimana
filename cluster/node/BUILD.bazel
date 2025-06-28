@@ -1,6 +1,20 @@
 """ Build the K8s node image for use in a production Vimana cluster. """
 
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//dev:platform-binary.bzl", "platform_binary")
+
+sh_binary(
+    name = "make-image",
+    srcs = ["image-make.sh"],
+    args = [
+        "$(location :workd-x86_64-linux)",
+        "$(location :workd.prod.service)",
+    ],
+    data = [
+        ":workd.prod.service",
+        ":workd-x86_64-linux",
+    ],
+)
 
 # Build a statically-linked `workd` Linux binary suitable for a container or a VM.
 platform_binary(
