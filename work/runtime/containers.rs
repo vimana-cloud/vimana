@@ -19,7 +19,6 @@ use prost::Message;
 use reqwest::header::ACCEPT;
 use reqwest::{Client, StatusCode as HttpStatusCode};
 use serde::Deserialize;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task::{spawn, spawn_blocking};
 use wasmtime::component::Component;
 use wasmtime::Engine as WasmEngine;
