@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
-# Takes two positional arguments:
-# 1. An action (either 'build' or 'test')
-# 2. A source file path relative to the workspace directory
+# Unlike most Bash scripts, this one is not meant to be invoked by Bazel.
+# It is usually invoked directly by the IDE to perform some action using Bazel.
 #
 # Build all targets in the same package that directly depend on the given file.
 #
@@ -11,22 +10,10 @@
 # - in any package and directly depend on a
 #   buildable rule in the same package that directly depends on the file.
 
-# Format output only if stderr (2) is a terminal (-t).
-if [ -t 2 ]
-then
-  # https://en.wikipedia.org/wiki/ANSI_escape_code
-  reset="$(tput sgr0)"
-  bold="$(tput bold)"
-  red="$(tput setaf 1)"
-else
-  # Make them all empty (no formatting) if stderr is piped.
-  reset=''
-  bold=''
-  red=''
-fi
+source 'dev/bash-utils.sh'
 
-action="$1"
-path="$2"
+action="$1"  # Either 'build' or 'test'.
+path="$2"    # Source file path relative to the workspace directory.
 
 case "$action" in
   build)
@@ -37,8 +24,7 @@ case "$action" in
     target_count=${#targets[@]}
     if (( target_count == 0 ))
     then
-      echo >&2 -e \
-        "${bold}${red}ERROR$reset No targets in same package with direct dependency on '$path'."
+      log-error "No targets in same package with direct dependency on ${bold}${path}${reset}"
       exit 1
     fi
 
@@ -56,15 +42,14 @@ case "$action" in
     target_count=${#targets[@]}
     if (( target_count == 0 ))
     then
-      echo >&2 -e \
-        "${bold}${red}ERROR$reset No test targets with semi-direct dependency on '$path'."
+      log-error "No test targets with semi-direct dependency on ${bold}${path}${reset}"
       exit 1
     fi
 
     exec bazel test "${targets[@]}"
     ;;
   *)
-    echo >&2 -e "${bold}${red}ERROR$reset Unrecognized action '$action'."
+    log-error "Unrecognized action ${bold}${action}${reset}"
     exit 1
     ;;
 esac

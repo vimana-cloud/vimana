@@ -1,5 +1,5 @@
 # Run this with `bazel run` as an `sh_binary` rule.
-# Modifies the source tree in-place, adding a `node_modules/` directory, etc. :(
+# Modifies the source tree in-place, adding a `node_modules/` directory :(.
 #
 # Run a VitePress dev server.
 #
@@ -11,33 +11,16 @@
 # Arguments:
 # - Path to the `npm` executable.
 
-# Use colored output if stderr (2) is a terminal (-t).
-if [ -t 2 ]
-then
-  # Terminal escape codes used for formatted output.
-  reset="$(tput sgr0)"
-  bold="$(tput bold)"
-  red="$(tput setaf 1)"
-else
-  # Make them all empty (no color) if we're printing to a pipe.
-  reset=''
-  bold=''
-  red=''
-fi
+source 'dev/bash-utils.sh'
 
-if [ -z "$BUILD_WORKSPACE_DIRECTORY" ]
-then
-  echo >&2 -e "${red}Error${reset} Run me with ${bold}bazel run$reset"
-  exit 1
-fi
+npm="$(realpath $1)" # Get the absolute path so it works after changing directory.
+
+assert-bazel-run
 
 # Move to the directory of this shell script,
 # which should be the same directory as the VitePress site's `package.json`
 # and is also where `node_modules/` will be downloaded.
 pushd "$BUILD_WORKSPACE_DIRECTORY/docs" > /dev/null
-
-# `$1` is relative to the rule's runfiles.
-npm="$(bazel info bazel-bin)/docs/dev.runfiles/$1" 
 
 "$npm" install
 "$npm" run docs:dev

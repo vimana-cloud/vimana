@@ -1,30 +1,9 @@
-#!/usr/bin/env bash
-
 # (Re)start the local minikube cluster
 # with a freshly-built `workd` runtime installed.
 # This can take a minute or two,
 # so it may be faster to hotswap instead.
 
-# Format output only if stderr (2) is a terminal (-t).
-if [ -t 2 ]
-then
-  # https://en.wikipedia.org/wiki/ANSI_escape_code
-  reset="$(tput sgr0)"
-  bold="$(tput bold)"
-  red="$(tput setaf 1)"
-else
-  # Make them all empty (no formatting) if stderr is piped.
-  reset=''
-  bold=''
-  red=''
-fi
-
-# https://bazel.build/docs/user-manual#running-executables
-if [ -z "$BUILD_WORKSPACE_DIRECTORY" ]
-then
-  echo >&2 -e "${red}Error$reset Run me with ${bold}bazel run$reset"
-  exit 1
-fi
+source 'dev/bash-utils.sh'
 
 # Standard K8s tool binaries:
 kubectl="$1"
@@ -40,6 +19,8 @@ push_kicbase="$5"
 kicbase_repo="$6"
 # Probably `host.minikube.internal:5000`.
 cluster_registry="$7"
+
+assert-bazel-run
 
 function _minikube {
   # Leaky abstraction :(
@@ -62,7 +43,7 @@ docker image rm --force "$kicbase_repo" 2> /dev/null
 # This should be the command for `bazel run //dev/minikube:kicbase-image-push-local`
 # and it should push to the same registry as `$kicbase_repo`.
 "$push_kicbase" || {
-  echo &>2 "${red}Error$reset Failed to push '$kicbase_repo'"
+  log-error "Failed to push ${bold}${kicbase_repo}${reset}'"
   exit 1
 }
 

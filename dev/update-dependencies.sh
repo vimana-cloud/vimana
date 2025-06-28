@@ -1,46 +1,20 @@
 # Update all Bazel and Rust dependencies in a `MODULE.bazel` file
 # based on information from Bazel Central Registry and crates.io,
 # respectively.
-#
-# Arguments:
-# - Path to the `buildozer` executable.
-#
-# Requires:
-# - curl
-# - tail
-# - jq
 
-# Format output only if stderr (2) is a terminal (-t).
-if [ -t 2 ]
-then
-  # https://en.wikipedia.org/wiki/ANSI_escape_code
-  reset="$(tput sgr0)"
-  bold="$(tput bold)"
-  red="$(tput setaf 1)"
-  green="$(tput setaf 2)"
-  yellow="$(tput setaf 3)"
-  blue="$(tput setaf 4)"
-else
-  # Make them all empty (no formatting) if stderr is piped.
-  reset=''
-  bold=''
-  red=''
-  green=''
-  yellow=''
-  blue=''
-fi
+source 'dev/bash-utils.sh'
 
-buildozer="$(realpath $1)"
+buildozer="$(realpath $1)" # Get the absolute path so it works after changing directory.
+
+assert-command-available curl
+assert-command-available tail
+assert-command-available jq
 
 # Move to the top level of the Git Repo for this function.
 # The source repo becomes the working directory.
 # Source files can be mutated, in contrast to Bazel's usual hermeticity.
 # https://bazel.build/docs/user-manual#running-executables
-if [ -z "$BUILD_WORKSPACE_DIRECTORY" ]
-then
-  echo >&2 -e "${red}Error$reset Run me with ${bold}bazel run$reset"
-  exit 1
-fi
+assert-bazel-run
 pushd "$BUILD_WORKSPACE_DIRECTORY" > /dev/null
 
 # The following creates a Buildozer command file to run a batch of commands together,
@@ -65,8 +39,8 @@ bazel_updates="$("$buildozer" 'print name version' '//MODULE.bazel:%bazel_dep' |
 
       if [[ "$current_version" != "$latest_version" ]]
       then
-        echo >&2 -e "$green$name$reset $red$current_version$reset → $blue$latest_version$reset"
-        echo "replace version $current_version $latest_version|//MODULE.bazel:$name"
+        log-info "${green}${name}${reset} ${red}${current_version}${reset} → ${cyan}${latest_version}${reset}"
+        echo "replace version $current_version ${latest_version}|//MODULE.bazel:${name}"
       fi
     )
   done
@@ -109,8 +83,8 @@ rust_updates="$("$buildozer" "print startline package version" "//MODULE.bazel:%
 
       if [[ "$current_version" != "$latest_version" ]]
       then
-        echo >&2 -e "$yellow$name$reset $red$current_version$reset → $blue$latest_version$reset"
-        echo "replace version $current_version $latest_version|//MODULE.bazel:%$line_number"
+        log-info "${yellow}${name}${reset} ${red}${current_version}${reset} → ${cyan}${latest_version}${reset}"
+        echo "replace version $current_version ${latest_version}|//MODULE.bazel:%${line_number}"
       fi
     )
   done)"

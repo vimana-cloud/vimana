@@ -1,6 +1,9 @@
 sh_binary(
     name = "dev",
     srcs = ["dev.sh"],
-    args = ["$(rlocationpath @nodejs//:npm)"],
-    data = ["@nodejs//:npm"],
+    args = ["$(location @nodejs//:npm)"],
+    data = [
+        "//dev:bash-utils",
+        "@nodejs//:npm",
+    ],
 )

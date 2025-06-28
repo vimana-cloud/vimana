@@ -1,5 +1,6 @@
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 # Name of some registry we can push / pull images to / from.
 local_registry = "localhost:5000"
@@ -21,16 +22,17 @@ sh_binary(
     name = "restart",
     srcs = ["restart.sh"],
     args = [
-        "$(rootpath @rules_k8s//:kubectl)",
-        "$(rootpath @rules_k8s//:istioctl)",
-        "$(rootpath @rules_k8s//:minikube)",
-        "$(rootpath @rules_k8s//:minikube-bin)",
-        "$(rootpath :kicbase-image-push-local)",
+        "$(location @rules_k8s//:kubectl)",
+        "$(location @rules_k8s//:istioctl)",
+        "$(location @rules_k8s//:minikube)",
+        "$(location @rules_k8s//:minikube-bin)",
+        "$(location :kicbase-image-push-local)",
         kicbase_local_repo,
         cluster_registry,
     ],
     data = [
         ":kicbase-image-push-local",
+        "//dev:bash-utils",
         "@rules_k8s//:istioctl",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
@@ -45,13 +47,14 @@ sh_binary(
     name = "hotswap",
     srcs = ["hotswap.sh"],
     args = [
-        "$(rootpath @rules_k8s//:minikube)",
-        "$(rootpath @rules_k8s//:minikube-bin)",
-        "$(rootpath @rules_k8s//:kubectl)",
-        "$(rootpath //cluster/node:workd-x86_64-linux)",
+        "$(location @rules_k8s//:minikube)",
+        "$(location @rules_k8s//:minikube-bin)",
+        "$(location @rules_k8s//:kubectl)",
+        "$(location //cluster/node:workd-x86_64-linux)",
     ],
     data = [
         "//cluster/node:workd-x86_64-linux",
+        "//dev:bash-utils",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
         "@rules_k8s//:minikube-bin",

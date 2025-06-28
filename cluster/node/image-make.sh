@@ -1,48 +1,15 @@
-#!/usr/bin/env bash
+# Create a node image for a Vimana cluster.
 
-set -e
-
-# Format output only if stderr (2) is a terminal (-t).
-if [ -t 2 ]
-then
-  # https://en.wikipedia.org/wiki/ANSI_escape_code
-  reset="$(tput sgr0)"
-  bold="$(tput bold)"
-  red="$(tput setaf 1)"
-  yellow="$(tput setaf 3)"
-  blue="$(tput setaf 4)"
-  magenta="$(tput setaf 5)"
-else
-  # Make them all empty (no formatting) if stderr is piped.
-  reset=''
-  bold=''
-  red=''
-  yellow=''
-  blue=''
-  magenta=''
-fi
-
-function log-info {
-  echo >&2 -e "[${blue}INFO${reset}] $1"
-}
-
-function log-error {
-  echo >&2 -e "[${red}ERROR${reset}] $1"
-}
+source 'dev/bash-utils.sh'
 
 workd_binary_path="$1"
 workd_service_path="$2"
 
+assert-command-available git
+
 # Move to the top level of the Git Repo to get the current commit hash.
 # https://bazel.build/docs/user-manual#running-executables
-[ -z "$BUILD_WORKSPACE_DIRECTORY" ] && {
-  log-error "Run me with ${bold}bazel run$reset"
-  exit 1
-}
-which git > /dev/null || {
-  log-error "${bold}git${reset} required but not found"
-  exit 1
-}
+assert-bazel-run
 pushd "$BUILD_WORKSPACE_DIRECTORY" > /dev/null
 # The version of the image is the short form of the commit hash,
 # possibly appended with `-dirty` if there are any uncommitted file changes.
@@ -50,15 +17,14 @@ image_version="$(git rev-parse --short HEAD)$(git diff-index --quiet HEAD || ech
 popd > /dev/null
 
 function make-image-gcp {
-  which gcloud > /dev/null || {
-    log-error "${bold}gcloud${reset} required but not found"
-    exit 1
-  }
+  assert-command-available gcloud
   gcloud auth print-access-token --quiet > /dev/null 2> /dev/null || {
     log-error "Unauthenticated: run ${bold}gcloud auth login${reset}"
     exit 1
   }
 
+  # These variables are non-local
+  # because some of them are referenced by nested functions.
   gcp_project='vimana-node-images'
   stock_image_project='debian-cloud'
   stock_image_family='debian-12'
@@ -66,7 +32,8 @@ function make-image-gcp {
   instance_zone='us-west1-a'
   instance_type='e2-medium'
   snapshot_name="${instance_name}-snapshot"
-  image_name="vimana-${image_version}"
+  image_family='vimana'
+  image_name="node-${image_version}"
 
   log-info "Creating instance ${bold}${instance_name}${reset} from ${bold}${stock_image_project}/${stock_image_family}${reset}"
   gcloud compute instances create "$instance_name" \
@@ -86,16 +53,16 @@ function make-image-gcp {
   }
   trap cleanup-instance EXIT
 
-  timeout=60
+  local timeout=60
   log-info "Giving ${bold}${instance_name}${reset} $timeout seconds to become SSH-available"
-  start_time=$(date +%s)
+  local start_time=$(date +%s)
   until gcloud compute ssh "$instance_name" \
     --project="$gcp_project" \
     --zone="$instance_zone" \
     --quiet 2> /dev/null <<< exit
   do
     sleep 1s
-    current_time=$(date +%s)
+    local current_time=$(date +%s)
     (( current_time - start_time > timeout )) && {
       log-error "Timed out after $timeout seconds"
       exit 1
@@ -149,6 +116,7 @@ EOF
   log-info "Creating image ${bold}${image_name}${reset} from the snapshot"
   gcloud compute images create "$image_name" \
     --project="$gcp_project" \
+    --family="$image_family" \
     --source-snapshot="$snapshot_name"
 
   log-info "Successfully created image ${bold}${image_name}${reset} 🙂"
