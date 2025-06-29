@@ -79,6 +79,7 @@ function make-image-gcp {
   # - Enable (but do not start) the `workd` daemon.
   # - Install [`cloud-init`](https://cloud-init.io/),
   #   which kOps expects to be enabled on the node image.
+  # - Install `containerd` so kOps doesn't have to install it during node-up.
   log-info "Configuring ${bold}${instance_name}${reset}"
   gcloud compute ssh "$instance_name" \
     --project="$gcp_project" \
@@ -87,7 +88,7 @@ function make-image-gcp {
       sudo mv ~/'$(basename "$workd_binary_path")' /usr/bin/workd
       sudo mv ~/'$(basename "$workd_service_path")' /etc/systemd/system/workd.service
       sudo apt-get update
-      sudo apt-get install -y cloud-init
+      sudo apt-get install -y cloud-init containerd
       sudo systemctl enable workd
 EOF
 
