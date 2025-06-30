@@ -4,6 +4,7 @@ source 'dev/bash-utils.sh'
 
 workd_binary_path="$1"
 workd_service_path="$2"
+shift 2
 
 assert-bazel-run
 assert-command-available git
@@ -53,12 +54,13 @@ function make-image-gcp {
   trap cleanup-instance EXIT
 
   local timeout=60
-  log-info "Giving ${bold}${instance_name}${reset} $timeout seconds to become SSH-available"
+  log-info "Giving ${bold}${instance_name}${reset} up to $timeout seconds to become SSH-available"
   local start_time=$(date +%s)
   until gcloud compute ssh "$instance_name" \
     --project="$gcp_project" \
     --zone="$instance_zone" \
-    --quiet 2> /dev/null <<< exit
+    --quiet \
+    <<< exit 2> /dev/null
   do
     sleep 1s
     local current_time=$(date +%s)
