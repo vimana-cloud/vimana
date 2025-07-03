@@ -7,7 +7,7 @@ py_binary(
     name = "bootstrap",
     srcs = ["bootstrap.py"],
     data = [
-        "@openssl//:openssl",
+        "@openssl",
         "@rules_k8s//:tls-generate",
     ],
 )

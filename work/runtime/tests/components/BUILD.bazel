@@ -1,4 +1,5 @@
 load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_wasm//:c.bzl", "c_component")
 load("@rules_wasm//:wasm.bzl", "wit_package")
 
