@@ -34,10 +34,10 @@ function _minikube {
 _minikube delete
 # If there is a running container called "minikube",
 # remove it so minikube doesn't get confused.
-docker rm minikube 2> /dev/null
+docker rm minikube 2> /dev/null || true
 # Finally, remove the Docker's cached copy of the kicbase image
 # so minikube will re-pull it from the local registry.
-docker image rm --force "$kicbase_repo" 2> /dev/null
+docker image rm --force "$kicbase_repo" 2> /dev/null || true
 
 # Push the most up-to-date version of Vimana-enabled Kicbase to the local registry.
 # This should be the command for `bazel run //dev/minikube:kicbase-image-push-local`
