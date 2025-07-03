@@ -61,7 +61,7 @@ jobs:
 
           # Store the current date as an output parameter
           # so it can be used as part of the cache key.
-          echo "date-today=$(date +%F)" >> "$GITHUB_OUTPUT"
+          echo "date-today=$(date +'%F')" >> "$GITHUB_OUTPUT"
 
       - name: Check out repository
         uses: actions/checkout@v4
@@ -79,8 +79,7 @@ jobs:
 
       - name: Build everything
         run: |
-          # TODO: Change this to just `bazel build //...` once mature.
-          bazel build //work/...
+          bazel build //...
 
       - name: Save Bazel cache
         uses: actions/cache/save@v4
@@ -97,8 +96,7 @@ jobs:
           echo "bazel-testlogs=$(bazel info bazel-testlogs)" >> "$GITHUB_OUTPUT"
 
           # Run all tests except for the ones located under `e2e/`.
-          # TODO: Un-disable tests under `//api` once mature.
-          bazel test --cache_test_results=no //... -- -//e2e/... -//api/...
+          bazel test --cache_test_results=no //... -- -//e2e/...
 
       - name: Upload test logs
         if: ${{ failure() }}
