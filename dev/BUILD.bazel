@@ -13,8 +13,8 @@ buildifier(
 )
 
 sh_library(
-    name = "bash-utils",
-    srcs = ["bash-utils.sh"],
+    name = "bash-util",
+    srcs = ["bash-util.sh"],
     visibility = ["//visibility:public"],
 )
 
@@ -23,10 +23,8 @@ sh_binary(
     name = "update-dependencies",
     srcs = ["update-dependencies.sh"],
     args = ["$(location @buildtools//:buildozer)"],
-    data = [
-        ":bash-utils",
-        "@buildtools//:buildozer",
-    ],
+    data = ["@buildtools//:buildozer"],
+    deps = [":bash-util"],
 )
 
 # Bazel resources to cross-compile source code against musl libc

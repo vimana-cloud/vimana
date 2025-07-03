@@ -3,7 +3,7 @@
 # This can take a minute or two,
 # so it may be faster to hotswap instead.
 
-source 'dev/bash-utils.sh'
+source 'dev/bash-util.sh'
 
 # Standard K8s tool binaries:
 kubectl="$1"

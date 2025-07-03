@@ -2,7 +2,7 @@
 # based on information from Bazel Central Registry and crates.io,
 # respectively.
 
-source 'dev/bash-utils.sh'
+source 'dev/bash-util.sh'
 
 buildozer="$(realpath $1)" # Get the absolute path so it works after changing directory.
 

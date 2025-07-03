@@ -32,12 +32,12 @@ sh_binary(
     ],
     data = [
         ":kicbase-image-push-local",
-        "//dev:bash-utils",
         "@rules_k8s//:istioctl",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
         "@rules_k8s//:minikube-bin",
     ],
+    deps = ["//dev:bash-util"],
 )
 
 # If there's a running minikube cluster started by `:restart`,
@@ -54,7 +54,7 @@ sh_binary(
     ],
     data = [
         "//cluster/node:workd-x86_64-linux",
-        "//dev:bash-utils",
+        "//dev:bash-util",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
         "@rules_k8s//:minikube-bin",

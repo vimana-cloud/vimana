@@ -13,8 +13,8 @@ sh_binary(
     data = [
         ":workd.prod.service",
         ":workd-x86_64-linux",
-        "//dev:bash-utils",
     ],
+    deps = ["//dev:bash-util"],
 )
 
 # Build a statically-linked `workd` Linux binary suitable for a container or a VM.

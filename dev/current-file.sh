@@ -10,7 +10,7 @@
 # - in any package and directly depend on a
 #   buildable rule in the same package that directly depends on the file.
 
-source 'dev/bash-utils.sh'
+source 'dev/bash-util.sh'
 
 action="$1"  # Either 'build' or 'test'.
 path="$2"    # Source file path relative to the workspace directory.

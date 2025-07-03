@@ -11,7 +11,7 @@
 # Arguments:
 # - Path to the `npm` executable.
 
-source 'dev/bash-utils.sh'
+source 'dev/bash-util.sh'
 
 npm="$(realpath $1)" # Get the absolute path so it works after changing directory.
 

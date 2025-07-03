@@ -1,9 +1,9 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
 sh_binary(
     name = "dev",
     srcs = ["dev.sh"],
     args = ["$(location @nodejs//:npm)"],
-    data = [
-        "//dev:bash-utils",
-        "@nodejs//:npm",
-    ],
+    data = ["@nodejs//:npm"],
+    deps = ["//dev:bash-util"],
 )

@@ -4,7 +4,7 @@
 # *without notifying the control plane* whatsoever, which may cause strange behavior
 # including disappeared pods getting replaced by the deployment controller.
 
-source 'dev/bash-utils.sh'
+source 'dev/bash-util.sh'
 
 # Minikube is run through a wrapper (see `_minikube`).
 minikube_wrapper="$1"

@@ -1,6 +1,6 @@
 # Create a node image for a Vimana cluster.
 
-source 'dev/bash-utils.sh'
+source 'dev/bash-util.sh'
 
 workd_binary_path="$1"
 workd_service_path="$2"
