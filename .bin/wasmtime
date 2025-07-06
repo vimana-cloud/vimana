@@ -1,2 +1,4 @@
 #!/usr/bin/env bash
-exec bazel run @rules_wasm//:wasmtime -- "$@"
+exec bazel run @rules_wasm//:wasmtime \
+  --ui_event_filters=-info,-debug,-stderr \
+  -- "$@"

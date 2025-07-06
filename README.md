@@ -1,11 +1,13 @@
 # Vimana Monorepo
 
-[![Unit test status](https://github.com/vimana-cloud/vimana/actions/workflows/unit-tests.yaml/badge.svg)](https://github.com/vimana-cloud/vimana/actions/workflows/unit-tests.yaml)
+[![Unit tests status](https://github.com/vimana-cloud/vimana/actions/workflows/unit-tests.yaml/badge.svg)](https://github.com/vimana-cloud/vimana/actions/workflows/unit-tests.yaml)
 
-For an introduction to how Vimana works,
-see the [internal overview](docs/internal-overview.md).
+For an introduction to how Vimana works, see the [internal overview].
 
-For general information about documentation, see [docs](docs/).
+For general information about documentation, see [docs].
+
+[internal overview]: docs/internal-overview.md
+[docs]: docs/
 
 ## One-Time Setup
 
@@ -14,16 +16,12 @@ For general information about documentation, see [docs](docs/).
    Make sure you have your [developer permission].
 3. Install [Bazelisk].
 4. To run integration tests:
-   1. Install [Docker](https://docs.docker.com/) and enable the daemon.
-   2. Run the container registry [reference implementation](https://hub.docker.com/_/registry)
+   1. Install [Docker] and enable the daemon.
+   2. Run the container registry [reference implementation]
       with automatic restart forever:
       ```bash
       docker run --detach --restart=always --name=registry --publish=5000:5000 registry:latest
       ```
-5. (Optional) Install [`direnv`]
-   to automatically set up convenient [aliases to pre-built binaries](.bin/) &mdash;
-   like `kubectl` and `wasmtime` &mdash;
-   whenever you enter the repository directory in your shell.
 
 [core utilities]: https://formulae.brew.sh/formula/coreutils
 [Xcode]: https://apps.apple.com/app/xcode/
@@ -31,7 +29,29 @@ For general information about documentation, see [docs](docs/).
 [Bazelisk]: https://github.com/bazelbuild/bazelisk
 [Docker]: https://docs.docker.com/
 [reference implementation]: https://hub.docker.com/_/registry
+
+### Tools
+
+Most of the major tools you need to work with Vimana are included &mdash;
+no installation required.
+Just install [`direnv`]
+to automatically set up convenient [tool aliases]
+whenever you enter the repository directory in your shell.
+
+The following tool aliases are provided:
+
+- `crane`
+- `crictl`
+- `istioctl`
+- `kubectl`
+- `kustomize`
+- `minikube` (only on x86-64)
+- `openssl`
+- `wasmtime`
+- `wasm-tools`
+
 [`direnv`]: https://direnv.net/
+[tool aliases]: .bin/
 
 ## Commands To Know
 

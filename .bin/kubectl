@@ -1,2 +1,4 @@
 #!/usr/bin/env bash
-exec bazel run @rules_k8s//:kubectl -- "$@"
+exec bazel run @rules_k8s//:kubectl \
+  --ui_event_filters=-info,-debug,-stderr \
+  -- "$@"
