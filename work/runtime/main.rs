@@ -217,7 +217,7 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
             .wasm_function_references(true),
     )?;
 
-    let containers = ContainerStore::new(&image_store, insecure_registries, &wasmtime);
+    let containers = ContainerStore::new(&image_store, insecure_registries, &wasmtime)?;
     let runtime = WorkRuntime::new(
         wasmtime,
         containers.clone(),

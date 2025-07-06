@@ -81,8 +81,15 @@ impl ContainerStore {
         root: &str,
         insecure_registries: HashSet<String>,
         wasmtime: &WasmEngine,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        // The image filesystem root path reported by `ImageFsInfo` to Kubelet must exist,
+        // otherwise Kubelet will get confused and evict all the pods,
+        // including the system pods managed by the OCI runtime,
+        // so make sure it exists at the start of the container store's life.
+        sync_create_dir_all(root)
+            .with_context(|| format!("Failed to create image root directory: {:?}", root))?;
+
+        Ok(Self {
             root: PathBuf::from(&root),
             filesystem_usage: Arc::new(SyncMutex::new(FilesystemUsage {
                 bytes: 0,
@@ -90,7 +97,7 @@ impl ContainerStore {
             })),
             client: ContainerClient::new(insecure_registries, wasmtime),
             wasmtime: wasmtime.clone(),
-        }
+        })
     }
 
     /// Return the path to the root directory where images are stored on pull.
