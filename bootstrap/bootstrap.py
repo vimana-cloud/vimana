@@ -229,9 +229,13 @@ def bootstrap(
                                                 _hexify(serviceName),
                                                 componentVersion,
                                             ),
-                                            # TODO: Determine testability implications of image pull policy.
-                                            # 'imagePullPolicy': 'Always',
                                             'env': [],
+                                            # Always pull bootstrapped images from the container registry.
+                                            # During testing, such images may mutate between tests.
+                                            # In production, that would be less of an issue due to tag immutability,
+                                            # but since the vast majority of production images are non-bootstrapped,
+                                            # the performance implications are negligible.
+                                            'imagePullPolicy': 'Always',
                                         },
                                     ],
                                 },

@@ -22,30 +22,33 @@ service_hex="$(echo -n "$service" | od -A n -t x1 | tr -d " \n" | sed 's/\(.\)\(
 
 # $1: Path to file containing blob to push.
 function push-blob {
-  path="$1"
+  local path="$1"
 
   # https://specs.opencontainers.org/distribution-spec/#pushing-blobs
-  post_url="${registry}/v2/${domain}/${service_hex}/blobs/uploads/"
+  local post_url="${registry}/v2/${domain}/${service_hex}/blobs/uploads/"
   # Follow redirects, fail on non-200-range status code,
   # and extract the value of the `Location` header.
   # Note that HTTP/1.1 response headers
   # always end in carriage-return (`\r`) then newline (`$`).
-  put_location="$(curl -X POST --dump-header - --silent --location --fail "$post_url" \
-                  | sed -n 's/^Location: \(.*\)\r$/\1/p')" || {
+  local put_location="$(
+    curl -X POST --dump-header - --silent --location --fail "$post_url" \
+      | sed -n 's/^Location: \(.*\)\r$/\1/p'
+  )" || {
     echo >&2 "Error posting '$post_url'"
     return 1
   }
 
   # If the location already includes a query component,
   # append the digest with `&`. Otherwise, append it with `?`.
+  local digest_separator
   [[ "$put_location" = *\?* ]] && digest_separator='&' || digest_separator='?'
   # The location MAY be relative, in which case we must make it absolute.
   [[ "$put_location" = /* ]] && put_location="${registry}${put_location}"
 
   # `sha256sum` annoyingly prints the filename after the hash,
   # so only keep the first 64 hexadecimal characters (representing 32 octets = 256 bits).
-  digest="sha256:$(sha256sum "$path" | head --bytes=64)"
-  put_url="${put_location}${digest_separator}digest=${digest}"
+  local digest="sha256:$(sha256sum "$path" | head --bytes=64)"
+  local put_url="${put_location}${digest_separator}digest=${digest}"
   curl -X PUT --silent --location --fail "$put_url" \
       -H "Content-Length: $(< "$path" wc -c)" \
       -H "Content-Type: application/octet-stream" \
@@ -54,15 +57,14 @@ function push-blob {
     return 2
   }
 
-  # Print the digest to "return" it.
+  # Print the digest to "return" it to the caller.
   echo "$digest"
 }
 
 component_digest="$(push-blob "$component")" || exit $?
 metadata_digest="$(push-blob "$metadata")" || exit $?
 
-# https://specs.opencontainers.org/image-spec/config/#properties
-# These are the minimum required properties, and they're all ignored.
+# Create a temporary file to hold the image config blob.
 image_config="$(mktemp)"
 # Delete the teporary file on exit.
 function delete-image-config {
@@ -70,6 +72,8 @@ function delete-image-config {
 }
 trap delete-image-config EXIT
 
+# https://specs.opencontainers.org/image-spec/config/#properties
+# These are the minimum required properties, and they're all ignored.
 echo -n '{"architecture":"wasm","os":"workd","rootfs":{"type":"layers","diff_ids":[]}}' \
   > "$image_config"
 image_config_digest="$(push-blob "$image_config")" || exit $?
@@ -126,11 +130,11 @@ trap delete-temporary-files EXIT
 } > "$manifest"
 
 # https://specs.opencontainers.org/distribution-spec/#pushing-manifests
-put_url="${registry}/v2/${domain}/${service_hex}/manifests/${version}"
-curl -X PUT --silent --location --fail "$put_url" \
+tag_url="${registry}/v2/${domain}/${service_hex}/manifests/${version}"
+curl -X PUT --silent --location --fail "$tag_url" \
     -H "Content-Type: application/vnd.oci.image.manifest.v1+json" \
     --data-binary "@$manifest" || {
-  echo >&2 "Error putting '$put_url'"
+  echo >&2 "Error putting '$tag_url'"
   exit 3
 }
 
