@@ -9,8 +9,17 @@ shift 2
 assert-bazel-run
 assert-command-available git
 
-# The version of the image is the short form of the current commit hash.
-image_version="$(git -C "$BUILD_WORKSPACE_DIRECTORY" rev-parse --short HEAD)"
+# If this script is run from an unmodified commit of the repository, it is considered clean.
+if git -C "$BUILD_WORKSPACE_DIRECTORY" diff-index --quiet HEAD
+then
+  # During clean builds, the version of the image is the short form of the current commit hash.
+  clean=1
+  image_version="$(git -C "$BUILD_WORKSPACE_DIRECTORY" rev-parse --short HEAD)"
+else
+  # During dirty build, the version is just the current Unix time in seconds.
+  clean=0
+  image_version="$(date +%s)"
+fi
 
 function make-image-gcp {
   assert-command-available gcloud
@@ -31,7 +40,9 @@ function make-image-gcp {
   snapshot_name="${instance_name}-snapshot"
   image_name="node-${image_version}"
   # Append `-dirty` to the image family if there are any uncommitted file changes.
-  image_family="vimana$(git -C "$BUILD_WORKSPACE_DIRECTORY" diff-index --quiet HEAD || echo '-dirty')"
+  # That way, we can easily control whether to use only clean or dirty node images.
+  image_family="vimana$((( clean )) || echo '-dirty')"
+
   log-info "Image name: ${bold}${image_name}${reset}"
   log-info "Image family: ${bold}${image_family}${reset}"
 
