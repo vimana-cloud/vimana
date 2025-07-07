@@ -43,6 +43,7 @@ The following tool aliases are provided:
 - `crane`
 - `crictl`
 - `istioctl`
+- `kops`
 - `kubectl`
 - `kustomize`
 - `minikube` (only on x86-64)

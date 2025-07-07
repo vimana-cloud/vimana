@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+exec bazel run @rules_k8s//:kops \
+  --ui_event_filters=-info,-debug,-stderr \
+  -- "$@"
