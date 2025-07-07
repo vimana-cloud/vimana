@@ -86,7 +86,7 @@ _workdPath = 'work/runtime/workd'
 # Path to the `host-local` IPAM emulator.
 _ipamPath = 'work/runtime/tests/ipam'
 # Path to the `vimana-push` binary which uploads Wasm containers to the registry.
-_pushImagePath = 'bootstrap/push-image'
+_pushImagePath = 'cluster/bootstrap/push-image'
 
 # Generally wait up to 5 seconds for things to happen asynchronously.
 _timeout = timedelta(seconds=5)

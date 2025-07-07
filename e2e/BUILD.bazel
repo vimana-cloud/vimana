@@ -1,6 +1,6 @@
 load("@rules_k8s//:test.bzl", "k8s_cluster_test")
 load("@rules_python//python:py_binary.bzl", "py_binary")
-load("//bootstrap:bootstrap.bzl", "bootstrap", "component", "domain", "service")
+load("//cluster/bootstrap:bootstrap.bzl", "bootstrap", "component", "domain", "service")
 
 bootstrap(
     name = "walkthrough-bootstrap",
