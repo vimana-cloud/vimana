@@ -12,7 +12,6 @@ bootstrap(
                 "foo.bar.AdderService": service(
                     components = {
                         "1.0.0": component(
-                            name = "adder-push",
                             metadata = "//work/runtime/tests/components:adder-metadata",
                             module = "//work/runtime/tests/components:adder-c",
                         ),
@@ -29,16 +28,12 @@ k8s_cluster_test(
     hosts = {
         "api.vimana.host": "127.0.0.1",
     },
-    objects = [
-        ":walkthrough-bootstrap",
-    ],
+    objects = [":walkthrough-bootstrap"],
     port_forward = {
         "svc/vimana-gateway-istio": ["61803:443"],
     },
-    setup = [
-        ":adder-push",
-    ],
-    tags = ["external"],
+    setup = [":walkthrough-bootstrap"],
+    tags = ["external"],  # Never cache test results.
     test = ":walkthrough",
 )
 

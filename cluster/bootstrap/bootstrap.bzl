@@ -21,11 +21,15 @@ def bootstrap(name, domains, registry, cluster_registry = None):
     """
 
     # One executable push action per component.
+    image_push_actions = []
     for domain_id, domain in domains.items():
         for service_name, service in domain.services.items():
             for component_version, component in service.components.items():
+                # Bazel rule names cannot contain a colon.
+                image_push_action_name = \
+                    "{}.{}-{}-{}".format(name, domain_id, service_name, component_version)
                 vimana_image_push(
-                    name = component.name,
+                    name = image_push_action_name,
                     component = component.module,
                     metadata = component.metadata,
                     domain_id = domain_id,
@@ -33,11 +37,13 @@ def bootstrap(name, domains, registry, cluster_registry = None):
                     version = component_version,
                     registry = registry,
                 )
+                image_push_actions.append(":" + image_push_action_name)
 
     # One overall build rule for the cluster's K8s resources.
     vimana_bootstrap(
         name = name,
         domains = json.encode(domains),
+        setup = image_push_actions,
         cluster_registry = cluster_registry or registry,
     )
 
@@ -71,13 +77,11 @@ def service(components):
         components = components,
     )
 
-def component(name, module, metadata, weight = 1):
+def component(module, metadata, weight = 1):
     """
     Return a component object that can be used with the `service` macro.
 
     Parameters:
-        name (str):
-            Name for the executable rule to push the component image to the registry.
         module (str): Label of a compiled component module.
         metadata (str): Label of a binary protobuf metadata file.
         weight (int):
@@ -85,7 +89,6 @@ def component(name, module, metadata, weight = 1):
             (normalized against all weights within a service).
     """
     return struct(
-        name = name,
         module = module,
         metadata = metadata,
         weight = weight,
