@@ -56,14 +56,18 @@ The following tool aliases are provided:
 
 ## Commands To Know
 
-Run a local documentation server:
+Run a local documentation server.
+This renders all the Markdown files in the repo using [VitePress].
+It also renders the [Mermaid] diagrams embedded in the Markdown.
 
 ```bash
 bazel run //docs:dev
 ```
 
-Start a local [minikube](https://minikube.sigs.k8s.io/docs/) cluster with Vimana enabled.
-This is one way to run the [end-to-end](e2e/) tests.
+Start a local [minikube] cluster with Vimana enabled.
+This is one way to run the [end-to-end] tests if the local machine is x86-64.
+Note that this does more than just `minikube start`;
+it makes sure to use a "kicbase" image that can run Vimana pods.
 
 ```bash
 bazel run //dev/minikube:restart
@@ -72,15 +76,48 @@ bazel run //dev/minikube:restart
 Starting minikube can take a while.
 Iterate faster by hot-swapping a freshly-built runtime binary
 into the running minikube cluster
-(but read the implications at the top of [`hotswap.sh`](dev/minikube/hotswap.sh) first):
+(but read the implications at the top of [`hotswap.sh`] first):
 
 ```bash
 bazel run //dev/minikube:hotswap
 ```
 
 Check for updates to any Bazel or Rust dependency in `MODULE.bazel`,
-and apply them in place:
+and apply them in-place:
 
 ```bash
 bazel run //dev:update-dependencies
 ```
+
+[VitePress]: https://vitepress.dev/
+[Mermaid]: https://mermaid.js.org/
+[minikube]: https://minikube.sigs.k8s.io/
+[end-to-end]: e2e/
+[`hotswap.sh`]: dev/minikube/hotswap.sh
+
+## VSCode
+
+The repository includes some VSCode workspace settings, including:
+
+- **Recommended extensions:**<br />
+  VSCode will bug you about them whenever you open the workspace,
+  until they are installed.
+- **A default build task:**<br />
+  Invoke it with `Ctrl+Shift+B` by default.
+  This task builds all Bazel rules
+  in the same package as the source file that is currently open
+  which have a direct dependency on that file.
+- **A default test task:**<br />
+  VSCode does not provide a keybinding to invoke it by default.
+  You can configure one for [`workbench.action.tasks.test`].
+  This task runs all Bazel test rules
+  which would be built by the default build task,
+  or which have a direct dependency on such a rule (in any package).
+- A task to automatically generate a `rust-project.json` file based on the Bazel rules
+  when the workspace is opened.
+  This allows the recommended [rust-analyzer] extension
+  to function in a non-Cargo workspace.
+- Various formatting rules.
+
+[`workbench.action.tasks.test`]: https://code.visualstudio.com/docs/reference/default-keybindings#_tasks
+[rust-analyzer]: https://rust-analyzer.github.io/
