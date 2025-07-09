@@ -1,8 +1,8 @@
 # https://pypi.org/project/protobuf/
-protobuf==5.28.3
+protobuf==6.31.1
 # https://pypi.org/project/grpcio/
-grpcio==1.67.1
+grpcio==1.73.1
 # https://pypi.org/project/grpcio-tools/
-grpcio-tools==1.67.1
+grpcio-tools==1.73.1
 # https://pypi.org/project/grpcio-reflection/
-grpcio-reflection==1.67.1
+grpcio-reflection==1.73.1
