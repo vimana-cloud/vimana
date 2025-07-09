@@ -51,9 +51,6 @@ pub(crate) struct WorkRuntime {
     /// IP address management system.
     ipam: Ipam,
 
-    /// Name of the network interface to use (e.g. `eth0`).
-    network_interface: String,
-
     /// All data-place servers should start gracefully shutting down
     /// upon completion of this shareable future.
     /// Individual pods can be shut down with their [killer](Pod::killer).
@@ -169,7 +166,6 @@ impl WorkRuntime {
     pub(crate) fn new(
         wasmtime: WasmEngine,
         containers: ContainerStore,
-        network_interface: String,
         ipam: Ipam,
         shutdown: Shared<oneshot::Receiver<()>>,
     ) -> Self {
@@ -179,7 +175,6 @@ impl WorkRuntime {
             next_pod_id: AtomicUsize::new(0),
             pod_store: PodInitializer::new(containers),
             ipam,
-            network_interface,
             shutdown,
         }
     }
@@ -203,10 +198,7 @@ impl WorkRuntime {
         let pod_id = self.next_pod_id.fetch_add(1, Ordering::Relaxed);
         let pod_name = PodName::new(component_name.as_ref().clone(), pod_id);
 
-        let ip_address = self
-            .ipam
-            .address(&pod_name, &self.network_interface)
-            .await?;
+        let ip_address = self.ipam.address(&pod_name).await?;
 
         let pod = Pod {
             state: PodState::Initiated,

@@ -8,10 +8,13 @@ use std::simd::u8x16;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
+use futures::stream::TryStreamExt;
+use rtnetlink::{new_connection, Handle as NetlinkHandle};
 use serde::Deserialize;
 use serde_json::{from_slice, json, to_vec};
 use sha2::{Digest, Sha256};
 use tokio::process::Command;
+use tokio::task::spawn;
 
 use logging::log_info;
 use names::{hexify, PodName};
@@ -39,6 +42,13 @@ struct IpamInner {
     /// Serialized JSON object representing the CNI plugin's configuration:
     /// https://www.cni.dev/docs/spec/#section-1-network-configuration-format.
     config: Vec<u8>,
+
+    /// Handle to the netlink socket connection
+    /// for managing IP addresses on the network interface.
+    netlink_handle: NetlinkHandle,
+
+    /// Name of the network interface to use (e.g. `eth0`).
+    interface: String,
 }
 
 /// An allocated and activated IP address.
@@ -58,15 +68,22 @@ pub(crate) struct IpAddress {
 
     /// Pod name associated with the IP address.
     pod_name: PodName,
-
-    /// Network interface name, e.g. `eth0`.
-    interface: String,
 }
 
 impl Ipam {
     /// Create a new IPAM provider using the `host-local` CNI plugin:
     /// https://www.cni.dev/plugins/current/ipam/host-local/.
-    pub(crate) fn host_local(path: String, pod_cidr: &str) -> Self {
+    pub(crate) async fn host_local(
+        path: String,
+        pod_cidr: &str,
+        interface: String,
+    ) -> Result<Self> {
+        // Netlink operates over a persistent socket connection.
+        // The connection is automatically closed once all handles are dropped.
+        let (connection, netlink_handle, _) =
+            new_connection().context("Failed to establish netlink connection")?;
+        spawn(connection);
+
         let config = to_vec(&json!({
             "cniVersion": CNI_VERSION,
             "name": CNI_NETWORK_NAME,
@@ -82,11 +99,17 @@ impl Ipam {
             },
         }))
         .unwrap();
-        Self(Arc::new(IpamInner { path, config }))
+
+        Ok(Self(Arc::new(IpamInner {
+            path,
+            config,
+            netlink_handle,
+            interface,
+        })))
     }
 
     /// Allocate and return a fresh IP address.
-    pub(crate) async fn address(&self, pod_name: &PodName, interface: &str) -> Result<IpAddress> {
+    pub(crate) async fn address(&self, pod_name: &PodName) -> Result<IpAddress> {
         let output = self
             .run_plugin_command("ADD", pod_name)
             .await
@@ -124,10 +147,22 @@ impl Ipam {
             .with_context(|| format!("Invalid subnet prefix length: {:?}", cidr))?;
 
         // If activating the address on the interface fails,
-        // de-allocate it so it can be re-used.
-        if let Err(error) = ip_addr("add", &address, prefix_length, interface).await {
+        // de-allocate the address so it could be re-used.
+        if let Err(error) = ip_addr_add(
+            &self.0.netlink_handle,
+            &self.0.interface,
+            &address,
+            prefix_length,
+        )
+        .await
+        {
             let _ = self.run_plugin_command("DEL", pod_name).await;
-            return Err(error);
+            return Err(error).with_context(|| {
+                format!(
+                    "Failed adding IP address {:?}/{} to interface {:?}",
+                    address, prefix_length, self.0.interface,
+                )
+            });
         }
 
         Ok(IpAddress {
@@ -135,7 +170,6 @@ impl Ipam {
             address,
             prefix_length,
             pod_name: pod_name.clone(),
-            interface: String::from(interface),
         })
     }
 
@@ -187,9 +221,22 @@ impl Ipam {
 impl IpAddress {
     /// Deactivate the IP address on its network interface.
     /// It will no longer be able to receive traffic,
-    /// but the address will not be available for re-use.
+    /// but the address will not be available for re-use
+    /// until it is [deallocated](Self::deallocate).
     pub(crate) async fn deactivate(&self) -> Result<()> {
-        ip_addr("del", &self.address, self.prefix_length, &self.interface).await?;
+        ip_addr_del(
+            &self.ipam.0.netlink_handle,
+            &self.ipam.0.interface,
+            &self.address,
+            self.prefix_length,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "Failed deleting IP address {:?}/{} from interface {:?}",
+                self.address, self.prefix_length, self.ipam.0.interface,
+            )
+        })?;
         log_info!(
             pod: &self.pod_name,
             "Successful IPAM deactivation: {}",
@@ -220,31 +267,96 @@ impl Display for IpAddress {
     }
 }
 
-/// Boilerplate to run a command of the form:
-///     ip addr <command> <address>/<prefix_length> dev <interface>
+/// Add an IP address to the named network interface.
 #[inline]
-async fn ip_addr(
-    command: &str,
+async fn ip_addr_add(
+    netlink_handle: &NetlinkHandle,
+    interface: &str,
     address: &IpAddr,
     prefix_length: u8,
-    interface: &str,
 ) -> Result<()> {
-    let masked_address = format!("{}/{}", address, prefix_length);
-    let output = Command::new("ip")
-        .args(["addr", command, &masked_address, "dev", interface])
-        .output()
+    netlink_handle
+        .address()
+        .add(
+            lookup_interface(netlink_handle, interface).await?,
+            address.clone(),
+            prefix_length,
+        )
+        .execute()
         .await
-        .context("Failed to run `ip addr`")?;
-    if output.status.success() {
-        Ok(())
+        .with_context(|| {
+            format!(
+                "Failed executing netlink add-address request for interface {:?}",
+                interface,
+            )
+        })
+}
+
+/// Delete an IP address from the named network interface.
+#[inline]
+async fn ip_addr_del(
+    netlink_handle: &NetlinkHandle,
+    interface: &str,
+    address: &IpAddr,
+    prefix_length: u8,
+) -> Result<()> {
+    let link_index = lookup_interface(netlink_handle, interface).await?;
+    if let Some(address_message) = netlink_handle
+        .address()
+        .get()
+        .set_link_index_filter(link_index)
+        .set_address_filter(address.clone())
+        .set_prefix_length_filter(prefix_length)
+        .execute()
+        .try_next()
+        .await
+        .with_context(|| {
+            format!(
+                "Failed executing netlink get-address request for interface {:?}",
+                interface,
+            )
+        })?
+    {
+        netlink_handle
+            .address()
+            .del(address_message)
+            .execute()
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed executing netlink delete-address request for interface {:?}",
+                    interface,
+                )
+            })
     } else {
         Err(anyhow!(
-            "Error status from `ip addr {} {} dev {}`: {}",
-            command,
-            masked_address,
+            "IP address {:?}/{} not found on network device {:?}",
+            address,
+            prefix_length,
             interface,
-            String::from_utf8_lossy(&output.stderr)
         ))
+    }
+}
+
+/// Look up a network interface by name and return its link index.
+async fn lookup_interface(netlink_handle: &NetlinkHandle, interface: &str) -> Result<u32> {
+    if let Some(link) = netlink_handle
+        .link()
+        .get()
+        .match_name(String::from(interface))
+        .execute()
+        .try_next()
+        .await
+        .with_context(|| {
+            format!(
+                "Failed executing netlink get-link request for interface {:?}",
+                interface,
+            )
+        })?
+    {
+        Ok(link.header.index)
+    } else {
+        Err(anyhow!("Network device {:?} not found", interface))
     }
 }
 

@@ -33,7 +33,7 @@ jobs:
         run: |
           # Install basic dependencies.
           apt-get update
-          apt-get install -y curl jq openssh-client git gcc g++ python3 iproute2
+          apt-get install -y curl jq openssh-client git gcc g++ python3
 
           # Install the latest release of Bazelisk from GitHub.
           LATEST_BAZELISK="$(

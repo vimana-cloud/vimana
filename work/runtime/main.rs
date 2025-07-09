@@ -183,7 +183,7 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     let oci_image_client = ImageServiceClient::new(oci_channel.clone());
     let oci_runtime_client = RuntimeServiceClient::new(oci_channel);
 
-    let ipam = Ipam::host_local(ipam_plugin, &pod_ips);
+    let ipam = Ipam::host_local(ipam_plugin, &pod_ips, network_interface).await?;
 
     // systemd sends SIGTERM to stop services, CTRL+C sends SIGINT.
     // Listen for those to shut down the servers somewhat gracefully.
@@ -218,13 +218,7 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     )?;
 
     let containers = ContainerStore::new(&image_store, insecure_registries, &wasmtime)?;
-    let runtime = WorkRuntime::new(
-        wasmtime,
-        containers.clone(),
-        network_interface,
-        ipam,
-        shutdown_rx.shared(),
-    );
+    let runtime = WorkRuntime::new(wasmtime, containers.clone(), ipam, shutdown_rx.shared());
 
     // Bind to our CRI API socket.
     // This is last fallible thing before starting the CRI API server

@@ -227,6 +227,10 @@ crate.spec(
     version = "0.12.20",
 )
 crate.spec(
+    package = "rtnetlink",
+    version = "0.17.0",
+)
+crate.spec(
     package = "serde",
     version = "1.0.219",
 )

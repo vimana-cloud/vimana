@@ -40,6 +40,7 @@ rust_binary(
         "@crates//:prost",
         "@crates//:regex",
         "@crates//:reqwest",
+        "@crates//:rtnetlink",
         "@crates//:serde",
         "@crates//:serde_json",
         "@crates//:sha2",
