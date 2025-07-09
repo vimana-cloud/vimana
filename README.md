@@ -67,7 +67,8 @@ bazel run //docs:dev
 Start a local [minikube] cluster with Vimana enabled.
 This is one way to run the [end-to-end] tests if the local machine is x86-64.
 Note that this does more than just `minikube start`;
-it makes sure to use a "kicbase" image that can run Vimana pods.
+it first builds a "kicbase" image with the latest local build of `workd`,
+and uses a fork of minikube with `workd` enabled.
 
 ```bash
 bazel run //dev/minikube:restart
@@ -95,9 +96,32 @@ bazel run //dev:update-dependencies
 [end-to-end]: e2e/
 [`hotswap.sh`]: dev/minikube/hotswap.sh
 
+### Run Bazel in a Container
+
+Run any build or test inside a container,
+simply by using the [`bazel-docker`] command instead of `bazel`.
+This command is available automatically after enabling [`direnv`].
+
+This is mainly intended to run certain tests on MacOS,
+such as those under [`//work/runtime/tests`],
+that use Bazel's [`requires-fakeroot`] tag,
+which only works on Linux.
+
+```bash
+bazel-docker test //work/runtime/tests/...
+```
+
+Containerized Bazel uses a distinct build cache from normal Bazel,
+but that cache is shared across invocations.
+Note, however, that the analysis cache must be rebuilt on each invocation.
+
+[`bazel-docker`]: .bin/bazel-docker
+[`//work/runtime/tests`]: work/runtime/tests
+[`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
+
 ## VSCode
 
-The repository includes some VSCode workspace settings, including:
+The repository includes some VSCode workspace settings:
 
 - **Recommended extensions:**<br />
   VSCode will bug you about them whenever you open the workspace,

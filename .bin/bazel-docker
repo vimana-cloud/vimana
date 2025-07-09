@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+# Run Bazel commands in the official Bazel Docker container:
+# https://bazel.build/install/docker-container.
+
+set -e
+
+# Map the root of the Git repository in the host
+# to a similarly-named directory in the container.
+host_repo="$(git rev-parse --show-toplevel)"
+guest_repo="/src/$(basename "$host_repo")"
+# Run the Bazel command from the directory in the container
+# that corresponds to the current working directory on the host.
+host_workdir="$(pwd)"
+guest_workdir="${guest_repo}${host_workdir#${host_repo}}"
+# Store build outputs in a directory called `bazel-docker`
+# under the appropriate cache directory for the platform.
+if [[ "$(uname)" == 'Darwin' ]]; then
+  cache="${HOME}/Library/Caches/bazel-docker"
+else
+  cache="${XDG_CACHE_HOME:-${HOME}/.cache}/bazel-docker"
+fi
+# Also map the user's SSH configuration into the container
+# so cloning dependency modules via Git-over-SSH works the same way.
+host_ssh="${HOME}/.ssh"
+guest_ssh='/root/.ssh'
+
+# Tell Docker to allocate a pseudo-TTY if stdout (1) is a pseudo-TTY.
+# In that case, Bazel will use formatted output.
+if [ -t 1 ]
+then
+  tty=' --tty'
+else
+  tty=''
+fi
+# Run as root within the container and enable the `NET_ADMIN` capability
+# so that the tests under `//work/runtime/tests`,
+# which manage IP addresses on the network device,
+# can function.
+# Use as many CPU cores as the system provides.
+exec docker run${tty} \
+  --user=0 \
+  --env=USER=0 \
+  --cap-add=NET_ADMIN \
+  --cpus="$(nproc)" \
+  --volume="$host_repo":"$guest_repo":ro \
+  --volume="$cache":"$cache" \
+  --volume="$host_ssh":"$guest_ssh":ro \
+  --workdir="$guest_workdir"  \
+  gcr.io/bazel-public/bazel:latest \
+  --output_user_root="$cache" \
+  "$@"
