@@ -1,12 +1,13 @@
 # Create a node image for a Vimana cluster.
 
+set -e
 source 'dev/bash-util.sh'
+assert-bazel-run
 
 workd_binary_path="$1"
 workd_service_path="$2"
 shift 2
 
-assert-bazel-run
 assert-command-available git
 
 # If this script is run from an unmodified commit of the repository, it is considered clean.

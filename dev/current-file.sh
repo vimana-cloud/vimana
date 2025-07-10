@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 
 # Unlike most Bash scripts, this one is not meant to be invoked by Bazel.
-# It is usually invoked directly by the IDE to perform some action using Bazel.
+# It is usually invoked directly by the IDE to perform some action on a particular file.
 #
-# Build all targets in the same package that directly depend on the given file.
-#
-# Test all test targets that are either:
-# - in the same package and directly depend on the given file, or
-# - in any package and directly depend on a
-#   buildable rule in the same package that directly depends on the file.
+# Actions:
+# - Build all targets in the same package that directly depend on the given file.
+# - Test all test targets that are either:
+#   * in the same package and directly depend on the given file, or
+#   * in any package and directly depend on a
+#     buildable rule in the same package that directly depends on the file.
 
+set -e
 source 'dev/bash-util.sh'
 
 action="$1"  # Either 'build' or 'test'.

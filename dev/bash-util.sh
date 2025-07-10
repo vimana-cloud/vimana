@@ -1,8 +1,5 @@
 # A library of useful, general values and functions for Bash scripts.
 
-# Bash scripts should pretty much always fail fast.
-set -e
-
 # Initialize a bunch of variables to hold text formatting escape sequences.
 # https://en.wikipedia.org/wiki/ANSI_escape_code
 function initialize-formatting {

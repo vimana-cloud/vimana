@@ -2,9 +2,12 @@
 # based on information from Bazel Central Registry and crates.io,
 # respectively.
 
+set -e
 source 'dev/bash-util.sh'
+assert-bazel-run
 
 buildozer="$(realpath $1)" # Get the absolute path so it works after changing directory.
+shift 1
 
 assert-command-available curl
 assert-command-available tail
@@ -14,7 +17,6 @@ assert-command-available jq
 # The source repo becomes the working directory.
 # Source files can be mutated, in contrast to Bazel's usual hermeticity.
 # https://bazel.build/docs/user-manual#running-executables
-assert-bazel-run
 pushd "$BUILD_WORKSPACE_DIRECTORY" > /dev/null
 
 # The following creates a Buildozer command file to run a batch of commands together,
@@ -50,14 +52,15 @@ bazel_updates="$("$buildozer" 'print name version' '//MODULE.bazel:%bazel_dep' |
 # Print the folder part of the URL.
 # https://doc.rust-lang.org/cargo/reference/registry-index.html#index-files
 function crate-index-folder {
-  if (( ${#1} <= 2 ))
+  local name="$1"
+  if (( ${#name} <= 2 ))
   then
-    echo "${#1}"
-  elif (( ${#1} == 3))
+    echo "${#name}"
+  elif (( ${#name} == 3))
   then
-    echo "3/${1:0:1}"
+    echo "3/${name:0:1}"
   else
-    echo "${1:0:2}/${1:2:2}"
+    echo "${name:0:2}/${name:2:2}"
   fi
 }
 

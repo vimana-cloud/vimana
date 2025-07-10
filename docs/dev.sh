@@ -11,11 +11,12 @@
 # Arguments:
 # - Path to the `npm` executable.
 
+set -e
 source 'dev/bash-util.sh'
+assert-bazel-run
 
 npm="$(realpath $1)" # Get the absolute path so it works after changing directory.
-
-assert-bazel-run
+shift 1
 
 # Move to the directory of this shell script,
 # which should be the same directory as the VitePress site's `package.json`

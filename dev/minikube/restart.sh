@@ -3,7 +3,9 @@
 # This can take a minute or two,
 # so it may be faster to hotswap instead.
 
+set -e
 source 'dev/bash-util.sh'
+assert-bazel-run
 
 # Standard K8s tool binaries:
 kubectl="$1"
@@ -19,8 +21,7 @@ push_kicbase="$5"
 kicbase_repo="$6"
 # Probably `host.minikube.internal:5000`.
 cluster_registry="$7"
-
-assert-bazel-run
+shift 7
 
 function _minikube {
   # Leaky abstraction :(

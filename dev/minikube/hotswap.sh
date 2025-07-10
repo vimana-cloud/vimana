@@ -4,7 +4,9 @@
 # *without notifying the control plane* whatsoever, which may cause strange behavior
 # including disappeared pods getting replaced by the deployment controller.
 
+set -e
 source 'dev/bash-util.sh'
+assert-bazel-run
 
 # Minikube is run through a wrapper (see `_minikube`).
 minikube_wrapper="$1"
@@ -12,8 +14,7 @@ minikube_bin="$2"
 kubectl="$3"
 # Path to freshly-compiled `workd` binary.
 workd="$4"
-
-assert-bazel-run
+shift 4
 
 function _minikube {
   # Leaky abstraction :(
