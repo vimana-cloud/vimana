@@ -17,7 +17,7 @@ sh_binary(
     deps = ["//dev:bash-util"],
 )
 
-# Build a statically-linked `workd` Linux binary suitable for a container or a VM.
+# Cross-compile a statically-linked `workd` Linux binary suitable for a container or a VM.
 platform_binary(
     name = "workd-x86_64-linux",
     platform = "//dev:x86_64-linux-musl",

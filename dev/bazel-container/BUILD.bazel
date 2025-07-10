@@ -1,0 +1,15 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+sh_binary(
+    name = "build",
+    srcs = ["build.sh"],
+    args = [
+        "$(location Dockerfile)",
+        "$(location debian-setup.sh)",
+    ],
+    data = [
+        "Dockerfile",
+        "debian-setup.sh",
+    ],
+    deps = ["//dev:bash-util"],
+)

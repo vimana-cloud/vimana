@@ -15,9 +15,8 @@ For general information about documentation, see [docs].
 2. (Mac only) Install [core utilities] and [Xcode].
    Make sure you have your [developer permission].
 3. Install [Bazelisk].
-4. To run integration tests:
-   1. Install [Docker] and enable the daemon.
-   2. Run the container registry [reference implementation]
+4. Install [Docker] and enable the daemon.
+   1. Run the container registry [reference implementation]
       with automatic restart forever:
       ```bash
       docker run --detach --restart=always --name=registry --publish=5000:5000 registry:latest
@@ -29,6 +28,50 @@ For general information about documentation, see [docs].
 [Bazelisk]: https://github.com/bazelbuild/bazelisk
 [Docker]: https://docs.docker.com/
 [reference implementation]: https://hub.docker.com/_/registry
+
+### Bazel Container
+
+Vimana builds fine on any Linux system.
+However, it relies on some Linux-specific features
+that make building or testing certain things directly on a Mac impractical:
+
+- The [work runtime] uses [`rtnetlink`], which cannot be built natively for Mac.
+  The runtime can always be cross-compiled for Linux
+  (which is always the case when building node images)
+  but it cannot be tested locally on a Mac.
+- The [work runtime tests] use Bazel's [`requires-fakeroot`] tag,
+  which only works on Linux.
+
+To work around this, any Bazel command can be run in a dedicated container.
+
+First, build the image:
+
+```bash
+bazel run //dev/bazel-container:build
+```
+
+Technically, you only have to do this once,
+although you probably want to re-build the image
+if you start seeing messages like this whenever you use the container:
+
+```
+YYYY/MM/DD hh:mm:ss Downloading https://releases.bazel.build/x.y.z/release/bazel-x.y.z-linux-x86_64...
+Downloading: XX MB out of YY MB (ZZ%)
+```
+
+To use the container, simply use the built-in `bazel-docker` script
+(which is available automatically after enabling [`direnv`] &mdash; see [tools])
+as a drop-in replacement for `bazel`, *e.g.*
+
+```bash
+bazel-docker test //work/runtime/tests/...
+```
+
+[work runtime]: work/runtime
+[`rtnetlink`]: https://en.wikipedia.org/wiki/Netlink
+[work runtime tests]: work/runtime/tests
+[`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
+[tools]: #tools
 
 ### Tools
 
@@ -95,29 +138,6 @@ bazel run //dev:update-dependencies
 [minikube]: https://minikube.sigs.k8s.io/
 [end-to-end]: e2e/
 [`hotswap.sh`]: dev/minikube/hotswap.sh
-
-### Run Bazel in a Container
-
-Run any build or test inside a container,
-simply by using the [`bazel-docker`] command instead of `bazel`.
-This command is available automatically after enabling [`direnv`].
-
-This is mainly intended to run certain tests on MacOS,
-such as those under [`//work/runtime/tests`],
-that use Bazel's [`requires-fakeroot`] tag,
-which only works on Linux.
-
-```bash
-bazel-docker test //work/runtime/tests/...
-```
-
-Containerized Bazel uses a distinct build cache from normal Bazel,
-but that cache is shared across invocations.
-Note, however, that the analysis cache must be rebuilt on each invocation.
-
-[`bazel-docker`]: .bin/bazel-docker
-[`//work/runtime/tests`]: work/runtime/tests
-[`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
 
 ## VSCode
 
