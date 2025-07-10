@@ -1,2 +1,8 @@
 # Prevent bazel from creating noisy `bazel-out/` etc. symlinks.
 build --experimental_convenience_symlinks=ignore
+
+# Make sure to use sane C/C++ standards.
+build --conlyopt='-std=c99'
+build --host_conlyopt='-std=c99'
+build --cxxopt='-std=c++17'
+build --host_cxxopt='-std=c++17'
