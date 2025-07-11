@@ -48,5 +48,5 @@ exec docker run${tty} \
   --volume="$output_root":"$output_root" \
   --volume="$host_ssh":"$guest_ssh":ro \
   --workdir="$working_directory"  \
-  vimana.host/bazel-container:latest \
-  bazel --output_user_root="$output_root" "$@"
+  gcr.io/bazel-public/bazel:latest \
+  --output_user_root="$output_root" "$@"

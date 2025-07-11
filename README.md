@@ -43,29 +43,17 @@ that make building or testing certain things directly on a Mac impractical:
   which only works on Linux.
 
 To work around this, any Bazel command can be run in a dedicated container.
-
-First, build the image:
-
-```bash
-bazel run //dev/bazel-container:build
-```
-
-Technically, you only have to do this once,
-although you probably want to re-build the image
-if you start seeing messages like this whenever you use the container:
-
-```
-YYYY/MM/DD hh:mm:ss Downloading https://releases.bazel.build/x.y.z/release/bazel-x.y.z-linux-x86_64...
-Downloading: XX MB out of YY MB (ZZ%)
-```
-
-To use the container, simply use the built-in `bazel-docker` script
+Simply use the built-in `bazel-docker` script
 (which is available automatically after enabling [`direnv`] &mdash; see [tools])
 as a drop-in replacement for `bazel`, *e.g.*
 
 ```bash
 bazel-docker test //work/runtime/tests/...
 ```
+
+Containerized Bazel uses a distinct build cache from normal Bazel,
+but that cache is shared across invocations.
+Note, however, that the analysis cache must be rebuilt on each invocation.
 
 [work runtime]: work/runtime
 [`rtnetlink`]: https://en.wikipedia.org/wiki/Netlink
