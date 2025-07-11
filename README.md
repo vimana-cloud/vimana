@@ -39,11 +39,13 @@ that make building or testing certain things directly on a Mac impractical:
   The runtime can always be cross-compiled for Linux
   (which is always the case when building node images)
   but it cannot be tested locally on a Mac.
-- The [work runtime tests] use Bazel's [`requires-fakeroot`] tag,
-  which only works on Linux.
+- The [work runtime tests] use Bazel's [`requires-fakeroot`] tag
+  (in order to manipulate the network device using `rtnetlink`),
+  and that tag is only supported by Bazel on Linux.
 
-To work around this, any Bazel command can be run in a dedicated container.
-Simply use the built-in `bazel-docker` script
+To work around this, any Bazel command can be run in a persistent container
+dedicated to the current Git worktree.
+Simply use the built-in [`bazel-docker`] script
 (which is available automatically after enabling [`direnv`] &mdash; see [tools])
 as a drop-in replacement for `bazel`, *e.g.*
 
@@ -51,14 +53,22 @@ as a drop-in replacement for `bazel`, *e.g.*
 bazel-docker test //work/runtime/tests/...
 ```
 
-Containerized Bazel uses a distinct build cache from normal Bazel,
-but that cache is shared across invocations.
-Note, however, that the analysis cache must be rebuilt on each invocation.
+> [!NOTE]
+> In order to work around a subtle issue with bind-mounting MacOS directories in Docker,
+> `bazel-docker` transparently manages a persistent secondary container called `bazel-output-sync`
+> to synchronize the build cache with the host.
+> When that container first starts,
+> build artifacts and test logs will only become available on the host system
+> after a significant delay (perhaps a few minutes).
+> After that initial sync,
+> subsequent invocations of `bazel-docker` should only incur modest lag (perhaps a second)
+> before output files are available.
 
 [work runtime]: work/runtime
 [`rtnetlink`]: https://en.wikipedia.org/wiki/Netlink
 [work runtime tests]: work/runtime/tests
 [`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
+[`bazel-docker`]: .bin/bazel-docker
 [tools]: #tools
 
 ### Tools

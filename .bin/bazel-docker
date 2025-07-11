@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Drop-in replacement for Bazel that runs commands in a Docker container.
+# Drop-in replacement for Bazel that runs commands in a persistent Docker container.
 
 set -e
 
@@ -8,7 +8,7 @@ set -e
 repository_root="$(git rev-parse --show-toplevel)"
 
 # Source Bash utilities relative to the root
-# in case the user is currently working directory in a subdirectory.
+# in case the user is currently working in a subdirectory.
 source "${repository_root}/dev/bash-util.sh"
 
 # Run the Bazel command from the same path inside the container
@@ -24,12 +24,65 @@ if [[ "$(uname)" == 'Darwin' ]]; then
 else
   output_root="${XDG_CACHE_HOME:-${HOME}/.cache}/bazel/_bazel__docker"
 fi
-output_volume='vimana-bazel-container-outputs'
+output_volume='bazel-output-root'
 
 # Also map the user's SSH configuration into the container
 # so cloning dependency modules via Git-over-SSH works the same way.
 host_ssh="${HOME}/.ssh"
 guest_ssh='/root/.ssh'
+
+# Make sure that a named container is running.
+function ensure-container-running {
+  local name="$1"
+  local start_command="$2"
+  local state="$(docker inspect --format='{{.State.Status}}' "${name}" 2> /dev/null || true)"
+  case "$state" in
+    'running')
+      # The named container is already running. No need to do anything.
+      ;;
+    'exited' | 'created')
+      log-info "Restarting container ${bold}${name}${reset}"
+      docker start "$name"
+      ensure-container-running "$name" "$start_command"
+      ;;
+    '')
+      # The container does not exist. Run it.
+      log-info "Starting container ${bold}${name}${reset}"
+      $start_command
+      ensure-container-running "$name" "$start_command"
+      ;;
+    *)
+      # Handle these situations manually if they arise.
+      log-error "Container ${bold}${name}${reset} is in an unexpected state: ${state}"
+      exit 1
+      ;;
+  esac
+}
+
+# Use a separate container for each repository root in case there are multiple Git worktrees.
+bazel_name="bazel-$(basename "$repository_root")-$(<<< "$repository_root" sha256sum | head --bytes=7)"
+function start-bazel {
+  # Persist the container indefinitely with the appropriate bind-mounts
+  # so we can later run commands on it.
+  # Enable the `NET_ADMIN` capability
+  # so that the tests under `//work/runtime/tests`,
+  # which manage IP addresses on the network device,
+  # can function.
+  # Use as many CPU cores as the system can provide.
+  docker run \
+    --detach \
+    --name="$bazel_name" \
+    --cap-add=NET_ADMIN \
+    --cpus="$(nproc)" \
+    --user=$(id -u) \
+    --volume="$repository_root":"$repository_root":ro \
+    --volume="$output_volume":"$output_root" \
+    --volume="$host_ssh":"$guest_ssh":ro \
+    --entrypoint=/usr/bin/sh \
+    gcr.io/bazel-public/bazel:latest \
+    -c 'sleep infinity'
+}
+ensure-container-running "$bazel_name" start-bazel
 
 # Ideally, we would bind-mount the "$output_root" path on the host
 # directly to the "$output_root" path in the Bazel container,
@@ -43,57 +96,35 @@ guest_ssh='/root/.ssh'
 # and simultaneously mount that same volume on another container called the "output sync container",
 # which runs persistently in the background,
 # and whose only purpose is to synchronize the contents of the volume with the host's output root.
-output_sync_name='bazel-container-output-sync'
-output_sync_state="$(docker inspect --format='{{.State.Status}}' "${output_sync_name}" 2> /dev/null || true)"
-case "$output_sync_state" in
-  'running')
-    # The output sync container is already running. No need to do anything.
-    ;;
-  'exited' | 'created')
-    log-info "Restarting output sync container"
-    docker start "${output_sync_name}"
-    ;;
-  '')
-    # The container does not exist. Run it.
-    log-info "Starting output sync container"
-    docker run \
-      --name="$output_sync_name" \
-      --detach \
-      --volume="$output_volume":'/volume' \
-      --volume="$output_root":'/host-output' \
-      alpine:latest \
-      sh -c 'apk update && apk add unison && unison /volume /host-output -batch -silent -repeat watch -prefer /volume'
-    ;;
-  *)
-    # This probably deserves attention,
-    # but since we can still build / test stuff without access to the outputs, continue.
-    log-warn "Output sync container is in an unexpected state: ${output_sync_state}"
-    ;;
-esac
+output_sync_name='bazel-output-sync'
+function start-output-sync {
+  docker run \
+    --name="$output_sync_name" \
+    --detach \
+    --volume="$output_volume":'/volume' \
+    --volume="$output_root":'/host-output' \
+    alpine:latest \
+    sh -c 'apk update && apk add unison && unison /volume /host-output -batch -silent -repeat watch -prefer /volume'
+}
+ensure-container-running "$output_sync_name" start-output-sync
 
 # Tell Docker to allocate a pseudo-TTY if stdout (1) is a pseudo-TTY.
 # In that case, Bazel will use formatted output.
 if [ -t 1 ]
 then
-  tty=' --tty'
+  tty='--tty'
 else
   tty=''
 fi
 
-# Run as root within the container and enable the `NET_ADMIN` capability
+# Run as root within the container
 # so that the tests under `//work/runtime/tests`,
 # which manage IP addresses on the network device,
 # can function.
-# Use as many CPU cores as the system provides.
-exec docker run${tty} \
-  --rm \
+exec docker exec \
   --user=0 \
   --env=USER=0 \
-  --cap-add=NET_ADMIN \
-  --cpus="$(nproc)" \
-  --volume="$repository_root":"$repository_root":ro \
-  --volume="$output_volume":"$output_root" \
-  --volume="$host_ssh":"$guest_ssh":ro \
   --workdir="$working_directory" \
-  gcr.io/bazel-public/bazel:latest \
-  --output_user_root="$output_root" "$@"
+  ${tty} \
+  "$bazel_name" \
+  bazel --output_user_root="$output_root" "$@"
