@@ -1,30 +1,75 @@
 #!/usr/bin/env bash
 
-# Run Bazel commands in the official Bazel Docker container:
-# https://bazel.build/install/docker-container.
+# Drop-in replacement for Bazel that runs commands in a Docker container.
 
 set -e
 
-# Generally use the same absolute paths inside the container as outside,
-# so that all paths can be copied verbatim from the logs.
-
-# Map the root of the Git repository in the host
-# to a similarly-named directory in the container.
+# Map the root of the Git repository on the host to the same path inside the container.
 repository_root="$(git rev-parse --show-toplevel)"
-# Run the Bazel command from the directory in the container
-# that corresponds to the current working directory on the host.
+
+# Source Bash utilities relative to the root
+# in case the user is currently working directory in a subdirectory.
+source "${repository_root}/dev/bash-util.sh"
+
+# Run the Bazel command from the same path inside the container
+# as the current working directory on the host.
+# This must be a subdirectory of the repository root.
 working_directory="$(pwd)"
+
 # Store build outputs in a directory called `_bazel__docker`
-# under the appropriate cache directory for the platform.
+# under the appropriate cache path for the platform / user.
+# Build outputs are backed by a persistent, named Docker volume.
 if [[ "$(uname)" == 'Darwin' ]]; then
   output_root="/private/var/tmp/_bazel__docker"
 else
   output_root="${XDG_CACHE_HOME:-${HOME}/.cache}/bazel/_bazel__docker"
 fi
+output_volume='vimana-bazel-container-outputs'
+
 # Also map the user's SSH configuration into the container
 # so cloning dependency modules via Git-over-SSH works the same way.
 host_ssh="${HOME}/.ssh"
 guest_ssh='/root/.ssh'
+
+# Ideally, we would bind-mount the "$output_root" path on the host
+# directly to the "$output_root" path in the Bazel container,
+# like in https://bazel.build/install/docker-container,
+# to have access to built artifacts and test logs after the Bazel container exits.
+# While this works fine on Linux, it unfortunately appears subtly broken on Mac.
+# Weird failures due to missing files in the analysis phase
+# appear to stem from latency issues in both the VirtioFS and gRPC FUSE filesharing systems.
+#
+# To work around this, mount a simple named volume to the output root on the Bazel container,
+# and simultaneously mount that same volume on another container called the "output sync container",
+# which runs persistently in the background,
+# and whose only purpose is to synchronize the contents of the volume with the host's output root.
+output_sync_name='bazel-container-output-sync'
+output_sync_state="$(docker inspect --format='{{.State.Status}}' "${output_sync_name}" 2> /dev/null || true)"
+case "$output_sync_state" in
+  'running')
+    # The output sync container is already running. No need to do anything.
+    ;;
+  'exited' | 'created')
+    log-info "Restarting output sync container"
+    docker start "${output_sync_name}"
+    ;;
+  '')
+    # The container does not exist. Run it.
+    log-info "Starting output sync container"
+    docker run \
+      --name="$output_sync_name" \
+      --detach \
+      --volume="$output_volume":'/volume' \
+      --volume="$output_root":'/host-output' \
+      alpine:latest \
+      sh -c 'apk update && apk add unison && unison /volume /host-output -batch -silent -repeat watch -prefer /volume'
+    ;;
+  *)
+    # This probably deserves attention,
+    # but since we can still build / test stuff without access to the outputs, continue.
+    log-warn "Output sync container is in an unexpected state: ${output_sync_state}"
+    ;;
+esac
 
 # Tell Docker to allocate a pseudo-TTY if stdout (1) is a pseudo-TTY.
 # In that case, Bazel will use formatted output.
@@ -34,19 +79,21 @@ then
 else
   tty=''
 fi
+
 # Run as root within the container and enable the `NET_ADMIN` capability
 # so that the tests under `//work/runtime/tests`,
 # which manage IP addresses on the network device,
 # can function.
 # Use as many CPU cores as the system provides.
 exec docker run${tty} \
+  --rm \
   --user=0 \
   --env=USER=0 \
   --cap-add=NET_ADMIN \
   --cpus="$(nproc)" \
   --volume="$repository_root":"$repository_root":ro \
-  --volume="$output_root":"$output_root" \
+  --volume="$output_volume":"$output_root" \
   --volume="$host_ssh":"$guest_ssh":ro \
-  --workdir="$working_directory"  \
+  --workdir="$working_directory" \
   gcr.io/bazel-public/bazel:latest \
   --output_user_root="$output_root" "$@"
