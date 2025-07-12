@@ -43,8 +43,8 @@ docker image rm --force "$kicbase_repo" 2> /dev/null || true
 # Push the most up-to-date version of Vimana-enabled Kicbase to the local registry.
 # This should be the command for `bazel run //dev/minikube:kicbase-image-push-local`
 # and it should push to the same registry as `$kicbase_repo`.
-"$push_kicbase" || {
-  log-error "Failed to push ${bold}${kicbase_repo}${reset}'"
+"$push_kicbase" --insecure || {
+  log-error "Failed to push ${bold}${kicbase_repo}${reset}"
   exit 1
 }
 
@@ -54,12 +54,14 @@ docker image rm --force "$kicbase_repo" 2> /dev/null || true
 # - The runtime class of the pod specified on container image pull requests:
 #   https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 # - Enough resources to run Istio: https://istio.io/latest/docs/setup/platform-setup/minikube.
+# - Embedding certificate data in the generated kubeconfig so it's self-contained.
 _minikube start \
   --base-image="$kicbase_repo" \
   --container-runtime=workd \
   --insecure-registry="$cluster_registry" \
   --feature-gates=RuntimeClassInImageCriApi=true \
   --memory=16384 --cpus=4 \
+  --embed-certs \
   || exit 1
 
 # Enable all dashboard features.

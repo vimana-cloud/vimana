@@ -37,6 +37,12 @@ sh_binary(
         "@rules_k8s//:minikube",
         "@rules_k8s//:minikube-bin",
     ],
+    # Customize kubeconfig output path by setting `KUBECONFIG`.
+    # The default is `${HOME}/.kube/config`.
+    env_inherit = [
+        "KUBECONFIG",
+        "HOME",
+    ],
     deps = ["//dev:bash-util"],
 )
 
