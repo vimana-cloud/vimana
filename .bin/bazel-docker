@@ -69,6 +69,8 @@ function start-bazel {
   # which manage IP addresses on the network device,
   # can function.
   # Use as many CPU cores as the system can provide.
+  # Add the canonical hostname `host.docker.internal`
+  # for consistency across platforms.
   docker run \
     --detach \
     --name="$bazel_name" \
@@ -78,9 +80,16 @@ function start-bazel {
     --volume="$repository_root":"$repository_root":ro \
     --volume="$output_volume":"$output_root" \
     --volume="$host_ssh":"$guest_ssh":ro \
+    --add-host=host.docker.internal=host-gateway \
     --entrypoint=/usr/bin/sh \
     gcr.io/bazel-public/bazel:latest \
     -c 'sleep infinity'
+  # Install a couple basic tools that may be needed for certain tests.
+  docker exec \
+    --detach \
+    --user=0 \
+    "$bazel_name" \
+    sh -c 'apt-get update && apt-get install --yes jq uuid-runtime'
 }
 ensure-container-running "$bazel_name" start-bazel
 

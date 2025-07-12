@@ -1,6 +1,5 @@
 # Prevent bazel from creating noisy `bazel-out/` etc. symlinks.
 build --experimental_convenience_symlinks=ignore
 
-# Use sane C/C++ standards on Mac.
-build:macos --conlyopt='-std=c99' --host_conlyopt='-std=c99'
-build:macos --cxxopt='-std=c++17' --host_cxxopt='-std=c++17'
+# Ensure a sane C++ standard on all platforms.
+build --cxxopt='-std=c++17' --host_cxxopt='-std=c++17'
