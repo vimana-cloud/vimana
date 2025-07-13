@@ -22,11 +22,11 @@ working_directory="$(pwd)"
 if [[ "$(uname)" == 'Darwin' ]]; then
   output_root="/private/var/tmp/_bazel__docker"
 else
-  output_root="${XDG_CACHE_HOME:-${HOME}/.cache}/bazel/_bazel__docker"
+  output_root="${XDG_CACHE_HOME:-"${HOME}/.cache"}/bazel/_bazel__docker"
 fi
 output_volume='bazel-output-root'
 
-# Also map the user's SSH configuration into the container
+# Map the user's SSH configuration into the container
 # so cloning dependency modules via Git-over-SSH works the same way.
 host_ssh="${HOME}/.ssh"
 guest_ssh='/root/.ssh'
@@ -117,13 +117,27 @@ function start-output-sync {
 }
 ensure-container-running "$output_sync_name" start-output-sync
 
+declare -a options
+
 # Tell Docker to allocate a pseudo-TTY if stdout (1) is a pseudo-TTY.
 # In that case, Bazel will use formatted output.
 if [ -t 1 ]
 then
-  tty='--tty'
-else
-  tty=''
+  options+=(--tty)
+fi
+
+# Only inherit the `KUBECONFIG` environment variable if it's explicitly set.
+if ! [ -z "${KUBECONFIG+.}" ]
+then
+  # This path would have to exist on the container in order to function,
+  # which in practice means it should be either inside the Git repository or under the build root.
+  # Warn if that's not the case.
+  kubeconfig="$(realpath "$KUBECONFIG")"
+  if [[ "$kubeconfig" != "${repository_root}/"* ]] && [[ "$kubeconfig" != "${output_root}/"* ]]
+  then
+    log-warn "Inheriting ${bold}KUBECONFIG${reset} pointing outside the container: ${bold}${KUBECONFIG}${reset}"
+  fi
+  options+=(--env=KUBECONFIG="$kubeconfig")
 fi
 
 # Run as root within the container
@@ -134,6 +148,6 @@ exec docker exec \
   --user=0 \
   --env=USER=0 \
   --workdir="$working_directory" \
-  ${tty} \
+  "${options[@]}" \
   "$bazel_name" \
   bazel --output_user_root="$output_root" "$@"
