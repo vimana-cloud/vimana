@@ -2,7 +2,8 @@ load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
-# Name of some registry we can push / pull images to / from.
+# Name of some registry we can push / pull images to / from,
+# from the execution platform's perspective.
 local_registry = "localhost:5000"
 
 # Name of the same registry as `local_registry`,

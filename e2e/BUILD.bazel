@@ -25,12 +25,12 @@ bootstrap(
 
 k8s_cluster_test(
     name = "walkthrough-test",
-    hosts = {
-        "api.vimana.host": "127.0.0.1",
-    },
     objects = [":walkthrough-bootstrap"],
-    port_forward = {
-        "svc/vimana-gateway-istio": ["61803:443"],
+    services = {
+        "vimana-gateway-istio": [
+            "api.vimana.host",
+            "api.fersher.host",
+        ],
     },
     setup = [":walkthrough-bootstrap"],
     tags = ["external"],  # Never cache test results.

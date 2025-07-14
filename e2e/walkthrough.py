@@ -14,14 +14,13 @@ environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'e2e/walkthrough-bootstrap.root.ce
 
 class Walkthough(TestCase):
     def test_WIP(self):
-        channel = grpc.secure_channel(
-            'api.vimana.host:61803', grpc.ssl_channel_credentials()
+        adderClient = AdderServiceStub(
+            grpc.secure_channel('api.vimana.host', grpc.ssl_channel_credentials()),
         )
-        client = AdderServiceStub(channel)
 
-        response = client.AddFloats(AddFloatsRequest(x=3.5, y=-1.2))
+        response = adderClient.AddFloats(AddFloatsRequest(x=3.5, y=-1.2))
 
-        assert response == AddFloatsResponse(result=2.3)
+        self.assertEqual(response, AddFloatsResponse(result=2.3))
 
 
 if __name__ == '__main__':

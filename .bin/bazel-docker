@@ -68,6 +68,10 @@ function start-bazel {
   # so that the tests under `//work/runtime/tests`,
   # which manage IP addresses on the network device,
   # can function.
+  # Enable the `SYS_ADMIN` capability and disable secure computing mode
+  # so that end-to-end K8s tests (those under `//e2e`),
+  # which use `unshare` to bind-mount `/etc/hosts` for the life of the test,
+  # can function.
   # Use as many CPU cores as the system can provide.
   # Add the canonical hostname `host.docker.internal`
   # for consistency across platforms.
@@ -75,6 +79,8 @@ function start-bazel {
     --detach \
     --name="$bazel_name" \
     --cap-add=NET_ADMIN \
+    --cap-add=SYS_ADMIN \
+    --security-opt=seccomp=unconfined \
     --cpus="$(nproc)" \
     --user=$(id -u) \
     --volume="$repository_root":"$repository_root":ro \

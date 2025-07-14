@@ -70,11 +70,6 @@ _minikube addons enable metrics-server
 # Start Istio in ambient mode (no sidecars).
 "$istioctl" install --skip-confirmation --set profile=ambient || exit 1
 
-# Set up the Getway API Custom Resource Definitions (CRDs):
-# https://github.com/kubernetes-sigs/gateway-api/releases.
-"$kubectl" apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml || exit 1
-
-# Set up the Runtime Class Manager.
-#bazel run @runtime-class-manager//cmd/rcm:push-image-local || exit 1
-#bazel run @runtime-class-manager//:install || exit 1
-#bazel run @runtime-class-manager//:deploy "${cluster_registry}/runtime-class-manager:latest" || exit 1
+# Set up the Getway API Custom Resource Definitions (CRDs).
+# https://github.com/kubernetes-sigs/gateway-api/releases
+"$kubectl" apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml || exit 1
