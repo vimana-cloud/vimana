@@ -40,9 +40,14 @@ function ensure-container-running {
     'running')
       # The named container is already running. No need to do anything.
       ;;
-    'exited' | 'created')
+    'exited')
       log-info "Restarting container ${bold}${name}${reset}"
-      docker start "$name"
+      if ! docker start "$name" > /dev/null
+      then
+        log-warn "Removing ${bold}${name}${reset} to start from scratch"
+        docker rm "$name" > /dev/null
+        $start_command
+      fi
       ensure-container-running "$name" "$start_command"
       ;;
     '')
@@ -60,21 +65,31 @@ function ensure-container-running {
 }
 
 # Use a separate container for each repository root in case there are multiple Git worktrees.
-bazel_name="bazel-$(basename "$repository_root")-$(<<< "$repository_root" sha256sum | head --bytes=7)"
+bazel_name="bazel-$(
+  basename "$repository_root"
+)-$(
+  <<< "$repository_root" sha256sum | head --bytes=7
+)"
 function start-bazel {
-  # Persist the container indefinitely with the appropriate bind-mounts
-  # so we can later run commands on it.
-  # Enable the `NET_ADMIN` capability
-  # so that the tests under `//work/runtime/tests`,
-  # which manage IP addresses on the network device,
-  # can function.
-  # Enable the `SYS_ADMIN` capability and disable secure computing mode
-  # so that end-to-end K8s tests (those under `//e2e`),
-  # which use `unshare` to bind-mount `/etc/hosts` for the life of the test,
-  # can function.
-  # Use as many CPU cores as the system can provide.
-  # Add the canonical hostname `host.docker.internal`
-  # for consistency across platforms.
+  # - Persist the container indefinitely with the appropriate bind-mounts
+  #   so we can later run commands on it.
+  # - Enable the `NET_ADMIN` capability
+  #   so that the tests under `//work/runtime/tests`,
+  #   which manage IP addresses on the network device,
+  #   can function.
+  # - Enable the `SYS_ADMIN` capability and disable secure computing mode
+  #   so that end-to-end K8s tests (those under `//e2e`),
+  #   which use `unshare` to bind-mount `/etc/hosts` for the life of the test,
+  #   can function.
+  # - Use as many CPU cores as the system can provide.
+  # - Add the canonical hostname `host.docker.internal`
+  #   for consistency across platforms.
+  #
+  # Disabling security measures may look scary,
+  # but keep in mind that this tool exists as an alternative to running Bazel directly on the host,
+  # where none of these security measures would exist anyway.
+  # It's also primarily useful for non-Linux systems (like MacOS),
+  # where Docker runs in a VM, which adds an extra layer of isolation.
   docker run \
     --detach \
     --name="$bazel_name" \
@@ -82,7 +97,6 @@ function start-bazel {
     --cap-add=SYS_ADMIN \
     --security-opt=seccomp=unconfined \
     --cpus="$(nproc)" \
-    --user=$(id -u) \
     --volume="$repository_root":"$repository_root":ro \
     --volume="$output_volume":"$output_root" \
     --volume="$host_ssh":"$guest_ssh":ro \
@@ -90,12 +104,15 @@ function start-bazel {
     --entrypoint=/usr/bin/sh \
     gcr.io/bazel-public/bazel:latest \
     -c 'sleep infinity'
-  # Install a couple basic tools that may be needed for certain tests.
+
+  # Install the `uuidgen` CLI tool, which is needed to run a `k8s_cluster_test`.
+  # ATTOW there is no obvious pre-built toolchain for Bazel.
+  # Don't bother waiting for `apt-get update`; the tool is very stable.
   docker exec \
     --detach \
     --user=0 \
     "$bazel_name" \
-    sh -c 'apt-get update && apt-get install --yes jq uuid-runtime'
+    sh -c 'apt-get install --yes uuid-runtime'
 }
 ensure-container-running "$bazel_name" start-bazel
 
