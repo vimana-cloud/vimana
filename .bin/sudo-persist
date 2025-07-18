@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+# Spawn a background job to periodically refresh the `sudo` timeout
+# while running a command (defined by the arguments) in the foreground.
+
+# PID of the main command, which will take it over from the script using `exec`.
+pid=$$
+
+# Authorize in the foreground before running the main command.
+sudo -v
+
+# Keep authorizing in a loop in the background while running the main command.
+while true
+do
+  sudo -v
+  sleep 60
+
+  # `kill -0` checks if the main process is still alive.
+  # If not, stop the background loop.
+  if ! kill -0 $pid 2> /dev/null
+  then
+    break
+  fi
+done &
+
+# Run the main command in the foreground.
+exec "$@"
