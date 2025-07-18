@@ -26,11 +26,6 @@ else
 fi
 output_volume='bazel-output-root'
 
-# Map the user's SSH configuration into the container
-# so cloning dependency modules via Git-over-SSH works the same way.
-host_ssh="${HOME}/.ssh"
-guest_ssh='/root/.ssh'
-
 # Make sure that a named container is running.
 function ensure-container-running {
   local name="$1"
@@ -99,7 +94,8 @@ function start-bazel {
     --cpus="$(nproc)" \
     --volume="$repository_root":"$repository_root":ro \
     --volume="$output_volume":"$output_root" \
-    --volume="$host_ssh":"$guest_ssh":ro \
+    --volume="${HOME}/.ssh":'/root/.ssh':ro \
+    --volume="${HOME}/.kube":'/root/.kube':ro \
     --add-host=host.docker.internal=host-gateway \
     --entrypoint=/usr/bin/sh \
     gcr.io/bazel-public/bazel:latest \
