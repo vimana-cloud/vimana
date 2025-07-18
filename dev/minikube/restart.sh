@@ -17,6 +17,7 @@ minikube_bin="$4"
 # builds and pushes the latest `workd`-enhanced Kicbase image
 # to the registry where minikube will look for it.
 push_kicbase="$5"
+# Full name (including registry) of the Kicbase image.
 # Probably `localhost:5000/kicbase-workd:latest`.
 kicbase_repo="$6"
 # Probably `host.minikube.internal:5000`.
@@ -62,14 +63,14 @@ _minikube start \
   --feature-gates=RuntimeClassInImageCriApi=true \
   --memory=16384 --cpus=4 \
   --embed-certs \
-  || exit 1
+  "$@"
 
 # Enable all dashboard features.
 _minikube addons enable metrics-server
 
 # Start Istio in ambient mode (no sidecars).
-"$istioctl" install --skip-confirmation --set profile=ambient || exit 1
+"$istioctl" install --skip-confirmation --set profile=ambient
 
 # Set up the Getway API Custom Resource Definitions (CRDs).
 # https://github.com/kubernetes-sigs/gateway-api/releases
-"$kubectl" apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml || exit 1
+"$kubectl" apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
