@@ -34,6 +34,9 @@ git_override(
     remote = "git@github.com:vimana-cloud/rules_k8s.git",
 )
 
+environment = use_extension("//dev:environment.bzl", "environment")
+use_repo(environment, "environment")
+
 # Register Protobuf toolchains.
 register_toolchains("//:protoc-rust-toolchain")
 
