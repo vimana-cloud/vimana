@@ -547,6 +547,78 @@ class ListTest(WorkdTestCase):
         self.assertEqual(len(response.containers), 1)
         findById(response.containers, self.createdFooContainerId)
 
+    def test_ListPodSandbox_IncludeDownstream(self):
+        filter = PodSandboxFilter(
+            state=PodSandboxStateValue(state=PodSandboxState.SANDBOX_READY),
+            label_selector={'vimana.host/domain': self.fooDomain},
+        )
+        downstreamPodId1 = 'not from round here'
+        downstreamPod1 = PodSandbox(
+            id=downstreamPodId1,
+            runtime_handler='old fashioned',
+            annotations={'just': 'checking'},
+        )
+        downstreamPodId2 = 'and another'
+        downstreamPod2 = PodSandbox(id=downstreamPodId2)
+
+        def downstreamListPodSandbox(_self, request, context):
+            self.assertEqual(request.filter, filter)
+            return ListPodSandboxResponse(items=[downstreamPod1, downstreamPod2])
+
+        self.downstreamRuntimeService.mockNext(
+            'ListPodSandbox', downstreamListPodSandbox
+        )
+
+        response = self.runtimeService.ListPodSandbox(
+            ListPodSandboxRequest(filter=filter)
+        )
+
+        self.assertEqual(len(response.items), 7)
+        findById(response.items, self.initiatedFooPodId)
+        findById(response.items, self.createdFooPodId)
+        findById(response.items, self.runningFooPodId)
+        findById(response.items, self.stoppedFooPodId)
+        findById(response.items, self.removedFooPodId)
+        self.assertEqual(findById(response.items, downstreamPodId1), downstreamPod1)
+        self.assertEqual(findById(response.items, downstreamPodId2), downstreamPod2)
+
+    def test_ListContainers_IncludeDownstream(self):
+        filter = ContainerFilter(
+            state=ContainerStateValue(state=ContainerState.CONTAINER_CREATED),
+            label_selector={'vimana.host/domain': self.fooDomain},
+        )
+        downstreamContainerId1 = 'not from round here'
+        downstreamContainer1 = Container(
+            id=downstreamContainerId1,
+            pod_sandbox_id='daddy',
+            annotations={'just': 'checking'},
+        )
+        downstreamContainerId2 = 'and another'
+        downstreamContainer2 = Container(id=downstreamContainerId2)
+
+        def downstreamListContainers(_self, request, context):
+            self.assertEqual(request.filter, filter)
+            return ListContainersResponse(
+                containers=[downstreamContainer1, downstreamContainer2]
+            )
+
+        self.downstreamRuntimeService.mockNext(
+            'ListContainers', downstreamListContainers
+        )
+
+        response = self.runtimeService.ListContainers(
+            ListContainersRequest(filter=filter)
+        )
+
+        self.assertEqual(len(response.containers), 3)
+        findById(response.containers, self.createdFooContainerId)
+        self.assertEqual(
+            findById(response.containers, downstreamContainerId1), downstreamContainer1
+        )
+        self.assertEqual(
+            findById(response.containers, downstreamContainerId2), downstreamContainer2
+        )
+
 
 def findById(items: list[PodSandbox | Container], id: str) -> PodSandbox | Container:
     for item in items:
