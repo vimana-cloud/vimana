@@ -5,7 +5,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta
-from functools import partial
+from functools import partial, wraps
 from hashlib import sha256
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -122,6 +122,8 @@ class WorkdTestCase(TestCase):
         cls.imageService = cls.tester.imageService
         cls.setupImage = cls.tester.setupImage
         cls.imageId = cls.tester.imageId
+        cls.downstreamRuntimeService = cls.tester.downstreamRuntimeService
+        cls.downstreamImageService = cls.tester.downstreamImageService
 
     @classmethod
     def tearDownClass(cls):
@@ -139,30 +141,35 @@ class WorkdTester:
     """Manager for the system under test.
 
     Fires up a real `workd` server hooked up to dependencies:
-    - A mock container image registry
+    - A fake container image registry
       that should act like the [reference implementation](https://hub.docker.com/_/registry).
-    - A fake OCI runtime that does nothing.
+    - A mock downstream runtime that can be configured to behave in specific ways.
     - An emulator for the host-local IPAM plugin.
 
     Also provides clients to communicate with the `workd` server.
     """
 
     def __init__(self):
-        # Fire up an image registry, OCI runtime, and workd instance and wire them up.
+        # Fire up an image registry, downstream runtime, and workd instance and wire them up.
         self._imageRegistry, self._imageRegistryPort = startImageRegistry()
         try:
-            # Start a fake downstream OCI runtime (normally, this would be containerd).
-            self._ociRuntime, ociSocket = startOciRuntime()
+            # Start a mock downstream runtime (normally, this would be containerd).
+            (
+                self._downstreamRuntime,
+                downstreamSocket,
+                self.downstreamRuntimeService,
+                self.downstreamImageService,
+            ) = startDownstreamRuntime()
             try:
-                # Wait for both the image registry and oci runtime to become connectable
+                # Wait for both the image registry and downstream runtime to become connectable
                 # before starting workd.
                 _waitFor(
-                    lambda: exists(ociSocket)
+                    lambda: exists(downstreamSocket)
                     and not _isPortAvailable(self._imageRegistryPort),
                 )
                 self._imageStore = TemporaryDirectory()
                 self._workd, self._workdSocket = startWorkd(
-                    ociSocket,
+                    downstreamSocket,
                     self._imageRegistryPort,
                     self._imageStore.name,
                     _ipamWrapper.name,
@@ -191,7 +198,7 @@ class WorkdTester:
                     self._workd.wait(_timeout.seconds)
                     raise
             except:
-                self._ociRuntime.stop(_timeout.seconds)
+                self._downstreamRuntime.stop(_timeout.seconds)
                 raise
         except:
             self._imageRegistry.server_close()
@@ -220,7 +227,7 @@ class WorkdTester:
                     self._imageRegistry.server_close()
                 finally:
                     try:
-                        self._ociRuntime.stop(_timeout.seconds)
+                        self._downstreamRuntime.stop(_timeout.seconds)
                     finally:
                         self._workdLogQueue.shutdown()
 
@@ -343,7 +350,7 @@ class WorkdTester:
 
 
 def startWorkd(
-    ociRuntimeSocket: str,
+    downstreamRuntimeSocket: str,
     imageRegistryPort: int,
     imageStorePath: str,
     ipamPath: str,
@@ -359,7 +366,7 @@ def startWorkd(
     command = [
         _workdPath,
         f'--incoming={socket}',
-        f'--downstream={ociRuntimeSocket}',
+        f'--downstream={downstreamRuntimeSocket}',
         f'--image-store={imageStorePath}',
         f'--insecure-registries={insecureRegistry}',
         f'--ipam-plugin={ipamPath}',
@@ -391,31 +398,17 @@ def _uniquePidBasedCidr():
 
 
 def startImageRegistry() -> tuple[HTTPServer, int]:
-    """Start a mock container image registry on some available port.
+    """Start a fake container image registry on some available port.
 
     Return the running server and the port number where it's listening.
     """
     port = _findAvailablePort()
-    server = MockImageRegistryServer(port)
+    server = FakeImageRegistryServer(port)
     Thread(
         target=server.serve_forever,
         daemon=True,  # Shut down the thread if the parent process exits.
     ).start()
     return (server, port)
-
-
-def startOciRuntime() -> tuple[grpc.Server, str]:
-    """Start a background process running a "fake" OCI container runtime.
-
-    Return the running server and the UNIX socket path where it's listening.
-    """
-    socket = _tmpName()
-    server = grpc.server(ThreadPoolExecutor(max_workers=1))
-    add_RuntimeServiceServicer_to_server(FakeRuntimeService(), server)
-    add_ImageServiceServicer_to_server(FakeImageService(), server)
-    server.add_insecure_port(f'unix://{socket}')
-    server.start()
-    return (server, socket)
 
 
 def hexUuid() -> str:
@@ -483,10 +476,10 @@ def _tmpName() -> str:
     return name
 
 
-# Regular expressions used by the mock image registry.
+# Regular expressions used by the fake image registry.
 # A real registry would support multiple digest algorithms,
-# but the mock registry currently only supports SHA-256 for simplicity.
-# Also leverage the knowledge that mock registry upload IDs are simply 36-character UUIDs.
+# but the fake registry currently only supports SHA-256 for simplicity.
+# Also leverage the knowledge that fake registry upload IDs are simply 36-character UUIDs.
 _postBlobPath = compileRegex(r'^/v2/(.+)/blobs/uploads/$')
 _putBlobPath = compileRegex(
     r'^/v2/(.+)/blobs/uploads/([-0-9a-f]{36})\?digest=sha256:([0-9a-f]{64})$'
@@ -502,15 +495,15 @@ WASM_MIME_TYPE = 'application/wasm'
 PROTOBUF_MIME_TYPE = 'application/protobuf'
 
 
-class MockImageRegistryServer(HTTPServer):
+class FakeImageRegistryServer(HTTPServer):
     def __init__(self, port):
         self.nameToUploadIds = defaultdict(set)
         self.nameToHashToBlob = defaultdict(dict)
         self.nameToReferenceToManifest = defaultdict(dict)
-        super().__init__(('localhost', port), MockImageRegistryHandler)
+        super().__init__(('localhost', port), FakeImageRegistryHandler)
 
 
-class MockImageRegistryHandler(BaseHTTPRequestHandler):
+class FakeImageRegistryHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         # Initiates an upload.
         if path := _postBlobPath.match(self.path):
@@ -643,111 +636,203 @@ def _sha256(data: bytes) -> str:
     return hasher.hexdigest()
 
 
-class FakeRuntimeService(RuntimeServiceServicer):
-    """Fake implementation of the CRI API's `RuntimeService` that does nothing."""
+class Mockable:
+    """Mixin for mocking instance methods."""
 
+    def __init__(self):
+        # Mapping from method names to iterators of mock implementations.
+        self._mocks = defaultdict(lambda: iter([]))
+
+    def mockNext(self, methodName: str, function: Callable):
+        """
+        Mock the next invocation of a named function,
+        reverting back to the prior behavior thereafter.
+        """
+        self._mocks[methodName] = chain([function], self._mocks[methodName])
+
+    def returnNext(self, methodName: str, value: object):
+        """
+        Convenience wrapper for `mockNext`
+        where the mock implementation simply returns a constant.
+        """
+        self.mockNext(methodName, lambda *args, **kwargs: value)
+
+
+def mockable(method: Callable) -> Callable:
+    """
+    Decorator to use on instance methods of classes that derive `Mockable`
+    to enable mocking those methods.
+    """
+
+    @wraps(method)
+    def hook(self, *args, **kwargs):
+        # Use the next mock implementation available in this method's mock iterator.
+        # If the iterator is empty, use the original default implementation.
+        return next(self._mocks[method.__name__], method)(self, *args, **kwargs)
+
+    return hook
+
+
+class MockRuntimeService(RuntimeServiceServicer, Mockable):
+    """Mockable implementation of the CRI API's `RuntimeService` that does nothing by default."""
+
+    @mockable
     def Version(self, request, context):
         return VersionResponse()
 
+    @mockable
     def RunPodSandbox(self, request, context):
         return RunPodSandboxResponse()
 
+    @mockable
     def StopPodSandbox(self, request, context):
         return StopPodSandboxResponse()
 
+    @mockable
     def RemovePodSandbox(self, request, context):
         return RemovePodSandboxResponse()
 
+    @mockable
     def PodSandboxStatus(self, request, context):
         return PodSandboxStatusResponse()
 
+    @mockable
     def ListPodSandbox(self, request, context):
         return ListPodSandboxResponse()
 
+    @mockable
     def CreateContainer(self, request, context):
         return CreateContainerResponse()
 
+    @mockable
     def StartContainer(self, request, context):
         return StartContainerResponse()
 
+    @mockable
     def StopContainer(self, request, context):
         return StopContainerResponse()
 
+    @mockable
     def RemoveContainer(self, request, context):
         return RemoveContainerResponse()
 
+    @mockable
     def ListContainers(self, request, context):
         return ListContainersResponse()
 
+    @mockable
     def ContainerStatus(self, request, context):
         return ContainerStatusResponse()
 
+    @mockable
     def UpdateContainerResources(self, request, context):
         return UpdateContainerResourcesResponse()
 
+    @mockable
     def ReopenContainerLog(self, request, context):
         return ReopenContainerLogResponse()
 
+    @mockable
     def ExecSync(self, request, context):
         return ExecSyncResponse()
 
+    @mockable
     def Exec(self, request, context):
         return ExecResponse()
 
+    @mockable
     def Attach(self, request, context):
         return AttachResponse()
 
+    @mockable
     def PortForward(self, request, context):
         return PortForwardResponse()
 
+    @mockable
     def ContainerStats(self, request, context):
         return ContainerStatsResponse()
 
+    @mockable
     def ListContainerStats(self, request, context):
         return ListContainerStatsResponse()
 
+    @mockable
     def PodSandboxStats(self, request, context):
         return PodSandboxStatsResponse()
 
+    @mockable
     def ListPodSandboxStats(self, request, context):
         return ListPodSandboxStatsResponse()
 
+    @mockable
     def UpdateRuntimeConfig(self, request, context):
         return UpdateRuntimeConfigResponse()
 
+    @mockable
     def Status(self, request, context):
         return StatusResponse()
 
+    @mockable
     def CheckpointContainer(self, request, context):
         return CheckpointContainerResponse()
 
+    @mockable
     def GetContainerEvents(self, request, context):
         return ContainerEventResponse()
 
+    @mockable
     def ListMetricDescriptors(self, request, context):
         return ListMetricDescriptorsResponse()
 
+    @mockable
     def ListPodSandboxMetrics(self, request, context):
         return ListPodSandboxMetricsResponse()
 
+    @mockable
     def RuntimeConfig(self, request, context):
         return RuntimeConfigResponse()
 
 
-class FakeImageService(ImageServiceServicer):
-    """Fake implementation of the CRI API's `ImageService` that does nothing."""
+class MockImageService(ImageServiceServicer, Mockable):
+    """Mockable implementation of the CRI API's `ImageService` that does nothing by default."""
 
+    @mockable
     def ListImages(self, request, context):
         return ListImagesResponse()
 
+    @mockable
     def ImageStatus(self, request, context):
         return ImageStatusResponse()
 
+    @mockable
     def PullImage(self, request, context):
         return PullImageResponse()
 
+    @mockable
     def RemoveImage(self, request, context):
         return RemoveImageResponse()
 
+    @mockable
     def ImageFsInfo(self, request, context):
         return ImageFsInfoResponse()
+
+
+def startDownstreamRuntime() -> tuple[
+    grpc.Server,
+    str,
+    MockRuntimeService,
+    MockImageService,
+]:
+    """Start a background process running a mock container runtime.
+
+    Return the running server and the UNIX socket path where it's listening.
+    """
+    runtimeService = MockRuntimeService()
+    imageService = MockImageService()
+    socket = _tmpName()
+    server = grpc.server(ThreadPoolExecutor(max_workers=1))
+    add_RuntimeServiceServicer_to_server(runtimeService, server)
+    add_ImageServiceServicer_to_server(imageService, server)
+    server.add_insecure_port(f'unix://{socket}')
+    server.start()
+    return (server, socket, runtimeService, imageService)
