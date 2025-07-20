@@ -25,6 +25,7 @@ use anyhow::{anyhow, Context, Result};
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
+use papaya::HashSet as LockFreeConcurrentHashSet;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::channel::Channel;
@@ -44,12 +45,10 @@ pub(crate) const CONTAINER_RUNTIME_VERSION: &str = "0.0.0";
 /// Version of the CRI API supported by the runtime.
 const CONTAINER_RUNTIME_API_VERSION: &str = "v1";
 
-/// Prefix used to differentiate OCI pods / containers.
-const OCI_PREFIX: &str = "O:";
 /// Prefix used to differentiate Vimana pods.
-const POD_PREFIX: &str = "P:";
+const POD_PREFIX: &str = "p-";
 /// Prefix used to differentiate Vimana containers.
-const CONTAINER_PREFIX: &str = "C:";
+const CONTAINER_PREFIX: &str = "c-";
 
 /// All pod states for which a container "exists".
 const POD_STATES_CONTAINER_ALL: [PodState; 4] = [
@@ -81,26 +80,13 @@ pub(crate) struct ProxyingRuntimeService {
 
     /// Client to a downstream OCI container runtime (e.g. containerd or cri-o)
     /// so work nodes can run traditional OCI containers as well.
-    oci_runtime: AsyncMutex<RuntimeServiceClient<Channel>>,
-}
+    downstream: AsyncMutex<RuntimeServiceClient<Channel>>,
 
-/// If the given ID (mutable `String`) starts with the OCI prefix,
-/// mutate it in-place to remove the prefix
-/// and return early with the result of the given block.
-/// Otherwise, assume it starts with a workd prefix and continue
-/// (without mutating the ID).
-macro_rules! intercept_oci_prefix {
-    ( $id:expr, $downstream:block) => {
-        let id_value = $id;
-        if id_value.starts_with(OCI_PREFIX) {
-            $id = String::from(&id_value[OCI_PREFIX.len()..]);
-            return $downstream;
-        }
-        // If it doesn't start with the OCI prefix,
-        // it must start with one of the workd prefixes.
-        debug_assert!(id_value.starts_with(POD_PREFIX) || id_value.starts_with(CONTAINER_PREFIX));
-        $id = id_value;
-    };
+    // TODO: Report the size of this data structure in some sort of runtime stats.
+    /// The set of all pod sandbox IDs and container IDs managed by the downstream runtime.
+    /// In `containerd`, pod sandbox IDs are just the container ID for the pause container,
+    /// so lumping those two seemingly distinct namespaces together makes a degree of sense.
+    downstream_ids: LockFreeConcurrentHashSet<String>,
 }
 
 #[inline(always)]
@@ -116,11 +102,6 @@ fn parse_container_prefixed_name(name: &str) -> Result<PodName> {
 }
 
 #[inline(always)]
-fn oci_prefix<S: Display>(id: S) -> String {
-    format!("{OCI_PREFIX}{id}")
-}
-
-#[inline(always)]
 fn pod_prefix<S: Display>(id: S) -> String {
     format!("{POD_PREFIX}{id}")
 }
@@ -130,42 +111,12 @@ fn container_prefix<S: Display>(id: S) -> String {
     format!("{CONTAINER_PREFIX}{id}")
 }
 
-/// Inserts the OCI prefix in front of the string that lives at the end of the ID path.
-///
-/// E.g. `insert_oci_prefix!(x, foo, bar, baz)` expands to:
-///
-///     if let Some(ref mut foo) = &mut x.foo {
-///         if let Some(ref mut bar) = &mut foo.bar {
-///             bar.baz = oci_prefix(&bar.baz);
-///         }
-///     }
-macro_rules! insert_oci_prefix {
-    ( $r:ident, $id:ident ) => {
-        $r.$id = oci_prefix(&$r.$id);
-    };
-    ( $r:ident, $id:ident, $( $i:ident ),+ ) => {
-        if let Some(ref mut $id) = &mut $r.$id {
-            insert_oci_prefix!($id, $($i),*);
-        }
-    };
-}
-
-/// Expands to a lambda function
-/// that can be used to map the result of a downstream proxy call.
-/// Re-inserts the OCI prefix to the single ID with the given name in the response.
-macro_rules! map_oci_prefix {
-    ( $( $id:ident ),+ ) => {
-        |mut response| {
-            let r = response.get_mut();
-            insert_oci_prefix!(r, $($id),*);
-            response
-        }
-    };
-}
-
 #[async_trait]
 impl RuntimeService for ProxyingRuntimeService {
-    async fn version(&self, _r: Request<v1::VersionRequest>) -> TonicResult<v1::VersionResponse> {
+    async fn version(
+        &self,
+        _request: Request<v1::VersionRequest>,
+    ) -> TonicResult<v1::VersionResponse> {
         Ok(Response::new(v1::VersionResponse {
             version: String::from(KUBELET_API_VERSION),
             runtime_name: String::from(CONTAINER_RUNTIME_NAME),
@@ -176,23 +127,20 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn run_pod_sandbox(
         &self,
-        r: Request<v1::RunPodSandboxRequest>,
+        request: Request<v1::RunPodSandboxRequest>,
     ) -> TonicResult<v1::RunPodSandboxResponse> {
-        let request = r.into_inner();
-
         // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
         // This supports running K8s control plane pods like `kube-controller-manager` etc.
-        if request.runtime_handler != CONTAINER_RUNTIME_NAME {
-            return self
-                .oci_runtime
-                .lock()
-                .await
-                .run_pod_sandbox(Request::new(request))
-                .await
-                .map(map_oci_prefix!(pod_sandbox_id));
+        if request.get_ref().runtime_handler != CONTAINER_RUNTIME_NAME {
+            let response = self.downstream.lock().await.run_pod_sandbox(request).await;
+            if let Ok(reply) = &response {
+                let pod_sandbox_id = reply.get_ref().pod_sandbox_id.clone();
+                self.downstream_ids.pin().insert(pod_sandbox_id);
+            }
+            return response;
         }
 
-        let config = request.config.unwrap_or_default();
+        let config = request.into_inner().config.unwrap_or_default();
         let component_name = component_name_from_labels(&config.labels)
             .with_context(|| format!("Invalid pod labels: {:?}", config.labels))
             .log_error(GlobalLogs)?;
@@ -224,19 +172,13 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn stop_pod_sandbox(
         &self,
-        r: Request<v1::StopPodSandboxRequest>,
+        request: Request<v1::StopPodSandboxRequest>,
     ) -> TonicResult<v1::StopPodSandboxResponse> {
-        let mut request = r.into_inner();
+        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+            return self.downstream.lock().await.stop_pod_sandbox(request).await;
+        }
 
-        intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .stop_pod_sandbox(Request::new(request))
-                .await
-        });
-
-        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)
+        let name = parse_pod_prefixed_name(&request.get_ref().pod_sandbox_id)
             .context("Invalid pod sandbox ID")
             .log_error(GlobalLogs)?;
 
@@ -247,19 +189,23 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn remove_pod_sandbox(
         &self,
-        r: Request<v1::RemovePodSandboxRequest>,
+        request: Request<v1::RemovePodSandboxRequest>,
     ) -> TonicResult<v1::RemovePodSandboxResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.oci_runtime
+        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+            let pod_sandbox_id = request.get_ref().pod_sandbox_id.clone();
+            let response = self
+                .downstream
                 .lock()
                 .await
-                .remove_pod_sandbox(Request::new(request))
-                .await
-        });
+                .remove_pod_sandbox(request)
+                .await;
+            if response.is_ok() {
+                self.downstream_ids.pin().remove(&pod_sandbox_id);
+            }
+            return response;
+        }
 
-        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)
+        let name = parse_pod_prefixed_name(&request.get_ref().pod_sandbox_id)
             .context("Invalid pod sandbox ID")
             .log_error(GlobalLogs)?;
 
@@ -270,27 +216,18 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn pod_sandbox_status(
         &self,
-        r: Request<v1::PodSandboxStatusRequest>,
+        request: Request<v1::PodSandboxStatusRequest>,
     ) -> TonicResult<v1::PodSandboxStatusResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.oci_runtime
+        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+            return self
+                .downstream
                 .lock()
                 .await
-                .pod_sandbox_status(Request::new(request))
-                .await
-                .map(|mut result| {
-                    let response = result.get_mut();
-                    insert_oci_prefix!(response, status, id);
-                    for container_status in response.containers_statuses.iter_mut() {
-                        insert_oci_prefix!(container_status, id);
-                    }
-                    result
-                })
-        });
+                .pod_sandbox_status(request)
+                .await;
+        }
 
-        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)
+        let name = parse_pod_prefixed_name(&request.get_ref().pod_sandbox_id)
             .context("Invalid pod sandbox ID")
             .log_error(GlobalLogs)?;
 
@@ -319,31 +256,20 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn list_pod_sandbox(
         &self,
-        r: Request<v1::ListPodSandboxRequest>,
+        request: Request<v1::ListPodSandboxRequest>,
     ) -> TonicResult<v1::ListPodSandboxResponse> {
-        let mut request = r.into_inner();
-
-        // If there's a filter ID for a given runtime,
-        // we can eliminate like half the work.
-        if let Some(ref mut filter) = &mut request.filter {
-            if filter.id.starts_with(OCI_PREFIX) {
-                filter.id = String::from(&filter.id[OCI_PREFIX.len()..]);
-                return self
-                    .list_pod_sandbox_downstream(Request::new(request))
-                    .await;
-            } else if filter.id.starts_with(POD_PREFIX) {
-                filter.id = String::from(&filter.id[POD_PREFIX.len()..]);
-                return self.list_pod_sandbox_upstream(request);
-            }
-        }
-
-        // Otherwise, combine the results of both runtimes
-        // to get a complete picture of all pod sandboxes.
-        self.list_pod_sandbox_downstream(Request::new(request.clone()))
+        // Combine the results of both runtimes to get a complete picture of all pod sandboxes.
+        // In theory, there might be a filter on pod sandbox ID
+        // that would obviate the need to search both runtimes,
+        // but in practice kubelet never populates the ID field in the filter.
+        self.downstream
+            .lock()
+            .await
+            .list_pod_sandbox(Request::new(request.get_ref().clone()))
             .await
             .and_then(|mut downstream_result| {
                 // Upstream is the `workd` runtime.
-                self.list_pod_sandbox_upstream(request)
+                self.list_pod_sandbox_upstream(request.into_inner())
                     .map(|upstream_result| {
                         downstream_result
                             .get_mut()
@@ -356,24 +282,23 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn create_container(
         &self,
-        r: Request<v1::CreateContainerRequest>,
+        request: Request<v1::CreateContainerRequest>,
     ) -> TonicResult<v1::CreateContainerResponse> {
-        let mut request = r.into_inner();
+        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+            let response = self.downstream.lock().await.create_container(request).await;
+            if let Ok(reply) = &response {
+                self.downstream_ids
+                    .pin()
+                    .insert(reply.get_ref().container_id.clone());
+            }
+            return response;
+        }
 
-        intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .create_container(Request::new(request))
-                .await
-                .map(map_oci_prefix!(container_id))
-        });
-
-        let name = parse_pod_prefixed_name(&request.pod_sandbox_id)
+        let name = parse_pod_prefixed_name(&request.get_ref().pod_sandbox_id)
             .context("Invalid pod sandbox ID")
             .log_error(GlobalLogs)?;
 
-        let config = request.config.unwrap_or_default();
+        let config = request.into_inner().config.unwrap_or_default();
         //let component = component_name_from_labels(&config.labels)?;
 
         // While redundant, the component name from the container's labels
@@ -433,19 +358,13 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn start_container(
         &self,
-        r: Request<v1::StartContainerRequest>,
+        request: Request<v1::StartContainerRequest>,
     ) -> TonicResult<v1::StartContainerResponse> {
-        let mut request = r.into_inner();
+        if self.is_oci(&request.get_ref().container_id) {
+            return self.downstream.lock().await.start_container(request).await;
+        }
 
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .start_container(Request::new(request))
-                .await
-        });
-
-        let name = parse_container_prefixed_name(&request.container_id)
+        let name = parse_container_prefixed_name(&request.get_ref().container_id)
             .context("Invalid container ID")
             .log_error(GlobalLogs)?;
 
@@ -456,23 +375,17 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn stop_container(
         &self,
-        r: Request<v1::StopContainerRequest>,
+        request: Request<v1::StopContainerRequest>,
     ) -> TonicResult<v1::StopContainerResponse> {
-        let mut request = r.into_inner();
+        if self.is_oci(&request.get_ref().container_id) {
+            return self.downstream.lock().await.stop_container(request).await;
+        }
 
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .stop_container(Request::new(request))
-                .await
-        });
-
-        let name = parse_container_prefixed_name(&request.container_id)
+        let name = parse_container_prefixed_name(&request.get_ref().container_id)
             .context("Invalid container ID")
             .log_error(GlobalLogs)?;
+        let timeout = Duration::from_secs(request.get_ref().timeout.try_into().unwrap_or(0));
 
-        let timeout = Duration::from_secs(request.timeout.try_into().unwrap_or(0));
         self.runtime
             .stop_container(&name, timeout)
             .await
@@ -483,19 +396,18 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn remove_container(
         &self,
-        r: Request<v1::RemoveContainerRequest>,
+        request: Request<v1::RemoveContainerRequest>,
     ) -> TonicResult<v1::RemoveContainerResponse> {
-        let mut request = r.into_inner();
+        if self.is_oci(&request.get_ref().container_id) {
+            let container_id = request.get_ref().container_id.clone();
+            let response = self.downstream.lock().await.remove_container(request).await;
+            if response.is_ok() {
+                self.downstream_ids.pin().remove(&container_id);
+            }
+            return response;
+        }
 
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .remove_container(Request::new(request))
-                .await
-        });
-
-        let name = parse_container_prefixed_name(&request.container_id)
+        let name = parse_container_prefixed_name(&request.get_ref().container_id)
             .context("Invalid container ID")
             .log_error(GlobalLogs)?;
 
@@ -506,28 +418,19 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn list_containers(
         &self,
-        r: Request<v1::ListContainersRequest>,
+        request: Request<v1::ListContainersRequest>,
     ) -> TonicResult<v1::ListContainersResponse> {
-        let mut request = r.into_inner();
-
-        // If there's a filter ID with a runtime prefix,
-        // use it to eliminate like half the work.
-        if let Some(ref mut filter) = &mut request.filter {
-            if filter.id.starts_with(OCI_PREFIX) {
-                filter.id = String::from(&filter.id[OCI_PREFIX.len()..]);
-                return self.list_containers_downstream(Request::new(request)).await;
-            } else if filter.id.starts_with(CONTAINER_PREFIX) {
-                filter.id = String::from(&filter.id[CONTAINER_PREFIX.len()..]);
-                return self.list_containers_upstream(request);
-            }
-        }
-
-        // Otherwise, combine the results with the downstream runtime.
-        let r = self
-            .list_containers_downstream(Request::new(request.clone()))
+        // Combine the results of both runtimes to get a complete picture of all containers.
+        // In theory, there might be a filter on container ID
+        // that would obviate the need to search both runtimes,
+        // but in practice kubelet never populates the ID field in the filter.
+        self.downstream
+            .lock()
+            .await
+            .list_containers(Request::new(request.get_ref().clone()))
             .await
             .and_then(|mut downstream_result| {
-                self.list_containers_upstream(request)
+                self.list_containers_upstream(request.into_inner())
                     .map(|upstream_result| {
                         downstream_result
                             .get_mut()
@@ -535,26 +438,18 @@ impl RuntimeService for ProxyingRuntimeService {
                             .append(&mut upstream_result.into_inner().containers);
                         downstream_result
                     })
-            });
-        return r;
+            })
     }
 
     async fn container_status(
         &self,
-        r: Request<v1::ContainerStatusRequest>,
+        request: Request<v1::ContainerStatusRequest>,
     ) -> TonicResult<v1::ContainerStatusResponse> {
-        let mut request = r.into_inner();
+        if self.is_oci(&request.get_ref().container_id) {
+            return self.downstream.lock().await.container_status(request).await;
+        }
 
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .container_status(Request::new(request))
-                .await
-                .map(map_oci_prefix!(status, id))
-        });
-
-        let name = parse_container_prefixed_name(&request.container_id)
+        let name = parse_container_prefixed_name(&request.get_ref().container_id)
             .context("Invalid container ID")
             .log_error(GlobalLogs)?;
 
@@ -580,181 +475,138 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn update_container_resources(
         &self,
-        r: Request<v1::UpdateContainerResourcesRequest>,
+        request: Request<v1::UpdateContainerResourcesRequest>,
     ) -> TonicResult<v1::UpdateContainerResourcesResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
+        if self.is_oci(&request.get_ref().container_id) {
+            return self
+                .downstream
                 .lock()
                 .await
-                .update_container_resources(Request::new(request))
-                .await
-        });
+                .update_container_resources(request)
+                .await;
+        }
 
         todo!()
     }
 
     async fn reopen_container_log(
         &self,
-        r: Request<v1::ReopenContainerLogRequest>,
+        request: Request<v1::ReopenContainerLogRequest>,
     ) -> TonicResult<v1::ReopenContainerLogResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
+        if self.is_oci(&request.get_ref().container_id) {
+            return self
+                .downstream
                 .lock()
                 .await
-                .reopen_container_log(Request::new(request))
-                .await
-        });
+                .reopen_container_log(request)
+                .await;
+        }
 
         todo!()
     }
 
     async fn exec_sync(
         &self,
-        r: Request<v1::ExecSyncRequest>,
+        request: Request<v1::ExecSyncRequest>,
     ) -> TonicResult<v1::ExecSyncResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .exec_sync(Request::new(request))
-                .await
-        });
+        if self.is_oci(&request.get_ref().container_id) {
+            return self.downstream.lock().await.exec_sync(request).await;
+        }
 
         todo!()
     }
 
-    async fn exec(&self, r: Request<v1::ExecRequest>) -> TonicResult<v1::ExecResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .exec(Request::new(request))
-                .await
-        });
+    async fn exec(&self, request: Request<v1::ExecRequest>) -> TonicResult<v1::ExecResponse> {
+        if self.is_oci(&request.get_ref().container_id) {
+            return self.downstream.lock().await.exec(request).await;
+        }
 
         todo!()
     }
 
-    async fn attach(&self, r: Request<v1::AttachRequest>) -> TonicResult<v1::AttachResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .attach(Request::new(request))
-                .await
-        });
+    async fn attach(&self, request: Request<v1::AttachRequest>) -> TonicResult<v1::AttachResponse> {
+        if self.is_oci(&request.get_ref().container_id) {
+            return self.downstream.lock().await.attach(request).await;
+        }
 
         todo!()
     }
 
     async fn port_forward(
         &self,
-        r: Request<v1::PortForwardRequest>,
+        request: Request<v1::PortForwardRequest>,
     ) -> TonicResult<v1::PortForwardResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .port_forward(Request::new(request))
-                .await
-        });
+        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+            return self.downstream.lock().await.port_forward(request).await;
+        }
 
         todo!()
     }
 
     async fn container_stats(
         &self,
-        r: Request<v1::ContainerStatsRequest>,
+        request: Request<v1::ContainerStatsRequest>,
     ) -> TonicResult<v1::ContainerStatsResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
-                .lock()
-                .await
-                .container_stats(Request::new(request))
-                .await
-                .map(map_oci_prefix!(stats, attributes, id))
-        });
+        if self.is_oci(&request.get_ref().container_id) {
+            return self.downstream.lock().await.container_stats(request).await;
+        }
 
         todo!()
     }
 
     async fn list_container_stats(
         &self,
-        r: Request<v1::ListContainerStatsRequest>,
+        request: Request<v1::ListContainerStatsRequest>,
     ) -> TonicResult<v1::ListContainerStatsResponse> {
-        let request = r.into_inner();
-
         // TODO: Figure out how to list container stats upstream as well.
-        self.oci_runtime
+        self.downstream
             .lock()
             .await
-            .list_container_stats(Request::new(request))
+            .list_container_stats(request)
             .await
     }
 
     async fn pod_sandbox_stats(
         &self,
-        r: Request<v1::PodSandboxStatsRequest>,
+        request: Request<v1::PodSandboxStatsRequest>,
     ) -> TonicResult<v1::PodSandboxStatsResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.pod_sandbox_id, {
-            self.oci_runtime
+        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+            return self
+                .downstream
                 .lock()
                 .await
-                .pod_sandbox_stats(Request::new(request))
-                .await
-                .map(map_oci_prefix!(stats, attributes, id))
-        });
+                .pod_sandbox_stats(request)
+                .await;
+        }
 
         todo!()
     }
 
     async fn list_pod_sandbox_stats(
         &self,
-        r: Request<v1::ListPodSandboxStatsRequest>,
+        request: Request<v1::ListPodSandboxStatsRequest>,
     ) -> TonicResult<v1::ListPodSandboxStatsResponse> {
-        let request = r.into_inner();
-
         // TODO: Figure out how to list pod stats upstream as well.
-        self.oci_runtime
+        self.downstream
             .lock()
             .await
-            .list_pod_sandbox_stats(Request::new(request))
+            .list_pod_sandbox_stats(request)
             .await
     }
 
     async fn update_runtime_config(
         &self,
-        r: Request<v1::UpdateRuntimeConfigRequest>,
+        request: Request<v1::UpdateRuntimeConfigRequest>,
     ) -> TonicResult<v1::UpdateRuntimeConfigResponse> {
-        let request = r.into_inner();
-
         // TODO: Figure out how to update config upstream as well.
-        self.oci_runtime
+        self.downstream
             .lock()
             .await
-            .update_runtime_config(Request::new(request))
+            .update_runtime_config(request)
             .await
     }
 
-    async fn status(&self, r: Request<v1::StatusRequest>) -> TonicResult<v1::StatusResponse> {
-        let request = r.into_inner();
-
+    async fn status(&self, request: Request<v1::StatusRequest>) -> TonicResult<v1::StatusResponse> {
         // These are the only 2 required conditions.
         let mut runtime_ready_condition = v1::RuntimeCondition {
             r#type: String::from(CONDITION_RUNTIME_READY),
@@ -769,15 +621,15 @@ impl RuntimeService for ProxyingRuntimeService {
             message: String::default(),
         };
 
-        // TODO: Populate these with non-placeholder information.
+        // TODO: Populate these with relevant information.
         let mut info = HashMap::default();
         let mut runtime_handlers = Vec::default();
 
         match self
-            .oci_runtime
+            .downstream
             .lock()
             .await
-            .status(Request::new(request.clone()))
+            .status(Request::new(request.get_ref().clone()))
             .await
         {
             Ok(downstream_response) => {
@@ -787,7 +639,7 @@ impl RuntimeService for ProxyingRuntimeService {
                 runtime_handlers.extend(downstream_response.runtime_handlers);
             }
             Err(downstream_error) => {
-                // The downstream runtime must function.
+                // TODO: Don't fail closed on the downstream runtime if it's not necessary.
                 return Err(downstream_error);
             }
         }
@@ -804,17 +656,16 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn checkpoint_container(
         &self,
-        r: Request<v1::CheckpointContainerRequest>,
+        request: Request<v1::CheckpointContainerRequest>,
     ) -> TonicResult<v1::CheckpointContainerResponse> {
-        let mut request = r.into_inner();
-
-        intercept_oci_prefix!(request.container_id, {
-            self.oci_runtime
+        if self.is_oci(&request.get_ref().container_id) {
+            return self
+                .downstream
                 .lock()
                 .await
-                .checkpoint_container(Request::new(request))
-                .await
-        });
+                .checkpoint_container(request)
+                .await;
+        }
 
         todo!()
     }
@@ -823,54 +674,42 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn get_container_events(
         &self,
-        r: Request<v1::GetEventsRequest>,
+        request: Request<v1::GetEventsRequest>,
     ) -> TonicResult<Self::GetContainerEventsStream> {
-        let request = r.into_inner();
-
         // TODO: Figure out how streaming works.
         return Err(Status::internal("GetContainerEvents TODO"));
     }
 
     async fn list_metric_descriptors(
         &self,
-        r: Request<v1::ListMetricDescriptorsRequest>,
+        request: Request<v1::ListMetricDescriptorsRequest>,
     ) -> TonicResult<v1::ListMetricDescriptorsResponse> {
-        let request = r.into_inner();
-
         // TODO: Also merge in stats about the upstream system!
-        self.oci_runtime
+        self.downstream
             .lock()
             .await
-            .list_metric_descriptors(Request::new(request))
+            .list_metric_descriptors(request)
             .await
     }
 
     async fn list_pod_sandbox_metrics(
         &self,
-        r: Request<v1::ListPodSandboxMetricsRequest>,
+        request: Request<v1::ListPodSandboxMetricsRequest>,
     ) -> TonicResult<v1::ListPodSandboxMetricsResponse> {
-        let request = r.into_inner();
-
         // TODO: Also merge in stats about the upstream system!
-        self.oci_runtime
+        self.downstream
             .lock()
             .await
-            .list_pod_sandbox_metrics(Request::new(request))
+            .list_pod_sandbox_metrics(request)
             .await
     }
 
     async fn runtime_config(
         &self,
-        r: Request<v1::RuntimeConfigRequest>,
+        request: Request<v1::RuntimeConfigRequest>,
     ) -> TonicResult<v1::RuntimeConfigResponse> {
-        let request = r.into_inner();
-
         // TODO: Also merge in stats about the upstream system!
-        self.oci_runtime
-            .lock()
-            .await
-            .runtime_config(Request::new(request))
-            .await
+        self.downstream.lock().await.runtime_config(request).await
     }
 
     async fn update_pod_sandbox_resources(
@@ -882,11 +721,43 @@ impl RuntimeService for ProxyingRuntimeService {
 }
 
 impl ProxyingRuntimeService {
-    pub(crate) fn new(runtime: WorkRuntime, oci_runtime: RuntimeServiceClient<Channel>) -> Self {
-        Self {
-            runtime,
-            oci_runtime: AsyncMutex::new(oci_runtime),
+    pub(crate) async fn new(
+        runtime: WorkRuntime,
+        mut downstream: RuntimeServiceClient<Channel>,
+    ) -> Result<Self> {
+        // On startup, list any pre-existing pod sandboxes or containers in the downstream runtime,
+        // so requests that reference them can be routed appropriately.
+        let downstream_ids = LockFreeConcurrentHashSet::new();
+        {
+            let downstream_pods = downstream
+                .list_pod_sandbox(Request::new(v1::ListPodSandboxRequest::default()))
+                .await
+                .context("Failed to list existing pod sandboxes from the downstream runtime")?;
+            let downstream_ids = downstream_ids.pin();
+            for pod in &downstream_pods.get_ref().items {
+                downstream_ids.insert(pod.id.clone());
+            }
         }
+        {
+            let downstream_containers = downstream
+                .list_containers(Request::new(v1::ListContainersRequest::default()))
+                .await
+                .context("Failed to list existing containers from the downstream runtime")?;
+            let downstream_ids = downstream_ids.pin();
+            for container in &downstream_containers.get_ref().containers {
+                downstream_ids.insert(container.id.clone());
+            }
+        }
+
+        Ok(Self {
+            runtime,
+            downstream: AsyncMutex::new(downstream),
+            downstream_ids,
+        })
+    }
+
+    fn is_oci(&self, id: &str) -> bool {
+        self.downstream_ids.pin().contains(id)
     }
 
     /// Perform sandbox listing in the workd runtime.
@@ -910,7 +781,7 @@ impl ProxyingRuntimeService {
             // I believe the ID must match exactly,
             // but that's not entirely clear from the documentation,
             // which just says "ID of the sandbox".
-            if let Ok(name) = Name::parse(&filter.id).pod() {
+            if let Ok(name) = parse_pod_prefixed_name(&filter.id) {
                 // If it's a complete, parseable pod name (after the prefix),
                 // look it up and return it, if the other conditions are met.
                 self.runtime.get_pod(
@@ -954,7 +825,7 @@ impl ProxyingRuntimeService {
             // I believe the ID must match exactly,
             // but that's not entirely clear from the documentation,
             // which just says "ID of the container".
-            if let Ok(name) = Name::parse(&filter.id).pod() {
+            if let Ok(name) = parse_container_prefixed_name(&filter.id) {
                 // If it's a complete, parseable pod name (after the prefix),
                 // look it up and return it, if the other conditions are met.
                 self.runtime.get_container(
@@ -979,41 +850,6 @@ impl ProxyingRuntimeService {
         }
 
         Ok(Response::new(response))
-    }
-
-    /// Invoke the downstream OCI runtime with the given request as-is.
-    /// Intercept and edit the response to prefix pod sandbox IDs.
-    async fn list_pod_sandbox_downstream(
-        &self,
-        r: Request<v1::ListPodSandboxRequest>,
-    ) -> TonicResult<v1::ListPodSandboxResponse> {
-        let result = self.oci_runtime.lock().await.list_pod_sandbox(r).await;
-
-        return result.map(|mut response| {
-            let r = response.get_mut();
-            for item in r.items.iter_mut() {
-                item.id = oci_prefix(&item.id);
-            }
-            response
-        });
-    }
-
-    /// Invoke the downstream OCI runtime with the given request as-is.
-    /// Intercept and edit the response to prefix pod sandbox and container IDs.
-    async fn list_containers_downstream(
-        &self,
-        r: Request<v1::ListContainersRequest>,
-    ) -> TonicResult<v1::ListContainersResponse> {
-        let result = self.oci_runtime.lock().await.list_containers(r).await;
-
-        return result.map(|mut response| {
-            let r = response.get_mut();
-            for container in r.containers.iter_mut() {
-                container.id = oci_prefix(&container.id);
-                container.pod_sandbox_id = oci_prefix(&container.pod_sandbox_id);
-            }
-            response
-        });
     }
 }
 

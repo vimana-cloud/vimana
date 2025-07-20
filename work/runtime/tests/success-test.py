@@ -23,6 +23,7 @@ from work.runtime.tests.api_pb2 import (
     RemoveImageRequest,
     RemovePodSandboxRequest,
     RunPodSandboxRequest,
+    RunPodSandboxResponse,
     StartContainerRequest,
     StopContainerRequest,
     StopPodSandboxRequest,
@@ -45,17 +46,21 @@ class SuccessTest(WorkdTestCase):
 
     def test_RunPodSandbox_NoHandlerToOci(self):
         request = RunPodSandboxRequest()
+        downstreamResponse = RunPodSandboxResponse(pod_sandbox_id='from downstream!')
+        self.downstreamRuntimeService.returnNext('RunPodSandbox', downstreamResponse)
 
         response = self.runtimeService.RunPodSandbox(request)
 
-        self.assertTrue(response.pod_sandbox_id.startswith('O:'))
+        self.assertEqual(response, downstreamResponse)
 
     def test_RunPodSandbox_DefaultHandlerToOci(self):
         request = RunPodSandboxRequest(runtime_handler='something')
+        downstreamResponse = RunPodSandboxResponse(pod_sandbox_id='🥲')
+        self.downstreamRuntimeService.returnNext('RunPodSandbox', downstreamResponse)
 
         response = self.runtimeService.RunPodSandbox(request)
 
-        self.assertTrue(response.pod_sandbox_id.startswith('O:'))
+        self.assertEqual(response, downstreamResponse)
 
     def test_ImageStatus_NotFound(self):
         response = self.imageService.ImageStatus(
@@ -142,7 +147,7 @@ class SuccessTest(WorkdTestCase):
         )
 
         podSandboxId = response.pod_sandbox_id
-        expectedPodPrefix = f'P:{domain}:{service}@{version}#'
+        expectedPodPrefix = f'p-{domain}:{service}@{version}#'
         self.assertTrue(podSandboxId.startswith(expectedPodPrefix))
         try:
             int(podSandboxId[len(expectedPodPrefix) :])
@@ -172,8 +177,8 @@ class SuccessTest(WorkdTestCase):
 
         # The pod should always have the same ID as its one container (modulo the prefix).
         containerId = response.container_id
-        self.assertTrue(containerId.startswith('C:'))
-        self.assertEqual(containerId[len('C:') :], podSandboxId[len('P:') :])
+        self.assertTrue(containerId.startswith('c-'))
+        self.assertEqual(containerId[len('c-') :], podSandboxId[len('p-') :])
 
         self.runtimeService.StartContainer(
             StartContainerRequest(container_id=containerId),

@@ -37,6 +37,7 @@ pub(crate) struct WorkRuntime {
     /// This is a cheap, thread-safe handle to the "real" engine.
     wasmtime: WasmEngine,
 
+    // TODO: Report the size of this data structure in some sort of runtime stats.
     /// Map of locally running pod IDs to pod controllers.
     /// Lock-freedom is important to help isolate tenants from one another.
     pods: LockFreeConcurrentHashMap<PodId, Pod>,

@@ -229,10 +229,9 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         UnixListener::bind(&incoming).expect(&format!("Cannot bind Unix socket '{}'", &incoming));
 
     let result = Server::builder()
-        .add_service(RuntimeServiceServer::new(ProxyingRuntimeService::new(
-            runtime,
-            oci_runtime_client,
-        )))
+        .add_service(RuntimeServiceServer::new(
+            ProxyingRuntimeService::new(runtime, oci_runtime_client).await?,
+        ))
         .add_service(ImageServiceServer::new(ProxyingImageService::new(
             containers,
             oci_image_client,
