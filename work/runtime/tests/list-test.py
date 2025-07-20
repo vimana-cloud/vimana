@@ -16,7 +16,9 @@ from work.runtime.tests.api_pb2 import (
     CreateContainerRequest,
     ImageSpec,
     ListContainersRequest,
+    ListContainersResponse,
     ListPodSandboxRequest,
+    ListPodSandboxResponse,
     PodSandbox,
     PodSandboxConfig,
     PodSandboxFilter,
@@ -242,6 +244,10 @@ class ListTest(WorkdTestCase):
         self.assertEqual(container.image_id, 'TODO')
 
     def test_ListPodSandbox_NoFilter(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListPodSandbox', ListPodSandboxResponse()
+        )
+
         response = self.runtimeService.ListPodSandbox(ListPodSandboxRequest())
 
         self.assertEqual(len(response.items), 7)
@@ -290,6 +296,10 @@ class ListTest(WorkdTestCase):
         )
 
     def test_ListContainers_NoFilter(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListContainers', ListContainersResponse()
+        )
+
         response = self.runtimeService.ListContainers(ListContainersRequest())
 
         self.assertEqual(len(response.containers), 4)
@@ -328,6 +338,10 @@ class ListTest(WorkdTestCase):
         )
 
     def test_ListPodSandbox_FilterById(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListPodSandbox', ListPodSandboxResponse()
+        )
+
         response = self.runtimeService.ListPodSandbox(
             ListPodSandboxRequest(filter=PodSandboxFilter(id=self.removedFooPodId))
         )
@@ -336,6 +350,10 @@ class ListTest(WorkdTestCase):
         findById(response.items, self.removedFooPodId)
 
     def test_ListContainers_FilterById(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListContainers', ListContainersResponse()
+        )
+
         response = self.runtimeService.ListContainers(
             ListContainersRequest(filter=ContainerFilter(id=self.runningFooContainerId))
         )
@@ -344,6 +362,10 @@ class ListTest(WorkdTestCase):
         findById(response.containers, self.runningFooContainerId)
 
     def test_ListPodSandbox_FilterByStateReady(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListPodSandbox', ListPodSandboxResponse()
+        )
+
         response = self.runtimeService.ListPodSandbox(
             ListPodSandboxRequest(
                 filter=PodSandboxFilter(
@@ -361,6 +383,10 @@ class ListTest(WorkdTestCase):
         findById(response.items, self.createdBarPodId)
 
     def test_ListPodSandbox_FilterByStateNotready(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListPodSandbox', ListPodSandboxResponse()
+        )
+
         response = self.runtimeService.ListPodSandbox(
             ListPodSandboxRequest(
                 filter=PodSandboxFilter(
@@ -373,6 +399,10 @@ class ListTest(WorkdTestCase):
         findById(response.items, self.killedFooPodId)
 
     def test_ListContainers_FilterByStateCreated(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListContainers', ListContainersResponse()
+        )
+
         response = self.runtimeService.ListContainers(
             ListContainersRequest(
                 filter=ContainerFilter(
@@ -386,6 +416,10 @@ class ListTest(WorkdTestCase):
         findById(response.containers, self.createdBarContainerId)
 
     def test_ListContainers_FilterByStateRunning(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListContainers', ListContainersResponse()
+        )
+
         response = self.runtimeService.ListContainers(
             ListContainersRequest(
                 filter=ContainerFilter(
@@ -398,6 +432,10 @@ class ListTest(WorkdTestCase):
         findById(response.containers, self.runningFooContainerId)
 
     def test_ListContainers_FilterByStateExited(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListContainers', ListContainersResponse()
+        )
+
         response = self.runtimeService.ListContainers(
             ListContainersRequest(
                 filter=ContainerFilter(
@@ -412,6 +450,10 @@ class ListTest(WorkdTestCase):
         findById(response.containers, self.killedFooContainerId)
 
     def test_ListContainers_FilterByStateUnknown(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListContainers', ListContainersResponse()
+        )
+
         response = self.runtimeService.ListContainers(
             ListContainersRequest(
                 filter=ContainerFilter(
@@ -423,6 +465,10 @@ class ListTest(WorkdTestCase):
         self.assertEqual(len(response.containers), 0)
 
     def test_ListPodSandbox_FilterByLabels(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListPodSandbox', ListPodSandboxResponse()
+        )
+
         response = self.runtimeService.ListPodSandbox(
             ListPodSandboxRequest(
                 filter=PodSandboxFilter(
@@ -444,6 +490,10 @@ class ListTest(WorkdTestCase):
         findById(response.items, self.killedFooPodId)
 
     def test_ListContainers_FilterByLabels(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListContainers', ListContainersResponse()
+        )
+
         response = self.runtimeService.ListContainers(
             ListContainersRequest(
                 filter=ContainerFilter(
@@ -460,6 +510,10 @@ class ListTest(WorkdTestCase):
         findById(response.containers, self.createdBarContainerId)
 
     def test_ListPodSandbox_FilterByStateAndLabels(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListPodSandbox', ListPodSandboxResponse()
+        )
+
         response = self.runtimeService.ListPodSandbox(
             ListPodSandboxRequest(
                 filter=PodSandboxFilter(
@@ -477,6 +531,10 @@ class ListTest(WorkdTestCase):
         findById(response.items, self.removedFooPodId)
 
     def test_ListContainers_FilterByStateAndLabels(self):
+        self.downstreamRuntimeService.returnNext(
+            'ListContainers', ListContainersResponse()
+        )
+
         response = self.runtimeService.ListContainers(
             ListContainersRequest(
                 filter=ContainerFilter(

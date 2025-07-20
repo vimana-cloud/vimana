@@ -8,6 +8,7 @@ from grpc import RpcError, StatusCode, insecure_channel
 from work.runtime.tests.api_pb2 import (
     ContainerConfig,
     ContainerMetadata,
+    ImageFsInfoResponse,
     ContainerResources,
     ContainerState,
     ContainerStatusRequest,
@@ -80,6 +81,9 @@ class SuccessTest(WorkdTestCase):
         self.assertFalse(response.HasField('image'))
 
     def test_ImageFsUsage(self):
+        self.downstreamImageService.returnNext(
+            'ImageFsInfo', ImageFsInfoResponse(), count=5
+        )
         noneUsedBytes, noneInodesUsed = self.verifyFsUsage()
 
         domain, _, _, _, _, firstImageSpec = self.setupImage(

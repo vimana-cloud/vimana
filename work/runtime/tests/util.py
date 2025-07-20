@@ -10,7 +10,7 @@ from hashlib import sha256
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import IPv4Address, IPv6Address
-from itertools import chain
+from itertools import chain, repeat
 from json import loads as parseJson
 from os import chmod, getpid, stat, walk
 from os.path import exists, join
@@ -33,44 +33,12 @@ from uuid import uuid4
 import grpc
 
 from work.runtime.tests.api_pb2 import (
-    AttachResponse,
-    CheckpointContainerResponse,
-    ContainerEventResponse,
-    ContainerStatsResponse,
-    ContainerStatusResponse,
-    CreateContainerResponse,
-    ExecResponse,
-    ExecSyncResponse,
     ImageFsInfoRequest,
-    ImageFsInfoResponse,
     ImageSpec,
-    ImageStatusResponse,
     ListContainersResponse,
-    ListContainerStatsResponse,
-    ListImagesResponse,
-    ListMetricDescriptorsResponse,
-    ListPodSandboxMetricsResponse,
     ListPodSandboxResponse,
-    ListPodSandboxStatsResponse,
     PodSandboxConfig,
-    PodSandboxStatsResponse,
-    PodSandboxStatusResponse,
-    PortForwardResponse,
     PullImageRequest,
-    PullImageResponse,
-    RemoveContainerResponse,
-    RemoveImageResponse,
-    RemovePodSandboxResponse,
-    ReopenContainerLogResponse,
-    RunPodSandboxResponse,
-    RuntimeConfigResponse,
-    StartContainerResponse,
-    StatusResponse,
-    StopContainerResponse,
-    StopPodSandboxResponse,
-    UpdateContainerResourcesResponse,
-    UpdateRuntimeConfigResponse,
-    VersionResponse,
 )
 from work.runtime.tests.api_pb2_grpc import (
     ImageServiceServicer,
@@ -135,6 +103,16 @@ class WorkdTestCase(TestCase):
 
     def tearDown(self):
         self.tester.printWorkdLogs(self)
+        # Ensure that we used precisely as many mocked calls as we thought we would,
+        # and won't leave any silly behavior behind for another test.
+        try:
+            self.assertTrue(self.downstreamRuntimeService.isClear())
+            self.assertTrue(self.downstreamImageService.isClear())
+        except:
+            # Clean up the mocks for subsequent test cases to reduce error noise.
+            self.downstreamRuntimeService.clear()
+            self.downstreamImageService.clear()
+            raise
 
 
 class WorkdTester:
@@ -640,22 +618,33 @@ class Mockable:
     """Mixin for mocking instance methods."""
 
     def __init__(self):
-        # Mapping from method names to iterators of mock implementations.
-        self._mocks = defaultdict(lambda: iter([]))
+        self.clear()
 
-    def mockNext(self, methodName: str, function: Callable):
+    def mockNext(self, methodName: str, function: Callable, count: int = 1):
         """
-        Mock the next invocation of a named function,
+        Mock the next `count` invocations of a named function,
         reverting back to the prior behavior thereafter.
         """
-        self._mocks[methodName] = chain([function], self._mocks[methodName])
+        self._mocks[methodName] = chain(
+            repeat(function, count), self._mocks[methodName]
+        )
 
-    def returnNext(self, methodName: str, value: object):
+    def returnNext(self, methodName: str, value: object, count: int = 1):
         """
         Convenience wrapper for `mockNext`
         where the mock implementation simply returns a constant.
         """
-        self.mockNext(methodName, lambda *args, **kwargs: value)
+        self.mockNext(methodName, (lambda *args, **kwargs: value), count=count)
+
+    def clear(self) -> bool:
+        """Unmock every instance method."""
+        # Mapping from method names to iterators of mock implementations.
+        self._mocks = defaultdict(lambda: iter([]))
+
+    def isClear(self) -> bool:
+        """Return true iff every instance method is unmocked."""
+        sentinel = object()
+        return all(next(mocks, sentinel) is sentinel for mocks in self._mocks.values())
 
 
 def mockable(method: Callable) -> Callable:
@@ -678,119 +667,119 @@ class MockRuntimeService(RuntimeServiceServicer, Mockable):
 
     @mockable
     def Version(self, request, context):
-        return VersionResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def RunPodSandbox(self, request, context):
-        return RunPodSandboxResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def StopPodSandbox(self, request, context):
-        return StopPodSandboxResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def RemovePodSandbox(self, request, context):
-        return RemovePodSandboxResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def PodSandboxStatus(self, request, context):
-        return PodSandboxStatusResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ListPodSandbox(self, request, context):
-        return ListPodSandboxResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def CreateContainer(self, request, context):
-        return CreateContainerResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def StartContainer(self, request, context):
-        return StartContainerResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def StopContainer(self, request, context):
-        return StopContainerResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def RemoveContainer(self, request, context):
-        return RemoveContainerResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ListContainers(self, request, context):
-        return ListContainersResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ContainerStatus(self, request, context):
-        return ContainerStatusResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def UpdateContainerResources(self, request, context):
-        return UpdateContainerResourcesResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ReopenContainerLog(self, request, context):
-        return ReopenContainerLogResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ExecSync(self, request, context):
-        return ExecSyncResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def Exec(self, request, context):
-        return ExecResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def Attach(self, request, context):
-        return AttachResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def PortForward(self, request, context):
-        return PortForwardResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ContainerStats(self, request, context):
-        return ContainerStatsResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ListContainerStats(self, request, context):
-        return ListContainerStatsResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def PodSandboxStats(self, request, context):
-        return PodSandboxStatsResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ListPodSandboxStats(self, request, context):
-        return ListPodSandboxStatsResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def UpdateRuntimeConfig(self, request, context):
-        return UpdateRuntimeConfigResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def Status(self, request, context):
-        return StatusResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def CheckpointContainer(self, request, context):
-        return CheckpointContainerResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def GetContainerEvents(self, request, context):
-        return ContainerEventResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ListMetricDescriptors(self, request, context):
-        return ListMetricDescriptorsResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ListPodSandboxMetrics(self, request, context):
-        return ListPodSandboxMetricsResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def RuntimeConfig(self, request, context):
-        return RuntimeConfigResponse()
+        raise AssertionError('Unexpected invocation')
 
 
 class MockImageService(ImageServiceServicer, Mockable):
@@ -798,23 +787,23 @@ class MockImageService(ImageServiceServicer, Mockable):
 
     @mockable
     def ListImages(self, request, context):
-        return ListImagesResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ImageStatus(self, request, context):
-        return ImageStatusResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def PullImage(self, request, context):
-        return PullImageResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def RemoveImage(self, request, context):
-        return RemoveImageResponse()
+        raise AssertionError('Unexpected invocation')
 
     @mockable
     def ImageFsInfo(self, request, context):
-        return ImageFsInfoResponse()
+        raise AssertionError('Unexpected invocation')
 
 
 def startDownstreamRuntime() -> tuple[
@@ -829,6 +818,10 @@ def startDownstreamRuntime() -> tuple[
     """
     runtimeService = MockRuntimeService()
     imageService = MockImageService()
+    # On startup, workd will list the downstream pods / containers
+    # to populate its internal set of pre-existing downstream IDs.
+    runtimeService.returnNext('ListPodSandbox', ListPodSandboxResponse())
+    runtimeService.returnNext('ListContainers', ListContainersResponse())
     socket = _tmpName()
     server = grpc.server(ThreadPoolExecutor(max_workers=1))
     add_RuntimeServiceServicer_to_server(runtimeService, server)
