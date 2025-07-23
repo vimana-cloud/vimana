@@ -1,0 +1,70 @@
+"$schema": https://json-schema.org/draft/2020-12/schema
+title: Cluster Profile
+description:
+  Configure the resources and variables
+  that differentiate Vimana clusters from one another.
+type: object
+patternProperties:
+  # The cluster name can be any string.
+  # TODO: Should this always be a domain name?
+  "^.+$":
+    type: object
+    properties:
+      # https://kops.sigs.k8s.io/state/
+      state-store:
+        type: string
+        description: kOps state store location.
+      zone:
+        type: string
+        description: Cloud zone where the cluster lives.
+      machine-type:
+        type: string
+        description: Name of the machine types to provision for nodes.
+      gcp:
+        type: object
+        properties:
+          project:
+            type: string
+            description: The Google Cloud project ID for the cluster.
+          image-project:
+            type: string
+            description: The Google Cloud project ID of the node image to use.
+          image-family:
+            type: string
+            description: The family of the node image to use.
+        required:
+          - project
+        # `image-project` and `image-family` are optional but co-dependent.
+        allOf:
+          - if:
+              required:
+                - image-project
+            then:
+              required:
+                - image-family
+          - if:
+              required:
+                - image-family
+            then:
+              required:
+                - image-project
+        additionalProperties: false
+      # TODO: Specify AWS settings.
+      aws:
+        type: object
+        properties: {}
+        required: []
+        additionalProperties: false
+      # TODO: Provide Azure option.
+    required:
+      - state-store
+      - zone
+      - machine-type
+    # Exactly one of `gcp`, `aws`, or `azure` must be present.
+    oneOf:
+      - required:
+          - gcp
+      - required:
+          - aws
+    additionalProperties: false
+additionalProperties: false

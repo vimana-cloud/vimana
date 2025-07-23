@@ -1,5 +1,6 @@
 """ Spin up production-ready Vimana clusters. """
 
+load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 # Create a new Vimana cluster using kOps.
@@ -21,5 +22,22 @@ sh_binary(
     data = [
         "//dev:bash-util",
         "@rules_k8s//:kops",
+    ],
+)
+
+py_test(
+    name = "profiles-validation-test",
+    srcs = ["profiles-validation-test.py"],
+    args = [
+        "--schema=$(location :profiles-schema.yaml)",
+        "$(location :profiles.yaml)",
+    ],
+    data = [
+        ":profiles.yaml",
+        ":profiles-schema.yaml",
+    ],
+    deps = [
+        "@pypi//jsonschema",
+        "@pypi//pyyaml",
     ],
 )

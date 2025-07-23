@@ -1,0 +1,25 @@
+# Vimana manages cluster variables using profiles.
+# Each profile represents a cluster.
+# Commands like `//cluster:create` and `//cluster:destroy` take the name of a profile,
+# which must be defined here.
+# This file must validate against the JSON schema in `profiles-schema.yaml`.
+# Fake examples are provided here by default. Delete them.
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ NEVER COMMIT REAL PROFILES TO THE REPO ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+gcp-example.com:
+  state-store: "gs://google-storage-bucket/"
+  zone: "us-east1-a"
+  machine-type: "e2-medium"
+  gcp:
+    project: "project-id"
+
+gcp-example-with-custom-node-image.com:
+  state-store: "gs://google-storage-bucket/"
+  zone: "asia-south1-a"
+  machine-type: "e2-medium"
+  gcp:
+    project: "project-id"
+    image-project: "image-project-id"
+    image-family: "some-family"
