@@ -6,7 +6,8 @@ assert-bazel-run
 
 workd_binary_path="$1"
 workd_service_path="$2"
-shift 2
+containerd_config_path="$3"
+shift 3
 
 assert-command-available git
 
@@ -83,7 +84,9 @@ function make-image-gcp {
   done
 
   log-info "Uploading artifacts to ${bold}${instance_name}${reset}"
-  gcloud compute scp "$workd_binary_path" "$workd_service_path" "$instance_name":'~/' \
+  gcloud compute scp \
+    "$workd_binary_path" "$workd_service_path" "$containerd_config_path" \
+    "$instance_name":'~/' \
     --project="$gcp_project" \
     --zone="$instance_zone"
 
@@ -99,10 +102,11 @@ function make-image-gcp {
     --project="$gcp_project" \
     --zone="$instance_zone" <<- EOF
       set -e
-      sudo mv ~/'$(basename "$workd_binary_path")' /usr/bin/workd
-      sudo mv ~/'$(basename "$workd_service_path")' /etc/systemd/system/workd.service
       sudo apt-get update
       sudo apt-get install -y cloud-init containerd
+      sudo mv ~/'$(basename "$workd_binary_path")' /usr/bin/workd
+      sudo mv ~/'$(basename "$workd_service_path")' /etc/systemd/system/workd.service
+      sudo mv ~/'$(basename "$containerd_config_path")' /etc/containerd/config.toml
       sudo systemctl enable workd
 EOF
 

@@ -9,8 +9,10 @@ sh_binary(
     args = [
         "$(location :workd-x86_64-linux)",
         "$(location :workd.prod.service)",
+        "$(location :containerd-config.toml)",
     ],
     data = [
+        ":containerd-config.toml",
         ":workd.prod.service",
         ":workd-x86_64-linux",
     ],

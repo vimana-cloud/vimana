@@ -1,0 +1,23 @@
+# kOps normally generates this file automatically:
+# https://github.com/kubernetes/kops/blob/v1.32.1/nodeup/pkg/model/containerd.go#L473.
+# Since Vimana disables containerd installation, however,
+# containerd must be configured manually.
+
+version = 2
+
+[plugins]
+
+  [plugins."io.containerd.grpc.v1.cri"]
+    # This image name / version comes from here:
+    # https://github.com/kubernetes/kops/blob/v1.32.1/pkg/model/components/kubelet.go#L169.
+    sandbox_image = "registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097"
+
+    [plugins."io.containerd.grpc.v1.cri".containerd]
+
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+
+        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+          runtime_type = "io.containerd.runc.v2"
+
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+            SystemdCgroup = true

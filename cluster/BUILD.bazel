@@ -1,4 +1,25 @@
-exports_files(
-    ["deploy.yaml"],
-    visibility = ["//visibility:public"],
+""" Spin up production-ready Vimana clusters. """
+
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+# Create a new Vimana cluster using kOps.
+sh_binary(
+    name = "create",
+    srcs = ["create.sh"],
+    args = ["$(location @rules_k8s//:kops)"],
+    data = [
+        "//dev:bash-util",
+        "@rules_k8s//:kops",
+    ],
+)
+
+# Destroy an existing Vimana cluster using kOps.
+sh_binary(
+    name = "destroy",
+    srcs = ["destroy.sh"],
+    args = ["$(location @rules_k8s//:kops)"],
+    data = [
+        "//dev:bash-util",
+        "@rules_k8s//:kops",
+    ],
 )
