@@ -1,0 +1,23 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+py_library(
+    name = "load",
+    srcs = ["load.py"],
+    data = [":profiles.yaml"],
+    visibility = ["//cluster:__subpackages__"],
+    deps = ["@pypi//pyyaml"],
+)
+
+py_test(
+    name = "validation-test",
+    srcs = ["validation-test.py"],
+    data = [
+        ":profiles.yaml",
+        ":schema.yaml",
+    ],
+    deps = [
+        ":load",
+        "@pypi//jsonschema",
+        "@pypi//pyyaml",
+    ],
+)

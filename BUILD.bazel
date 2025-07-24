@@ -1,5 +1,12 @@
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 load("@rules_rust//rust:defs.bzl", "rust_library_group")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_toolchain")
+
+compile_pip_requirements(
+    name = "requirements",
+    src = "requirements.txt",
+    requirements_txt = "requirements.txt.lock",
+)
 
 # Set up a Prost Bazel toolchain
 # using the Prost and Tonic binaries referenced in `MODULE.bazel`

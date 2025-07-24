@@ -2,7 +2,7 @@
 # Each profile represents a cluster.
 # Commands like `//cluster:create` and `//cluster:destroy` take the name of a profile,
 # which must be defined here.
-# This file must validate against the JSON schema in `profiles-schema.yaml`.
+# This file must validate against the JSON schema in `schema.yaml`.
 # Fake examples are provided here by default. Delete them.
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ NEVER COMMIT REAL PROFILES TO THE REPO ┃

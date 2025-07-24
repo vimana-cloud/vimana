@@ -15,7 +15,7 @@ bazel_dep(name = "rules_go", version = "0.55.1")
 bazel_dep(name = "rules_nodejs", version = "6.4.0")
 bazel_dep(name = "rules_oci", version = "2.2.6")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
-bazel_dep(name = "rules_python", version = "1.5.0-rc2")
+bazel_dep(name = "rules_python", version = "1.5.1")
 bazel_dep(name = "rules_rust", version = "0.61.0")
 bazel_dep(name = "rules_rust_prost", version = "0.61.0")
 bazel_dep(name = "rules_shell", version = "0.5.0")
@@ -356,7 +356,7 @@ pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
     hub_name = "pypi",
     python_version = python_version,
-    requirements_lock = "requirements.txt",
+    requirements_lock = "requirements.txt.lock",
 )
 use_repo(pip, "pypi")
 

@@ -1,43 +1,28 @@
-""" Spin up production-ready Vimana clusters. """
+""" Manage Vimana clusters. """
 
-load("@rules_python//python:defs.bzl", "py_test")
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_python//python:defs.bzl", "py_binary")
 
-# Create a new Vimana cluster using kOps.
-sh_binary(
+py_binary(
     name = "create",
-    srcs = ["create.sh"],
-    args = ["$(location @rules_k8s//:kops)"],
+    srcs = ["create.py"],
     data = [
-        "//dev:bash-util",
+        "@rules_k8s//:istioctl",
         "@rules_k8s//:kops",
-    ],
-)
-
-# Destroy an existing Vimana cluster using kOps.
-sh_binary(
-    name = "destroy",
-    srcs = ["destroy.sh"],
-    args = ["$(location @rules_k8s//:kops)"],
-    data = [
-        "//dev:bash-util",
-        "@rules_k8s//:kops",
-    ],
-)
-
-py_test(
-    name = "profiles-validation-test",
-    srcs = ["profiles-validation-test.py"],
-    args = [
-        "--schema=$(location :profiles-schema.yaml)",
-        "$(location :profiles.yaml)",
-    ],
-    data = [
-        ":profiles.yaml",
-        ":profiles-schema.yaml",
     ],
     deps = [
-        "@pypi//jsonschema",
-        "@pypi//pyyaml",
+        "//cluster/profiles:load",
+        "@pypi//google_cloud_compute",
+        "@pypi//kubernetes",
+        "@pypi//rich",
+    ],
+)
+
+py_binary(
+    name = "destroy",
+    srcs = ["destroy.py"],
+    data = ["@rules_k8s//:kops"],
+    deps = [
+        "//cluster/profiles:load",
+        "@pypi//rich",
     ],
 )
