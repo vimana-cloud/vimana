@@ -1,5 +1,6 @@
 google-cloud-compute==1.33.0
 grpcio==1.73.1
 jsonschema==4.25.0
+kubernetes==33.1.0
 PyYAML==6.0.2
 rich==14.0.0

@@ -15,8 +15,11 @@ from tempfile import NamedTemporaryFile
 VIMANA_GATEWAY_NAME = 'vimana-gateway'
 # Runtime class for workd.
 # A pod with any other runtime class will be delegated to the downstream runtime.
-WORKD_RUNTIME_CLASS = 'workd-runtime-class'
-# gRPC services are exposes via this port number at the Vimana gateway.
+WORKD_RUNTIME_CLASS = 'workd-runtime'
+# The handler name associated with the workd runtime class.
+# This name is exposed the runtime on the
+WORKD_RUNTIME_HANDLER = 'workd-handler'
+# gRPC services are exposed via this port number at the Vimana gateway.
 GRPC_GATEWAY_PORT = 443
 # gRPC services must always use this port number internally.
 GRPC_CONTAINER_PORT = 80
@@ -65,7 +68,7 @@ def bootstrap(
                 'name': VIMANA_GATEWAY_NAME,
             },
             'spec': {
-                'gatewayClassName': 'istio',
+                'gatewayClassName': 'envoy-gateway',
                 'listeners': listeners,
             },
         },
@@ -75,7 +78,7 @@ def bootstrap(
             'metadata': {
                 'name': WORKD_RUNTIME_CLASS,
             },
-            'handler': 'workd',  # TODO: Make this the same as WORKD_RUNTIME_CLASS?
+            'handler': WORKD_RUNTIME_HANDLER,
         },
     ]
 

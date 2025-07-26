@@ -1,0 +1,7 @@
+exports_files(
+    ["cluster.yaml"],
+    visibility = [
+        "//cluster:__pkg__",
+        "//dev/minikube:__pkg__",
+    ],
+)

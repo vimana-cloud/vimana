@@ -21,7 +21,7 @@ use tonic::transport::channel::Channel;
 use tonic::{async_trait, Request, Response};
 
 use crate::containers::ContainerStore;
-use crate::cri::runtime::CONTAINER_RUNTIME_NAME;
+use crate::cri::runtime::CONTAINER_RUNTIME_HANDLER;
 use crate::cri::{component_name_from_labels, GlobalLogs, LogErrorToStatus, TonicResult};
 use crate::state::now;
 use names::{unhexify_string, ComponentName, DomainUuid};
@@ -71,7 +71,7 @@ impl ImageService for ProxyingImageService {
 
         if let Some(image_spec) = &request.image {
             // Fall back on the downstream runtime for non-Vimana images.
-            if image_spec.runtime_handler != CONTAINER_RUNTIME_NAME {
+            if image_spec.runtime_handler != CONTAINER_RUNTIME_HANDLER {
                 return self
                     .oci_image
                     .lock()
@@ -116,7 +116,7 @@ impl ImageService for ProxyingImageService {
 
         if let Some(image_spec) = &request.image {
             // Fall back on the downstream runtime for non-Vimana images.
-            if image_spec.runtime_handler != CONTAINER_RUNTIME_NAME {
+            if image_spec.runtime_handler != CONTAINER_RUNTIME_HANDLER {
                 return self
                     .oci_image
                     .lock()
@@ -165,7 +165,7 @@ impl ImageService for ProxyingImageService {
 
         if let Some(image_spec) = &request.image {
             // Fall back on the downstream runtime for non-Vimana images.
-            if image_spec.runtime_handler != CONTAINER_RUNTIME_NAME {
+            if image_spec.runtime_handler != CONTAINER_RUNTIME_HANDLER {
                 return self
                     .oci_image
                     .lock()

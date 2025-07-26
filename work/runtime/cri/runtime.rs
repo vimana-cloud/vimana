@@ -40,6 +40,8 @@ use names::{Name, PodName};
 const KUBELET_API_VERSION: &str = "0.1.0";
 /// Name of the Vimana container runtime.
 pub(crate) const CONTAINER_RUNTIME_NAME: &str = "workd";
+/// Name of the Vimana container runtime handler.
+pub(super) const CONTAINER_RUNTIME_HANDLER: &str = "workd-handler";
 /// Version of the Vimana container runtime.
 pub(crate) const CONTAINER_RUNTIME_VERSION: &str = "0.0.0";
 /// Version of the CRI API supported by the runtime.
@@ -131,7 +133,7 @@ impl RuntimeService for ProxyingRuntimeService {
     ) -> TonicResult<v1::RunPodSandboxResponse> {
         // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
         // This supports running K8s control plane pods like `kube-controller-manager` etc.
-        if request.get_ref().runtime_handler != CONTAINER_RUNTIME_NAME {
+        if request.get_ref().runtime_handler != CONTAINER_RUNTIME_HANDLER {
             let response = self.downstream.lock().await.run_pod_sandbox(request).await;
             if let Ok(reply) = &response {
                 let pod_sandbox_id = reply.get_ref().pod_sandbox_id.clone();
@@ -174,7 +176,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::StopPodSandboxRequest>,
     ) -> TonicResult<v1::StopPodSandboxResponse> {
-        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+        if self.is_downstream(&request.get_ref().pod_sandbox_id) {
             return self.downstream.lock().await.stop_pod_sandbox(request).await;
         }
 
@@ -191,7 +193,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::RemovePodSandboxRequest>,
     ) -> TonicResult<v1::RemovePodSandboxResponse> {
-        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+        if self.is_downstream(&request.get_ref().pod_sandbox_id) {
             let pod_sandbox_id = request.get_ref().pod_sandbox_id.clone();
             let response = self
                 .downstream
@@ -218,7 +220,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::PodSandboxStatusRequest>,
     ) -> TonicResult<v1::PodSandboxStatusResponse> {
-        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+        if self.is_downstream(&request.get_ref().pod_sandbox_id) {
             return self
                 .downstream
                 .lock()
@@ -284,7 +286,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::CreateContainerRequest>,
     ) -> TonicResult<v1::CreateContainerResponse> {
-        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+        if self.is_downstream(&request.get_ref().pod_sandbox_id) {
             let response = self.downstream.lock().await.create_container(request).await;
             if let Ok(reply) = &response {
                 self.downstream_ids
@@ -318,7 +320,7 @@ impl RuntimeService for ProxyingRuntimeService {
         //    ));
         //}
         // YAGNI: multiple handlers
-        //if image_spec.runtime_handler != CONTAINER_RUNTIME_NAME {
+        //if image_spec.runtime_handler != CONTAINER_RUNTIME_HANDLER {
         //    return Err(Status::invalid_argument("create-container-invalid-runtime"));
         //}
         // No particular reason there can't be annotations or a user specified image;
@@ -360,7 +362,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::StartContainerRequest>,
     ) -> TonicResult<v1::StartContainerResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             return self.downstream.lock().await.start_container(request).await;
         }
 
@@ -377,7 +379,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::StopContainerRequest>,
     ) -> TonicResult<v1::StopContainerResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             return self.downstream.lock().await.stop_container(request).await;
         }
 
@@ -398,7 +400,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::RemoveContainerRequest>,
     ) -> TonicResult<v1::RemoveContainerResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             let container_id = request.get_ref().container_id.clone();
             let response = self.downstream.lock().await.remove_container(request).await;
             if response.is_ok() {
@@ -445,7 +447,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::ContainerStatusRequest>,
     ) -> TonicResult<v1::ContainerStatusResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             return self.downstream.lock().await.container_status(request).await;
         }
 
@@ -477,7 +479,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::UpdateContainerResourcesRequest>,
     ) -> TonicResult<v1::UpdateContainerResourcesResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             return self
                 .downstream
                 .lock()
@@ -493,7 +495,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::ReopenContainerLogRequest>,
     ) -> TonicResult<v1::ReopenContainerLogResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             return self
                 .downstream
                 .lock()
@@ -509,7 +511,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::ExecSyncRequest>,
     ) -> TonicResult<v1::ExecSyncResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             return self.downstream.lock().await.exec_sync(request).await;
         }
 
@@ -517,7 +519,7 @@ impl RuntimeService for ProxyingRuntimeService {
     }
 
     async fn exec(&self, request: Request<v1::ExecRequest>) -> TonicResult<v1::ExecResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             return self.downstream.lock().await.exec(request).await;
         }
 
@@ -525,7 +527,7 @@ impl RuntimeService for ProxyingRuntimeService {
     }
 
     async fn attach(&self, request: Request<v1::AttachRequest>) -> TonicResult<v1::AttachResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             return self.downstream.lock().await.attach(request).await;
         }
 
@@ -536,7 +538,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::PortForwardRequest>,
     ) -> TonicResult<v1::PortForwardResponse> {
-        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+        if self.is_downstream(&request.get_ref().pod_sandbox_id) {
             return self.downstream.lock().await.port_forward(request).await;
         }
 
@@ -547,7 +549,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::ContainerStatsRequest>,
     ) -> TonicResult<v1::ContainerStatsResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             return self.downstream.lock().await.container_stats(request).await;
         }
 
@@ -570,7 +572,7 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::PodSandboxStatsRequest>,
     ) -> TonicResult<v1::PodSandboxStatsResponse> {
-        if self.is_oci(&request.get_ref().pod_sandbox_id) {
+        if self.is_downstream(&request.get_ref().pod_sandbox_id) {
             return self
                 .downstream
                 .lock()
@@ -607,23 +609,23 @@ impl RuntimeService for ProxyingRuntimeService {
     }
 
     async fn status(&self, request: Request<v1::StatusRequest>) -> TonicResult<v1::StatusResponse> {
-        // These are the only 2 required conditions.
-        let mut runtime_ready_condition = v1::RuntimeCondition {
-            r#type: String::from(CONDITION_RUNTIME_READY),
-            status: true,
-            reason: String::default(),
-            message: String::default(),
-        };
-        let mut network_ready_condition = v1::RuntimeCondition {
-            r#type: String::from(CONDITION_NETWORK_READY),
-            status: true,
-            reason: String::default(),
-            message: String::default(),
-        };
+        //// These are the only 2 required conditions.
+        //let mut runtime_ready_condition = v1::RuntimeCondition {
+        //    r#type: String::from(CONDITION_RUNTIME_READY),
+        //    status: true,
+        //    reason: String::default(),
+        //    message: String::default(),
+        //};
+        //let mut network_ready_condition = v1::RuntimeCondition {
+        //    r#type: String::from(CONDITION_NETWORK_READY),
+        //    status: true,
+        //    reason: String::default(),
+        //    message: String::default(),
+        //};
 
-        // TODO: Populate these with relevant information.
-        let mut info = HashMap::default();
-        let mut runtime_handlers = Vec::default();
+        //// TODO: Populate these with relevant information.
+        //let mut info = HashMap::default();
+        //let mut runtime_handlers = Vec::default();
 
         match self
             .downstream
@@ -633,10 +635,11 @@ impl RuntimeService for ProxyingRuntimeService {
             .await
         {
             Ok(downstream_response) => {
-                let downstream_response = downstream_response.into_inner();
-                // TODO: Adjust upstream conditions based on downstream conditions.
-                info.extend(downstream_response.info);
-                runtime_handlers.extend(downstream_response.runtime_handlers);
+                return Ok(downstream_response);
+                //let downstream_response = downstream_response.into_inner();
+                //// TODO: Adjust upstream conditions based on downstream conditions.
+                //info.extend(downstream_response.info);
+                //runtime_handlers.extend(downstream_response.runtime_handlers);
             }
             Err(downstream_error) => {
                 // TODO: Don't fail closed on the downstream runtime if it's not necessary.
@@ -644,21 +647,21 @@ impl RuntimeService for ProxyingRuntimeService {
             }
         }
 
-        Ok(Response::new(v1::StatusResponse {
-            status: Some(v1::RuntimeStatus {
-                conditions: vec![runtime_ready_condition, network_ready_condition],
-            }),
-            info,
-            runtime_handlers,
-            features: None,
-        }))
+        //Ok(Response::new(v1::StatusResponse {
+        //    status: Some(v1::RuntimeStatus {
+        //        conditions: vec![runtime_ready_condition, network_ready_condition],
+        //    }),
+        //    info,
+        //    runtime_handlers,
+        //    features: None,
+        //}))
     }
 
     async fn checkpoint_container(
         &self,
         request: Request<v1::CheckpointContainerRequest>,
     ) -> TonicResult<v1::CheckpointContainerResponse> {
-        if self.is_oci(&request.get_ref().container_id) {
+        if self.is_downstream(&request.get_ref().container_id) {
             return self
                 .downstream
                 .lock()
@@ -756,8 +759,13 @@ impl ProxyingRuntimeService {
         })
     }
 
-    fn is_oci(&self, id: &str) -> bool {
+    /// Return true iff a pod or container ID should be managed by the downstream runtime.
+    fn is_downstream(&self, id: &str) -> bool {
+        // If the ID does *not* start with a Vimana prefix, then it must be downstream.
+        // However, just because it does start with the Vimana prefix
+        // does not necessarily mean it does *not* belong downstream.
         self.downstream_ids.pin().contains(id)
+            || !(id.starts_with(POD_PREFIX) || id.starts_with(CONTAINER_PREFIX))
     }
 
     /// Perform sandbox listing in the workd runtime.
@@ -858,7 +866,7 @@ fn cri_pod_sandbox(name: &PodName, pod: &Pod) -> v1::PodSandbox {
     v1::PodSandbox {
         id: pod_prefix(name),
         // All Workd containers use the same runtime.
-        runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
+        runtime_handler: String::from(CONTAINER_RUNTIME_HANDLER),
         // Pod sandboxes are always ready (containers might not be).
         state: pod_state_to_cri_pod_state(pod.state) as i32,
         // The rest are just cloned from the controller:
@@ -905,7 +913,7 @@ fn cri_pod_sandbox_status(
             linux: None,
             labels: pod.pod_labels.clone(),
             annotations: pod.pod_annotations.clone(),
-            runtime_handler: String::from(CONTAINER_RUNTIME_NAME),
+            runtime_handler: String::from(CONTAINER_RUNTIME_HANDLER),
         },
         match pod.state {
             PodState::Initiated | PodState::Removed | PodState::Killed => Vec::default(),

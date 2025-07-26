@@ -28,7 +28,7 @@ k8s_cluster_test(
     name = "walkthrough-test",
     objects = [":walkthrough-bootstrap"],
     services = {
-        "vimana-gateway-istio": [
+        "vimana-gateway": [
             "api.vimana.host",
             "api.fersher.host",
         ],

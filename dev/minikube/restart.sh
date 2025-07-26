@@ -9,7 +9,7 @@ assert-bazel-run
 
 # Standard K8s tool binaries:
 kubectl="$1"
-istioctl="$2"
+helm="$2"
 # Minikube is run through a wrapper (see `_minikube`).
 minikube_wrapper="$3"
 minikube_bin="$4"
@@ -22,7 +22,9 @@ push_kicbase="$5"
 kicbase_repo="$6"
 # Probably `host.minikube.internal:5000`.
 cluster_registry="$7"
-shift 7
+# Path to the cluster-wide gateway resource configuration.
+gateway_config="$8"
+shift 8
 
 function _minikube {
   # Leaky abstraction :(
@@ -54,23 +56,25 @@ docker image rm --force "$kicbase_repo" 2> /dev/null || true
 # - The ability to load containers from the host machine without TLS.
 # - The runtime class of the pod specified on container image pull requests:
 #   https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
-# - Enough resources to run Istio: https://istio.io/latest/docs/setup/platform-setup/minikube.
 # - Embedding certificate data in the generated kubeconfig so it's self-contained.
 _minikube start \
   --base-image="$kicbase_repo" \
   --container-runtime=workd \
   --insecure-registry="$cluster_registry" \
   --feature-gates=RuntimeClassInImageCriApi=true \
-  --memory=16384 --cpus=4 \
   --embed-certs \
   "$@"
 
 # Enable all dashboard features.
 _minikube addons enable metrics-server
 
-# Start Istio in ambient mode (no sidecars).
-"$istioctl" install --skip-confirmation --set profile=ambient
+# Install Envoy Gateway.
+# This also sets up the Gateway API Custom Resource Definitions (CRDs).
+# TODO: Use `rules_oci` to download the chart and re-use the exact same version in prod.
+"$helm" install envoy-gateway 'oci://docker.io/envoyproxy/gateway-helm' \
+  --version=v1.4.2 \
+  --namespace=envoy-gateway-system \
+  --create-namespace \
+  --set=config.envoyGateway.provider.kubernetes.deploy.type=GatewayNamespace
 
-# Set up the Getway API Custom Resource Definitions (CRDs).
-# https://github.com/kubernetes-sigs/gateway-api/releases
-"$kubectl" apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
+"$kubectl" apply --filename="$gateway_config"

@@ -31,7 +31,7 @@ from work.runtime.tests.api_pb2 import (
     StopContainerRequest,
     StopPodSandboxRequest,
 )
-from work.runtime.tests.util import RUNTIME_NAME, WorkdTestCase, hexUuid
+from work.runtime.tests.util import RUNTIME_HANDLER, WorkdTestCase, hexUuid
 
 # The number of nanoseconds it takes for this test to time out.
 # Used for very rough upper / lower bounds when checking reasonableness of recent timestamps.
@@ -148,7 +148,7 @@ class ListTest(WorkdTestCase):
         """
         podSandboxId = cls.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
-                runtime_handler=RUNTIME_NAME,
+                runtime_handler=RUNTIME_HANDLER,
                 config=PodSandboxConfig(
                     metadata=podMetadata,
                     hostname='foobar',
@@ -217,7 +217,7 @@ class ListTest(WorkdTestCase):
         )
         self.assertEqual(podSandbox.labels, labels)
         self.assertEqual(podSandbox.annotations, {})
-        self.assertEqual(podSandbox.runtime_handler, RUNTIME_NAME)
+        self.assertEqual(podSandbox.runtime_handler, RUNTIME_HANDLER)
 
     def assertContainer(
         self,

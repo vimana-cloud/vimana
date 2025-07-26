@@ -6,8 +6,10 @@ py_binary(
     name = "create",
     srcs = ["create.py"],
     data = [
-        "@rules_k8s//:istioctl",
+        "//gateway:cluster.yaml",
+        "@rules_k8s//:helm",
         "@rules_k8s//:kops",
+        "@rules_k8s//:kubectl",
     ],
     deps = [
         "//cluster/profiles:load",

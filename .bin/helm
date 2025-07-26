@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-exec bazel run @rules_k8s//:istioctl \
+exec bazel run @rules_k8s//:helm \
   --ui_event_filters=-info,-debug,-stderr \
   -- "$@"

@@ -8,12 +8,12 @@ from grpc import RpcError, StatusCode, insecure_channel
 from work.runtime.tests.api_pb2 import (
     ContainerConfig,
     ContainerMetadata,
-    ImageFsInfoResponse,
     ContainerResources,
     ContainerState,
     ContainerStatusRequest,
     ContainerUser,
     CreateContainerRequest,
+    ImageFsInfoResponse,
     ImageSpec,
     ImageStatusRequest,
     KeyValue,
@@ -32,7 +32,12 @@ from work.runtime.tests.api_pb2 import (
 )
 from work.runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
 from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
-from work.runtime.tests.util import RUNTIME_NAME, WorkdTestCase, ipHostName
+from work.runtime.tests.util import (
+    RUNTIME_HANDLER,
+    RUNTIME_NAME,
+    WorkdTestCase,
+    ipHostName,
+)
 
 
 class SuccessTest(WorkdTestCase):
@@ -72,7 +77,7 @@ class SuccessTest(WorkdTestCase):
                         'this.should.never.be.Found',
                         '10.10.10',
                     ),
-                    runtime_handler=RUNTIME_NAME,
+                    runtime_handler=RUNTIME_HANDLER,
                 ),
             ),
         )
@@ -137,7 +142,7 @@ class SuccessTest(WorkdTestCase):
 
         response = self.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
-                runtime_handler=RUNTIME_NAME,
+                runtime_handler=RUNTIME_HANDLER,
                 config=PodSandboxConfig(
                     metadata=PodSandboxMetadata(
                         name=f'{domain}-name',
@@ -238,7 +243,7 @@ class SuccessTest(WorkdTestCase):
 
         response = self.runtimeService.RunPodSandbox(
             RunPodSandboxRequest(
-                runtime_handler=RUNTIME_NAME,
+                runtime_handler=RUNTIME_HANDLER,
                 config=PodSandboxConfig(
                     metadata=PodSandboxMetadata(
                         name=f'{domain}-name',

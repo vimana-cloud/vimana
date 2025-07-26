@@ -77,6 +77,8 @@ chmod(_ipamWrapper.name, S_IEXEC | S_IREAD)
 
 # The name of the Vimana Work runtime.
 RUNTIME_NAME = 'workd'
+# The name of the runtime handler for Vimana pods.
+RUNTIME_HANDLER = 'workd-handler'
 
 
 class WorkdTestCase(TestCase):
@@ -259,7 +261,7 @@ class WorkdTester:
         self.pushImage(domain, service, version, module, metadata)
         imageSpec = ImageSpec(
             image=self.imageId(domain, service, version),
-            runtime_handler=RUNTIME_NAME,
+            runtime_handler=RUNTIME_HANDLER,
         )
         self.imageService.PullImage(
             PullImageRequest(
