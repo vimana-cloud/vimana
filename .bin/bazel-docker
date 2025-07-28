@@ -11,6 +11,26 @@ repository_root="$(git rev-parse --show-toplevel)"
 # in case the user is currently working in a subdirectory.
 source "${repository_root}/dev/bash-util.sh"
 
+# Print the static name of the container for the current repository root to stdout.
+# Use a separate container for each repository root in case there are multiple Git worktrees.
+function bazel-container-name {
+  # Combine the basename, for intelligibility, with a hash of the full path, for uniqueness.
+  echo "bazel-$(
+    basename "$repository_root"
+  )-$(
+    <<< "$repository_root" sha256sum | head --bytes=7
+  )"
+}
+
+# The only departure from the standard `bazel` CLI is the addition of a `--name` option,
+# which must be supplied by itself,
+# and causes the command to simply print the name of the Bazel container for this repository root.
+if [[ $# == 1 ]] && [[ "$1" == '--name' ]]
+then
+  bazel-container-name
+  exit
+fi
+
 # Run the Bazel command from the same path inside the container
 # as the current working directory on the host.
 # This must be a subdirectory of the repository root.
@@ -59,12 +79,7 @@ function ensure-container-running {
   esac
 }
 
-# Use a separate container for each repository root in case there are multiple Git worktrees.
-bazel_name="bazel-$(
-  basename "$repository_root"
-)-$(
-  <<< "$repository_root" sha256sum | head --bytes=7
-)"
+bazel_name="$(bazel-container-name)"
 function start-bazel {
   # - Persist the container indefinitely with the appropriate bind-mounts
   #   so we can later run commands on it.
@@ -97,9 +112,9 @@ function start-bazel {
     --volume="${HOME}/.ssh":'/root/.ssh':ro \
     --volume="${HOME}/.kube":'/root/.kube':ro \
     --add-host=host.docker.internal=host-gateway \
-    --entrypoint=/usr/bin/sh \
+    --entrypoint=/usr/bin/sleep \
     gcr.io/bazel-public/bazel:latest \
-    -c 'sleep infinity'
+    'infinity'
 
   # Install the `uuidgen` CLI tool, which is needed to run a `k8s_cluster_test`.
   # ATTOW there is no obvious pre-built toolchain for Bazel.
