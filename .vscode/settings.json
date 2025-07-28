@@ -5,6 +5,12 @@
     "[bash]": {
         "editor.tabSize": 2
     },
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
     "bazel.buildifierExecutable": "@buildtools//:buildifier",
     "bazel.buildifierFixOnFormat": true,
     "bazel.enableCodeLens": true,
