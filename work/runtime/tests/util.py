@@ -274,7 +274,9 @@ class WorkdTester:
     def imageId(self, domain: str, service: str, version: str) -> str:
         # TODO: Rewrite the image pusher in Python and use it to construct the URL for pulling.
         serviceHex = service.encode().hex()
-        serviceHex = ''.join(l + u for l, u in zip(serviceHex[1::2], serviceHex[0::2]))
+        serviceHex = ''.join(
+            lower + upper for lower, upper in zip(serviceHex[1::2], serviceHex[0::2])
+        )
         return f'localhost:{self._imageRegistryPort}/{domain}/{serviceHex}:{version}'
 
     def verifyFsUsage(self, testCase: TestCase) -> (int, int):
@@ -669,119 +671,119 @@ class MockRuntimeService(RuntimeServiceServicer, Mockable):
 
     @mockable
     def Version(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def RunPodSandbox(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def StopPodSandbox(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def RemovePodSandbox(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def PodSandboxStatus(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ListPodSandbox(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def CreateContainer(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def StartContainer(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def StopContainer(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def RemoveContainer(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ListContainers(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ContainerStatus(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def UpdateContainerResources(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ReopenContainerLog(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ExecSync(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def Exec(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def Attach(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def PortForward(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ContainerStats(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ListContainerStats(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def PodSandboxStats(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ListPodSandboxStats(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def UpdateRuntimeConfig(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def Status(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def CheckpointContainer(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def GetContainerEvents(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ListMetricDescriptors(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ListPodSandboxMetrics(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def RuntimeConfig(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
 
 class MockImageService(ImageServiceServicer, Mockable):
@@ -789,23 +791,23 @@ class MockImageService(ImageServiceServicer, Mockable):
 
     @mockable
     def ListImages(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ImageStatus(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def PullImage(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def RemoveImage(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
     @mockable
     def ImageFsInfo(self, request, context):
-        raise AssertionError('Unexpected invocation')
+        raise AssertionError('Unexpected invocation of mocked service')
 
 
 def startDownstreamRuntime() -> tuple[
