@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package foo.bar;
+
+// A service with a single method that includes an example of every single
+// scalar Protobuf type.
+service AllScalarsService {
+  rpc DoSomething(AllScalarsType) returns (AllScalarsType) {}
+}
+
+message AllScalarsType {
+  bytes bytes_implicit = 1;
+  optional bytes bytes_explicit = 3;
+  repeated bytes bytes_expanded = 4;
+  string string_utf8_implicit = 5;
+  optional string string_utf8_explicit = 7;
+  repeated string string_utf8_expanded = 8;
+  string string_permissive_implicit = 9;
+  string string_permissive_explicit = 11;
+  string string_permissive_expanded = 12;
+  bool bool_implicit = 13;
+  bool bool_packed = 14;
+  bool bool_explicit = 15;
+  bool bool_expanded = 16;
+  int32 int32_implicit = 17;
+  int32 int32_packed = 18;
+  int32 int32_explicit = 19;
+  int32 int32_expanded = 20;
+  sint32 sint32_implicit = 21;
+  sint32 sint32_packed = 22;
+  sint32 sint32_explicit = 23;
+  sint32 sint32_expanded = 24;
+  sfixed32 sfixed32_implicit = 25;
+  sfixed32 sfixed32_packed = 26;
+  sfixed32 sfixed32_explicit = 27;
+  sfixed32 sfixed32_expanded = 28;
+  uint32 uint32_implicit = 29;
+  uint32 uint32_packed = 30;
+  uint32 uint32_explicit = 31;
+  uint32 uint32_expanded = 32;
+  fixed32 fixed32_implicit = 33;
+  fixed32 fixed32_packed = 34;
+  fixed32 fixed32_explicit = 35;
+  fixed32 fixed32_expanded = 36;
+  int64 int64_implicit = 37;
+  int64 int64_packed = 38;
+  int64 int64_explicit = 39;
+  int64 int64_expanded = 40;
+  sint64 sint64_implicit = 41;
+  sint64 sint64_packed = 42;
+  sint64 sint64_explicit = 43;
+  sint64 sint64_expanded = 44;
+  sfixed64 sfixed64_implicit = 45;
+  sfixed64 sfixed64_packed = 46;
+  sfixed64 sfixed64_explicit = 47;
+  sfixed64 sfixed64_expanded = 48;
+  uint64 uint64_implicit = 49;
+  uint64 uint64_packed = 50;
+  uint64 uint64_explicit = 51;
+  uint64 uint64_expanded = 52;
+  fixed64 fixed64_implicit = 53;
+  fixed64 fixed64_packed = 54;
+  fixed64 fixed64_explicit = 55;
+  fixed64 fixed64_expanded = 56;
+  float float_implicit = 57;
+  float float_packed = 58;
+  float float_explicit = 59;
+  float float_expanded = 60;
+  double double_implicit = 61;
+  double double_packed = 62;
+  double double_explicit = 63;
+  double double_expanded = 64;
+}

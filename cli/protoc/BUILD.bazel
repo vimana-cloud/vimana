@@ -1,0 +1,26 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+
+rust_binary(
+    name = "protoc",
+    srcs = [
+        "compile.rs",
+        "main.rs",
+        "wit.rs",
+    ],
+    binary_name = "protoc-gen-vimana",
+    visibility = ["//cli/protoc/tests:__pkg__"],
+    deps = [
+        "//work/runtime:metadata-prost",
+        "@crates//:anyhow",
+        "@crates//:heck",
+        "@crates//:prost",
+        "@crates//:prost-types",
+    ],
+)
+
+rust_test(
+    name = "protoc-test",
+    crate = ":protoc",
+    data = ["@rules_wasm//:wasm-tools"],
+    env = {"WASMTOOLS": "$(rootpath @rules_wasm//:wasm-tools)"},
+)

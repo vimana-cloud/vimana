@@ -92,7 +92,7 @@ rust_prost_library(
     proto = "metadata-proto",
     visibility = [
         ":__subpackages__",
-        "//protoc-gen-vimana:__pkg__",
+        "//cli/protoc:__pkg__",
     ],
 )
 
