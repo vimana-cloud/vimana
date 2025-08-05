@@ -105,25 +105,6 @@ It also renders the [Mermaid] diagrams embedded in the Markdown.
 bazel run //docs:dev
 ```
 
-Start a local [minikube] cluster with Vimana enabled.
-This is one way to run the [end-to-end] tests if the local machine is x86-64.
-Note that this does more than just `minikube start`;
-it first builds a "kicbase" image with the latest local build of `workd`,
-and uses a fork of minikube with `workd` enabled.
-
-```bash
-bazel run //dev/minikube:restart
-```
-
-Starting minikube can take a while.
-Iterate faster by hot-swapping a freshly-built runtime binary
-into the running minikube cluster
-(but read the implications at the top of [`hotswap.sh`] first):
-
-```bash
-bazel run //dev/minikube:hotswap
-```
-
 Check for updates to any Bazel or Rust dependency in `MODULE.bazel`,
 and apply them in-place:
 
@@ -133,9 +114,6 @@ bazel run //dev:update-dependencies
 
 [VitePress]: https://vitepress.dev/
 [Mermaid]: https://mermaid.js.org/
-[minikube]: https://minikube.sigs.k8s.io/
-[end-to-end]: e2e/
-[`hotswap.sh`]: dev/minikube/hotswap.sh
 
 ## VSCode
 

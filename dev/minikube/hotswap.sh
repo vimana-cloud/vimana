@@ -1,7 +1,8 @@
 # Hot-swap a freshly-built copy of `workd` into a running minikube cluster.
+#
 # This should not affect any running `kube-system` containers that use containerd,
 # however it does forcibly shut down all running Vimana containers
-# *without notifying the control plane* whatsoever, which may cause strange behavior
+# *without notifying the control plane*, which may cause strange behavior
 # including disappeared pods getting replaced by the deployment controller.
 
 set -e

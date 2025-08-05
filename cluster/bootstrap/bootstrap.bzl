@@ -25,7 +25,8 @@ def bootstrap(name, domains, registry, cluster_registry = None):
     for domain_id, domain in domains.items():
         for service_name, service in domain.services.items():
             for component_version, component in service.components.items():
-                # Bazel rule names cannot contain a colon.
+                # Bazel rule names cannot contain a colon,
+                # so use dashes instead of the canonical component name.
                 image_push_action_name = \
                     "{}.{}-{}-{}".format(name, domain_id, service_name, component_version)
                 vimana_image_push(

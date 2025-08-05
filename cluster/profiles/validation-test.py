@@ -23,7 +23,11 @@ class ProfilesValidationTest(TestCase):
         validate(instance=profiles, schema=schema)
 
     def test_normalized(self):
-        """Test all profiles are valid after being loaded and normalized."""
+        """
+        Test all profiles are valid after being loaded and normalized.
+
+        If this test fails but `test_raw` succeeds, that indicates a problem with `loadProfile`.
+        """
 
         with open(SCHEMA_PATH, 'r') as file:
             schema = loadYaml(file)
