@@ -42,7 +42,7 @@ def main(name: str):
 
     elapsed = datetime.now() - start
     console.print(
-        f'[bold]{name}[/bold] successfully destroyed after {elapsed.seconds} seconds 💀',
+        f'[bold]{name}[/bold] successfully destroyed after {elapsed.total_seconds()} seconds 💀',
     )
 
 

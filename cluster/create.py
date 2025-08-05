@@ -167,18 +167,18 @@ def _waitForControlPlane(
     Return true iff the API is available.
     """
     console.print(
-        f'Waiting up to {timeout.seconds} seconds for the control plane to become ready...',
+        f'Waiting up to {timeout.total_seconds()} seconds for the control plane to become ready...',
     )
     start = datetime.now()
-    sleep(min(minimum, timeout).seconds)
+    sleep(min(minimum, timeout).total_seconds())
     while (now := datetime.now()) < start + timeout:
         try:
             coreApi.get_api_resources()
         except MaxRetryError:
             # This is expected if the control plane is not yet available.
-            sleep(interval.seconds)
+            sleep(interval.total_seconds())
         else:
-            console.print(f'Ready after {(now - start).seconds} seconds')
+            console.print(f'Ready after {(now - start).total_seconds()} seconds')
             return True
     return False
 
