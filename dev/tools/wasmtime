@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 exec bazel run @rules_wasm//:wasmtime \
   --ui_event_filters=-info,-debug,-stderr \
+  --run_under="cd '${PWD//'/'\"'\"'}' && " \
   -- "$@"
