@@ -1,0 +1,25 @@
+load("@rules_pkg//pkg:mappings.bzl", "pkg_filegroup", "pkg_files")
+
+pkg_filegroup(
+    name = "helm-charts",
+    srcs = [
+        ":domain",
+        ":files",
+    ],
+    visibility = ["//operator:__pkg__"],
+)
+
+pkg_filegroup(
+    name = "domain",
+    srcs = ["//operator/helm-charts/domain"],
+    prefix = "domain/",
+)
+
+pkg_files(
+    name = "files",
+    srcs = glob(
+        ["*"],
+        allow_empty = True,
+        exclude = ["BUILD.bazel"],
+    ),
+)

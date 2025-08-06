@@ -1,0 +1,115 @@
+load("@bazel_skylib//rules/directory:directory.bzl", "directory")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_filegroup", "pkg_files")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+local_registry = "localhost:5000"
+
+operator_image_name = "vimana-operator"
+
+latest_tag = "latest"
+
+operator_image_home = "/opt/helm"
+
+# Equivalent of `make docker-build` in a normal Operator SDK project.
+oci_image(
+    name = "image",
+    base = "@helm-operator",
+    tars = [":image-tar"],
+    workdir = operator_image_home,
+)
+
+# Equivalent of `make docker-push` in a normal Operator SDK project.
+oci_push(
+    name = "image-push-local",
+    image = ":image",
+    remote_tags = [latest_tag],
+    repository = local_registry + "/" + operator_image_name,
+)
+
+oci_load(
+    name = "image-load",
+    image = ":image",
+    repo_tags = [operator_image_name + ":" + latest_tag],
+)
+
+# Partially equivalent to `make install` or `make uninstall` in a normal Operator SDK project
+# (if combined with `kubectl apply` or `kubectl delete`).
+genrule(
+    name = "crds",
+    srcs = [":config"],
+    outs = ["crds.yaml"],
+    # The default load restrictor prevents loading symlinks that point outside the project root.
+    # Since Bazel sandboxes use such symlinks, disable the load restrictor.
+    cmd = "./$(location @rules_k8s//:kustomize) build" +
+          " --load-restrictor=LoadRestrictionsNone" +
+          " operator/config/crd > \"$@\"",
+    tools = ["@rules_k8s//:kustomize"],
+)
+
+# Partially equivalent to `make deploy` or `make undeploy` in a normal Operator SDK project
+# (if combined with `kubectl apply` or `kubectl delete`).
+# Importantly, however, any prerequisite `kustomize edit set` command
+# must be executed in the source tree separately.
+# See `:kustomize-manager` for a script to accomplish that.
+genrule(
+    name = "deploy",
+    srcs = [":config"],
+    outs = ["deploy.yaml"],
+    # The default load restrictor prevents loading symlinks that point outside the project root.
+    # Since Bazel sandboxes use such symlinks, disable the load restrictor.
+    cmd = "./$(location @rules_k8s//:kustomize) build" +
+          " --load-restrictor=LoadRestrictionsNone" +
+          " operator/config/default > \"$@\"",
+    tools = ["@rules_k8s//:kustomize"],
+)
+
+directory(
+    name = "config",
+    srcs = glob(["config/**"]),
+)
+
+pkg_tar(
+    name = "image-tar",
+    srcs = [":image-files"],
+)
+
+pkg_filegroup(
+    name = "image-files",
+    srcs = [
+        ":helm-charts",
+        ":watches",
+    ],
+    prefix = operator_image_home,
+)
+
+pkg_files(
+    name = "watches",
+    srcs = ["watches.yaml"],
+)
+
+# Need to enumerate all the (sub)directories in `helm-chart` with a file group
+# because that's the only way to preserve structure.
+# https://github.com/bazelbuild/rules_pkg/issues/971
+pkg_filegroup(
+    name = "helm-charts",
+    srcs = ["//operator/helm-charts"],
+    prefix = "helm-charts/",
+)
+
+# Script to update the image name / tag referenced by the operator manager.
+# That image name / tag must match the repo name in `:image`.
+# This script keeps the two in sync, but the kustomization can be checked into version control,
+# so it only has to run if `operator_image_name` (or the tag) changes for some reason.
+# Otherwise, it is a no-op.
+sh_binary(
+    name = "kustomize-manager",
+    srcs = ["kustomize-manager.sh"],
+    args = [
+        "$(location @rules_k8s//:kustomize)",
+        operator_image_name + ":" + latest_tag,
+    ],
+    data = ["@rules_k8s//:kustomize"],
+    deps = ["//dev:bash-util"],
+)

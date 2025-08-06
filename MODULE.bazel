@@ -381,10 +381,20 @@ oci.pull(
     image = "gcr.io/k8s-minikube/kicbase@sha256:6ed579c9292b4370177b7ef3c42cc4b4a6dcd0735a1814916cbc22c8bf38412b",
     platforms = ["linux/amd64"],
 )
+
+# Helm operator base image for the Vimana operator.
+# Should match the version of the helm operator binary from rules_k8s.
+oci.pull(
+    name = "helm-operator",
+    image = "quay.io/operator-framework/helm-operator@sha256:289903c9eab9d28afa76c20ef6367e6f98e08c9bae73b309e37520f02b6175ee",
+    platforms = ["linux/amd64"],
+)
 use_repo(
     oci,
     "distroless-base",
     "distroless-base_linux_amd64",
+    "helm-operator",
+    "helm-operator_linux_amd64",
     "kicbase",
     "kicbase_linux_amd64",
 )
