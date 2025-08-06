@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the vimana-operator itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- service_admin_role.yaml
+- service_editor_role.yaml
+- service_viewer_role.yaml
 - domain_admin_role.yaml
 - domain_editor_role.yaml
 - domain_viewer_role.yaml

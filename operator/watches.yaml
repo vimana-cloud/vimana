@@ -3,4 +3,8 @@
   version: v1alpha1
   kind: Domain
   chart: helm-charts/domain
+- group: api.vimana.host
+  version: v1alpha1
+  kind: Service
+  chart: helm-charts/service
 # +kubebuilder:scaffold:watch
