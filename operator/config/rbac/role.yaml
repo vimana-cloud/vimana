@@ -184,4 +184,56 @@ rules:
   - update
   - watch
 
+##
+## Rules for api.vimana.host/v1alpha1, Kind: Vimana
+##
+- apiGroups:
+  - api.vimana.host
+  resources:
+  - vimanas
+  - vimanas/status
+  - vimanas/finalizers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - services
+  - services/finalizers
+  - endpoints
+  - persistentvolumeclaims
+  - events
+  - configmaps
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - daemonsets
+  - replicasets
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+
 # +kubebuilder:scaffold:rules

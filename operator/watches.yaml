@@ -11,4 +11,8 @@
   version: v1alpha1
   kind: Component
   chart: helm-charts/component
+- group: api.vimana.host
+  version: v1alpha1
+  kind: Vimana
+  chart: helm-charts/vimana
 # +kubebuilder:scaffold:watch

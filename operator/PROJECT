@@ -31,4 +31,11 @@ resources:
   group: api
   kind: Component
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: vimana.host
+  group: api
+  kind: Vimana
+  version: v1alpha1
 version: "3"
