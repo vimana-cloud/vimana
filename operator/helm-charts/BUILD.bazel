@@ -7,8 +7,15 @@ pkg_filegroup(
         ":domain",
         ":files",
         ":service",
+        ":vimana",
     ],
     visibility = ["//operator:__pkg__"],
+)
+
+pkg_filegroup(
+    name = "vimana",
+    srcs = ["//operator/helm-charts/vimana"],
+    prefix = "vimana/",
 )
 
 pkg_filegroup(
