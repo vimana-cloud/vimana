@@ -2,4 +2,5 @@
 resources:
 - api_v1alpha1_domain.yaml
 - api_v1alpha1_service.yaml
+- api_v1alpha1_component.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

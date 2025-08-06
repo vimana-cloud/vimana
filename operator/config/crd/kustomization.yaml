@@ -4,4 +4,5 @@
 resources:
 - bases/api.vimana.host_domains.yaml
 - bases/api.vimana.host_services.yaml
+- bases/api.vimana.host_components.yaml
 # +kubebuilder:scaffold:crdkustomizeresource

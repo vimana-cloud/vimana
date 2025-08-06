@@ -7,4 +7,8 @@
   version: v1alpha1
   kind: Service
   chart: helm-charts/service
+- group: api.vimana.host
+  version: v1alpha1
+  kind: Component
+  chart: helm-charts/component
 # +kubebuilder:scaffold:watch
