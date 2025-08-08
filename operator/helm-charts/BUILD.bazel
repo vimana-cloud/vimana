@@ -1,46 +1,11 @@
-load("@rules_pkg//pkg:mappings.bzl", "pkg_filegroup", "pkg_files")
+load("//operator:build-tools.bzl", "pkg_directory")
 
-pkg_filegroup(
+pkg_directory(
     name = "helm-charts",
-    srcs = [
-        ":component",
-        ":domain",
-        ":files",
-        ":service",
-        ":vimana",
+    subdirectories = [
+        "component",
+        "domain",
+        "server",
+        "vimana",
     ],
-    visibility = ["//operator:__pkg__"],
-)
-
-pkg_filegroup(
-    name = "vimana",
-    srcs = ["//operator/helm-charts/vimana"],
-    prefix = "vimana/",
-)
-
-pkg_filegroup(
-    name = "domain",
-    srcs = ["//operator/helm-charts/domain"],
-    prefix = "domain/",
-)
-
-pkg_filegroup(
-    name = "service",
-    srcs = ["//operator/helm-charts/service"],
-    prefix = "service/",
-)
-
-pkg_filegroup(
-    name = "component",
-    srcs = ["//operator/helm-charts/component"],
-    prefix = "component/",
-)
-
-pkg_files(
-    name = "files",
-    srcs = glob(
-        ["*"],
-        allow_empty = True,
-        exclude = ["BUILD.bazel"],
-    ),
 )

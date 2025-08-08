@@ -22,7 +22,7 @@ resources:
     namespaced: true
   domain: vimana.host
   group: api
-  kind: Service
+  kind: Server
   version: v1alpha1
 - api:
     crdVersion: v1

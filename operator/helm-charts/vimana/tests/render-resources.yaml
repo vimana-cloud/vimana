@@ -1,0 +1,28 @@
+apiVersion: api.vimana.host/v1alpha1
+kind: Vimana
+metadata:
+  name: 'the-vimana'
+spec:
+  registry: "regsitry.com"
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Domain
+metadata:
+  name: 'foo'
+  labels:
+    vimana.host/domain: '00000000000000000000000000000001'
+spec:
+  id: '00000000000000000000000000000001'
+  aliases:
+    - 'something.else.com'
+    - 'and.another.one.of.these.party'
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Domain
+metadata:
+  name: 'bar'
+  labels:
+    vimana.host/domain: 'f0000000000000000000000000000002'
+spec:
+  id: 'f0000000000000000000000000000002'
+  aliases: []

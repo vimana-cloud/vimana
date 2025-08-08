@@ -1,0 +1,58 @@
+apiVersion: api.vimana.host/v1alpha1
+kind: Domain
+metadata:
+  name: 'the-domain'
+  labels:
+    vimana.host/domain: '01234567890123456789012345678901'
+spec:
+  id: "01234567890123456789012345678901"
+  aliases:
+    - "fersher.com"
+    - "some.thing.longer.than.fersher.com"
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Server
+metadata:
+  name: 'foo'
+  labels:
+    vimana.host/domain: '01234567890123456789012345678901'
+    vimana.host/server: 'some-server'
+spec:
+  id: 'some-server'
+  services:
+    - "the.packaged.ServiceService"
+    - "another.Service"
+  versionWeights:
+    "1.0.0": 12.5
+    "1.0.1": 100
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Component
+metadata:
+  name: 'foo-1'
+  labels:
+    vimana.host/domain: '01234567890123456789012345678901'
+    vimana.host/server: 'some-server'
+    vimana.host/version: '1.0.0'
+spec: {}
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Component
+metadata:
+  name: 'foo-2'
+  labels:
+    vimana.host/domain: '01234567890123456789012345678901'
+    vimana.host/server: 'some-server'
+    vimana.host/version: '1.0.1'
+spec: {}
+---
+# This version is no longer weighted by the server.
+apiVersion: api.vimana.host/v1alpha1
+kind: Component
+metadata:
+  name: 'foo-3'
+  labels:
+    vimana.host/domain: '01234567890123456789012345678901'
+    vimana.host/server: 'some-server'
+    vimana.host/version: '1.0.0-alpha'
+spec: {}

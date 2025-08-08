@@ -28,9 +28,9 @@ resources:
 - component_admin_role.yaml
 - component_editor_role.yaml
 - component_viewer_role.yaml
-- service_admin_role.yaml
-- service_editor_role.yaml
-- service_viewer_role.yaml
+- server_admin_role.yaml
+- server_editor_role.yaml
+- server_viewer_role.yaml
 - domain_admin_role.yaml
 - domain_editor_role.yaml
 - domain_viewer_role.yaml

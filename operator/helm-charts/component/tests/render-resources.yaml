@@ -1,0 +1,19 @@
+apiVersion: api.vimana.host/v1alpha1
+kind: Vimana
+metadata:
+  name: vimana
+spec:
+  registry: "regsitry.com"
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Component
+metadata:
+  name: 'the-component'
+  labels:
+    vimana.host/domain: '01234567890123456789012345678901'
+    vimana.host/server: 'some-server'
+    vimana.host/version: '1.0.0'
+spec:
+  domainId: '01234567890123456789012345678901'
+  serverId: 'some-server'
+  version: '1.0.0'

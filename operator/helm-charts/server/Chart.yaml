@@ -1,7 +1,7 @@
 apiVersion: v2
 appVersion: 1.16.0
 description: |
-  A Vimana domain resource.
-name: domain
+  A Vimana server resource.
+name: server
 type: application
 version: 0.1.0

@@ -1,0 +1,32 @@
+---
+# Source: domain/templates/grpc-route.yaml
+kind: GRPCRoute
+apiVersion: gateway.networking.k8s.io/v1
+metadata:
+  name: "01234567890123456789012345678901"
+  labels:
+    vimana.host/domain: "01234567890123456789012345678901"
+spec:
+  parentRefs:
+    - name: vimana-gateway
+  hostnames:
+    - "01234567890123456789012345678901.app.vimana.host"
+    - "fersher.com"
+    - "some.thing.longer.than.fersher.com"
+  rules:
+    - matches:
+        - method:
+            service: "the.packaged.ServiceService"
+            type: Exact
+        - method:
+            service: "another.Service"
+            type: Exact
+      backendRefs:
+        - name: "s-f8afcfbab1b83210d0363fbdcf7d7bad42c699a7b5e4ac6b"
+          kind: Service
+          port: 80
+          weight: 12.5
+        - name: "s-e5f248f437974f34afab470c7e807e0edb4e75f5328ab7cc"
+          kind: Service
+          port: 80
+          weight: 100

@@ -1,0 +1,60 @@
+---
+# Source: vimana/templates/gateway.yaml
+kind: Gateway
+apiVersion: gateway.networking.k8s.io/v1
+metadata:
+  name: vimana-gateway
+spec:
+  gatewayClassName: envoy-gateway
+  listeners:
+    - name: "l-557d6e8435092f8c0b5117bd6a1eb59070a82e27131763ae"
+      protocol: HTTPS
+      port: 443
+      hostname: "00000000000000000000000000000001.app.vimana.host"
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: "c-557d6e8435092f8c0b5117bd6a1eb59070a82e27131763ae"
+      allowedRoutes:
+        kinds:
+          - kind: GRPCRoute
+    - name: "l-9fd647eefbc9fe335bbeeef1d4620dd42c3a6103354d41d7"
+      protocol: HTTPS
+      port: 443
+      hostname: "something.else.com"
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: "c-9fd647eefbc9fe335bbeeef1d4620dd42c3a6103354d41d7"
+      allowedRoutes:
+        kinds:
+          - kind: GRPCRoute
+    - name: "l-6b55458ffcc9468c3c91ad3a66b4d2fd99ea22928a8e67e0"
+      protocol: HTTPS
+      port: 443
+      hostname: "and.another.one.of.these.party"
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: "c-6b55458ffcc9468c3c91ad3a66b4d2fd99ea22928a8e67e0"
+      allowedRoutes:
+        kinds:
+          - kind: GRPCRoute
+    - name: "l-aaea68e3645a390fb78b68a9f019477035357f2b5c3503ce"
+      protocol: HTTPS
+      port: 443
+      hostname: "f0000000000000000000000000000002.app.vimana.host"
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: "c-aaea68e3645a390fb78b68a9f019477035357f2b5c3503ce"
+      allowedRoutes:
+        kinds:
+          - kind: GRPCRoute
+---
+# Source: vimana/templates/runtime-class.yaml
+kind: RuntimeClass
+apiVersion: node.k8s.io/v1
+metadata:
+  name: workd-runtime
+handler: workd-handler

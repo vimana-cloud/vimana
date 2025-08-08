@@ -1,0 +1,11 @@
+# Default spec for server resources.
+
+# Unique server ID.
+id: ""
+
+# Set of fully-qualified service names served by this server.
+# No servers within a domain may have overlapping service names.
+services: []
+
+# Map from version strings to traffic weights (numbers).
+versionWeights: {}

@@ -1,7 +1,7 @@
 load("//operator:build-tools.bzl", "pkg_directory")
 
 pkg_directory(
-    name = "vimana",
+    name = "server",
     subdirectories = ["templates"],
     visibility = [":__subpackages__"],
 )

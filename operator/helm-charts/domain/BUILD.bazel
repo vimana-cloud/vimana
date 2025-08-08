@@ -1,25 +1,7 @@
-load("@rules_pkg//pkg:mappings.bzl", "pkg_filegroup", "pkg_files")
+load("//operator:build-tools.bzl", "pkg_directory")
 
-pkg_filegroup(
+pkg_directory(
     name = "domain",
-    srcs = [
-        ":files",
-        ":templates",
-    ],
-    visibility = ["//operator/helm-charts:__pkg__"],
-)
-
-pkg_filegroup(
-    name = "templates",
-    srcs = ["//operator/helm-charts/domain/templates"],
-    prefix = "templates/",
-)
-
-pkg_files(
-    name = "files",
-    srcs = glob(
-        ["*"],
-        allow_empty = True,
-        exclude = ["BUILD.bazel"],
-    ),
+    subdirectories = ["templates"],
+    visibility = [":__subpackages__"],
 )

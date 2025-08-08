@@ -1,78 +1,29 @@
-apiVersion: apps/v1
 kind: Deployment
+apiVersion: apps/v1
 metadata:
-  name: {{ include "component.fullname" . }}
+  name: d-78c895e3c4aa28e1516b348cc497dc620d30f6753c3298b0d1c2ae04
   labels:
-    {{- include "component.labels" . | nindent 4 }}
+    vimana.host/domain: {{ quote .Values.domainId  }}
+    vimana.host/server: {{ quote .Values.serverId  }}
+    vimana.host/version: {{ quote .Values.version  }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.replicaCount }}
-  {{- end }}
+  replicas: 1
   selector:
     matchLabels:
-      {{- include "component.selectorLabels" . | nindent 6 }}
+      vimana.host/domain: {{ quote .Values.domainId  }}
+      vimana.host/server: {{ quote .Values.serverId  }}
+      vimana.host/version: {{ quote .Values.version  }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       labels:
-        {{- include "component.labels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
+        vimana.host/domain: {{ quote .Values.domainId  }}
+        vimana.host/server: {{ quote .Values.serverId  }}
+        vimana.host/version: {{ quote .Values.version  }}
     spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      serviceAccountName: {{ include "component.serviceAccountName" . }}
-      {{- with .Values.podSecurityContext }}
-      securityContext:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      runtimeClassName: workd-runtime
+      serviceAccountName: ''{{/* TODO: Is this necessary? */}}
       containers:
-        - name: {{ .Chart.Name }}
-          {{- with .Values.securityContext }}
-          securityContext:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
-              protocol: TCP
-          {{- with .Values.livenessProbe }}
-          livenessProbe:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with .Values.readinessProbe }}
-          readinessProbe:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with .Values.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with .Values.volumeMounts }}
-          volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- with .Values.volumes }}
-      volumes:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      - name: grpc
+        image: {{ printf "%s/%s/%s:%s" (lookup "api.vimana.host/v1alpha1" "Vimana" .Release.Namespace "vimana").spec.registry .Values.domainId .Values.serverId .Values.version }}
+        env: []
+        imagePullPolicy: Always{{/* TODO: This is necessary for bootstrapped resources (for local testing), but not "normal" resources */}}

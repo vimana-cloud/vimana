@@ -1,25 +1,3 @@
-load("@rules_pkg//pkg:mappings.bzl", "pkg_filegroup", "pkg_files")
+load("//operator:build-tools.bzl", "pkg_directory")
 
-pkg_filegroup(
-    name = "templates",
-    srcs = [
-        ":files",
-        ":tests",
-    ],
-    visibility = ["//operator/helm-charts/vimana:__pkg__"],
-)
-
-pkg_filegroup(
-    name = "tests",
-    srcs = ["//operator/helm-charts/vimana/templates/tests"],
-    prefix = "tests/",
-)
-
-pkg_files(
-    name = "files",
-    srcs = glob(
-        ["*"],
-        allow_empty = True,
-        exclude = ["BUILD.bazel"],
-    ),
-)
+pkg_directory(name = "templates")

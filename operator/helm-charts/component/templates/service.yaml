@@ -1,15 +1,17 @@
-apiVersion: v1
 kind: Service
+apiVersion: v1
 metadata:
-  name: {{ include "component.fullname" . }}
+  name: s-78c895e3c4aa28e1516b348cc497dc620d30f6753c3298b0d1c2ae04
   labels:
-    {{- include "component.labels" . | nindent 4 }}
+    vimana.host/domain: {{ .Values.domainId | quote }}
+    vimana.host/server: {{ .Values.serverId | quote }}
+    vimana.host/version: {{ .Values.version | quote }}
 spec:
-  type: {{ .Values.service.type }}
   ports:
-    - port: {{ .Values.service.port }}
-      targetPort: http
-      protocol: TCP
-      name: http
+  - name: grpc
+    port: 80
+    appProtocol: kubernetes.io/h2c{{/* TODO: Encrypt traffic in transit (possibly with something like Istio ambient mode?) */}}
   selector:
-    {{- include "component.selectorLabels" . | nindent 4 }}
+    vimana.host/domain: {{ quote .Values.domainId  }}
+    vimana.host/server: {{ quote .Values.serverId  }}
+    vimana.host/version: {{ quote .Values.version  }}

@@ -1,0 +1,39 @@
+kind: Gateway
+apiVersion: gateway.networking.k8s.io/v1
+metadata:
+  name: vimana-gateway
+spec:
+  gatewayClassName: envoy-gateway
+{{- $domains := (lookup "api.vimana.host/v1alpha1" "Domain" .Release.Namespace "").items }}
+{{- if (and (kindIs "slice" $domains) (gt (len $domains) 0)) }}
+  listeners:
+{{- range $domains }}
+{{- $canonical := (printf "%s.app.vimana.host" .spec.id) }}
+{{- $hash := (sha256sum $canonical | substr 0 48) }}
+    - name: {{ printf "l-%s" $hash | quote }}
+      protocol: HTTPS
+      port: 443
+      hostname: {{ $canonical | quote }}
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: {{ printf "c-%s" $hash | quote }}
+      allowedRoutes:
+        kinds:
+          - kind: GRPCRoute
+{{- range .spec.aliases }}
+{{- $hash := (sha256sum . | substr 0 48) }}
+    - name: {{ printf "l-%s" $hash | quote }}
+      protocol: HTTPS
+      port: 443
+      hostname: {{ . | quote }}
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: {{ printf "c-%s" $hash | quote }}
+      allowedRoutes:
+        kinds:
+          - kind: GRPCRoute
+{{- end -}}
+{{- end -}}
+{{- end -}}

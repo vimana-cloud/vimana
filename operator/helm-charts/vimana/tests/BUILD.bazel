@@ -1,0 +1,9 @@
+load("//operator:build-tools.bzl", "helm_template_test")
+
+helm_template_test(
+    name = "render-test",
+    chart = "//operator/helm-charts/vimana",
+    expected = "render-expected.yaml",
+    resources = "render-resources.yaml",
+    target = "the-vimana",
+)

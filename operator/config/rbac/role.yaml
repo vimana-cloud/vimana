@@ -81,14 +81,14 @@ rules:
   - watch
 
 ##
-## Rules for api.vimana.host/v1alpha1, Kind: Service
+## Rules for api.vimana.host/v1alpha1, Kind: Server
 ##
 - apiGroups:
   - api.vimana.host
   resources:
-  - services
-  - services/status
-  - services/finalizers
+  - servers
+  - servers/status
+  - servers/finalizers
   verbs:
   - create
   - delete

@@ -5,8 +5,8 @@
   chart: helm-charts/domain
 - group: api.vimana.host
   version: v1alpha1
-  kind: Service
-  chart: helm-charts/service
+  kind: Server
+  chart: helm-charts/server
 - group: api.vimana.host
   version: v1alpha1
   kind: Component
