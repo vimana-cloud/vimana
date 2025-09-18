@@ -375,13 +375,13 @@ use_repo(pip, "pypi")
 
 oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 
-# Distroless base for the API server image.
-# TODO: Delete this once the API is built to Wasm.
-# https://console.cloud.google.com/artifacts/docker/distroless/us/gcr.io/base
+# Distroless base for the operator image.
+# https://console.cloud.google.com/artifacts/docker/distroless/us/gcr.io/static
 oci.pull(
-    name = "distroless-base",
-    digest = "sha256:8fe31fb9d159141d9c3ff99f1fd287239d89d97ea95fea1f08f82ea5f2b544da",
-    image = "gcr.io/distroless/base",
+    name = "distroless-static",
+    # `nonroot` tag
+    digest = "sha256:e8a4044e0b4ae4257efa45fc026c0bc30ad320d43bd4c1a7d5271bd241e386d0",
+    image = "gcr.io/distroless/static",
     platforms = ["linux/amd64"],
 )
 
@@ -393,19 +393,10 @@ oci.pull(
     platforms = ["linux/amd64"],
 )
 
-# Helm operator base image for the Vimana operator.
-# Should match the version of the helm operator binary from rules_k8s.
-oci.pull(
-    name = "helm-operator",
-    image = "quay.io/operator-framework/helm-operator@sha256:289903c9eab9d28afa76c20ef6367e6f98e08c9bae73b309e37520f02b6175ee",
-    platforms = ["linux/amd64"],
-)
 use_repo(
     oci,
-    "distroless-base",
-    "distroless-base_linux_amd64",
-    "helm-operator",
-    "helm-operator_linux_amd64",
+    "distroless-static",
+    "distroless-static_linux_amd64",
     "kicbase",
     "kicbase_linux_amd64",
 )

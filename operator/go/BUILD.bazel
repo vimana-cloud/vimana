@@ -1,0 +1,45 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+
+local_registry = "localhost:5000"
+
+operator_image_name = "vimana-operator"
+
+latest_tag = "latest"
+
+# Equivalent of `make docker-build` in a normal Operator SDK project.
+oci_image(
+    name = "image",
+    base = "@distroless-static",
+    entrypoint = ":image-entrypoint",
+    tars = [":image-tar"],
+    user = "65532:65532",
+    workdir = "/",
+)
+
+# Equivalent of `make docker-push` in a normal Operator SDK project.
+oci_push(
+    name = "image-push-local",
+    image = ":image",
+    remote_tags = [latest_tag],
+    repository = local_registry + "/" + operator_image_name,
+    visibility = ["//dev/minikube:__pkg__"],
+)
+
+oci_load(
+    name = "image-load",
+    image = ":image",
+    repo_tags = [operator_image_name + ":" + latest_tag],
+)
+
+pkg_tar(
+    name = "image-tar",
+    srcs = ["//operator/go/cmd"],
+)
+
+write_file(
+    name = "image-entrypoint",
+    out = "image-entrypoint.txt",
+    content = ["/manager"],  # Operator SDK convention.
+)

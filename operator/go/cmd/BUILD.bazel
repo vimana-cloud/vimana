@@ -22,6 +22,7 @@ go_library(
 
 go_binary(
     name = "cmd",
+    basename = "manager",  # Operator SDK convention.
     embed = [":cmd_lib"],
     visibility = ["//visibility:public"],
 )
