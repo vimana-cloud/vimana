@@ -1,5 +1,5 @@
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
-load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_go//go:def.bzl", "go_library")
 load("@rules_go//proto:def.bzl", "go_proto_library")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
@@ -7,20 +7,6 @@ load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 exports_files(
     ["deploy.yaml"],
     visibility = ["//visibility:public"],
-)
-
-go_binary(
-    name = "server",
-    srcs = ["server.go"],
-    deps = [
-        ":domains-proto-go",
-        ":service",
-        "@io_k8s_client_go//kubernetes",
-        "@io_k8s_client_go//rest",
-        "@org_golang_google_grpc//:grpc",
-        "@org_golang_google_grpc//reflection",
-        "@org_uber_go_zap//:zap",
-    ],
 )
 
 go_library(
@@ -99,4 +85,19 @@ oci_push(
     remote_tags = ["latest"],
     repository = "localhost:5000/vimana-api-v1",
     visibility = ["//e2e:__pkg__"],
+)
+
+go_library(
+    name = "api",
+    srcs = [
+        "domains.go",
+        "service.go",
+    ],
+    importpath = "vimana.host/api/v1",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":domains-proto-go",
+        "@io_k8s_client_go//kubernetes",
+        "@org_uber_go_zap//:zap",
+    ],
 )

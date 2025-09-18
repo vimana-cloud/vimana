@@ -1,0 +1,11 @@
+--- proto/client/BUILD.bazel
++++ proto/client/BUILD.bazel
+@@ -11,7 +11,7 @@ proto_library(
+ 
+ go_proto_library(
+     name = "client_go_proto",
+-    compilers = ["@io_bazel_rules_go//proto:go_grpc_v2"],
++    compilers = ["@io_bazel_rules_go//proto:go_proto", "@io_bazel_rules_go//proto:go_grpc_v2"],
+     importpath = "sigs.k8s.io/apiserver-network-proxy/konnectivity-client/proto/client",
+     proto = ":client_proto",
+     visibility = ["//visibility:public"],

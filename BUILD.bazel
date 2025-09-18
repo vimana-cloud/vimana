@@ -1,6 +1,17 @@
+load("@gazelle//:def.bzl", "gazelle", "gazelle_test")
 load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 load("@rules_rust//rust:defs.bzl", "rust_library_group")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_toolchain")
+
+# gazelle:prefix vimana.host
+# gazelle:exclude work
+gazelle(name = "gazelle")
+
+# Verify that all BUILD files are up to date.
+gazelle_test(
+    name = "gazelle_test",
+    workspace = "//:BUILD.bazel",  # Marker file indicating workspace root.
+)
 
 compile_pip_requirements(
     name = "requirements",
