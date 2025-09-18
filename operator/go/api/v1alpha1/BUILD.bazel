@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "v1alpha1",
+    srcs = [
+        "component_types.go",
+        "domain_types.go",
+        "groupversion_info.go",
+        "server_types.go",
+        "vimana_types.go",
+        "zz_generated.deepcopy.go",
+    ],
+    importpath = "vimana.host/operator/go/api/v1alpha1",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
+        "@io_k8s_apimachinery//pkg/runtime",
+        "@io_k8s_apimachinery//pkg/runtime/schema",
+        "@io_k8s_sigs_controller_runtime//pkg/scheme",
+    ],
+)
