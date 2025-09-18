@@ -22,6 +22,8 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the Project itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- domain_editor_role.yaml
+- domain_viewer_role.yaml
 - vimana_editor_role.yaml
 - vimana_viewer_role.yaml
 
