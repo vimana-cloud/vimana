@@ -25,7 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"vimana.host/operator/test/utils"
+	"vimana.host/operator/go/test/utils"
 )
 
 var (

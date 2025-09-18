@@ -7,6 +7,7 @@ go_test(
         "e2e_test.go",
     ],
     deps = [
+        "//operator/go/test/utils",
         "@com_github_onsi_ginkgo_v2//:ginkgo",
         "@com_github_onsi_gomega//:gomega",
     ],
