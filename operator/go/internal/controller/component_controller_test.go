@@ -27,7 +27,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	apiv1alpha1 "vimana.host/operator/api/v1alpha1"
+	apiv1alpha1 "vimana.host/operator/go/api/v1alpha1"
 )
 
 var _ = Describe("Component Controller", func() {
