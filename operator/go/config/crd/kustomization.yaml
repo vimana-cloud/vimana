@@ -5,6 +5,7 @@ resources:
 - bases/api.vimana.host_vimanas.yaml
 - bases/api.vimana.host_domains.yaml
 - bases/api.vimana.host_servers.yaml
+- bases/api.vimana.host_components.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
@@ -17,6 +18,7 @@ patches:
 #- path: patches/cainjection_in_vimanas.yaml
 #- path: patches/cainjection_in_domains.yaml
 #- path: patches/cainjection_in_servers.yaml
+#- path: patches/cainjection_in_components.yaml
 # +kubebuilder:scaffold:crdkustomizecainjectionpatch
 
 # [WEBHOOK] To enable webhook, uncomment the following section

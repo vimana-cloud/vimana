@@ -38,4 +38,13 @@ resources:
   kind: Server
   path: vimana.host/operator/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: vimana.host
+  group: api
+  kind: Component
+  path: vimana.host/operator/api/v1alpha1
+  version: v1alpha1
 version: "3"
