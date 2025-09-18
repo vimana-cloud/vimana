@@ -1,0 +1,23 @@
+# permissions for end users to view servers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: vimana-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: server-viewer-role
+rules:
+- apiGroups:
+  - api.vimana.host
+  resources:
+  - servers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - api.vimana.host
+  resources:
+  - servers/status
+  verbs:
+  - get
