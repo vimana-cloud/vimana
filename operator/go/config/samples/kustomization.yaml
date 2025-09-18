@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- api_v1alpha1_vimana.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

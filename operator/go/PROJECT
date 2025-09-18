@@ -10,4 +10,14 @@ plugins:
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: vimana-operator
 repo: vimana.host/operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: vimana.host
+  group: api
+  kind: Vimana
+  path: vimana.host/operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

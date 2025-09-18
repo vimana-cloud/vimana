@@ -1,0 +1,9 @@
+apiVersion: api.vimana.host/v1alpha1
+kind: Vimana
+metadata:
+  labels:
+    app.kubernetes.io/name: vimana-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: vimana-sample
+spec:
+  # TODO(user): Add fields here
