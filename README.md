@@ -45,7 +45,7 @@ that make building or testing certain things directly on a Mac impractical:
 
 To work around this, any Bazel command can be run in a persistent container
 dedicated to the current Git worktree.
-Simply use the built-in [`bazel-docker`] script
+Use the built-in [`bazel-docker`] script
 (which is available automatically after enabling [`direnv`] &mdash; see [tools])
 as a drop-in replacement for `bazel`, *e.g.*
 
@@ -73,10 +73,9 @@ bazel-docker test //work/runtime/tests/...
 
 ### Tools
 
-Most of the major tools you need to work with Vimana are included &mdash;
-no installation required.
-Just install [`direnv`]
-to automatically set up convenient [tool aliases]
+Most of the major tools you need to work with Vimana
+are automatically sourced from official GitHub release binaries.
+Just install [`direnv`] to set up convenient [tool aliases]
 whenever you enter the repository directory in your shell.
 
 The following tool aliases are provided:
@@ -95,7 +94,7 @@ The following tool aliases are provided:
 [`direnv`]: https://direnv.net/
 [tool aliases]: .bin/
 
-## Commands To Know
+## Commands For You
 
 Run a local documentation server.
 This renders all the Markdown files in the repo using [VitePress].
@@ -130,9 +129,9 @@ The repository includes some VSCode workspace settings:
 - **A default test task:**<br />
   VSCode does not provide a keybinding to invoke it by default.
   You can configure one for [`workbench.action.tasks.test`].
-  This task runs all Bazel test rules
-  which would be built by the default build task,
-  or which have a direct dependency on such a rule (in any package).
+  This task runs all Bazel test rules (in any package)
+  which directly depend on a rule that's built by the default build task,
+  or which are themselves included in the default build.
 - A task to automatically generate a `rust-project.json` file based on the Bazel rules
   when the workspace is opened.
   This allows the recommended [rust-analyzer] extension
