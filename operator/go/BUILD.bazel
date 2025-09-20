@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("//dev:sh-in-place.bzl", "sh_in_place")
 
 local_registry = "localhost:5000"
 
@@ -24,13 +25,29 @@ oci_push(
     image = ":image",
     remote_tags = [latest_tag],
     repository = local_registry + "/" + operator_image_name,
-    visibility = ["//dev/minikube:__pkg__"],
 )
 
 oci_load(
     name = "image-load",
     image = ":image",
     repo_tags = [operator_image_name + ":" + latest_tag],
+)
+
+# Equivalent of `make manifests` in a normal Operator SDK project.
+# Running this command will mutate the source tree in-place!
+sh_in_place(
+    name = "manifests",
+    command = " ".join([
+        "\"$(location @rules_k8s//:controller-gen)\"",
+        "rbac:roleName=manager-role",
+        "crd",
+        "webhook",
+        "paths=\"./...\"",
+        "output:crd:artifacts:config=config/crd/bases",
+    ]),
+    data = [
+        "@rules_k8s//:controller-gen",
+    ],
 )
 
 pkg_tar(
