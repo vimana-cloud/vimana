@@ -4,7 +4,8 @@
 
 set -e
 
-# Map the root of the Git repository on the host to the same path inside the container.
+# Map the root of the Git repository on the host to the same path inside the container
+# so that any build errors include accurate absolute file paths.
 repository_root="$(git rev-parse --show-toplevel)"
 
 # Source Bash utilities relative to the root
@@ -32,8 +33,8 @@ then
 fi
 
 # Run the Bazel command from the same path inside the container
-# as the current working directory on the host.
-# This must be a subdirectory of the repository root.
+# as the current working directory on the host
+# so that relative references like `bazel build :lib` work.
 working_directory="$(pwd)"
 
 # Store build outputs in a directory called `_bazel__docker`
