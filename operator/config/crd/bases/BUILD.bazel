@@ -1,5 +1,11 @@
 filegroup(
     name = "bases",
-    srcs = glob(["*"]),
-    visibility = ["//operator/internal/controller:__pkg__"],
+    srcs = glob(
+        ["*"],
+        exclude = ["BUILD.bazel"],
+    ),
+    visibility = [
+        "//operator/config/crd:__pkg__",
+        "//operator/internal/controller:__pkg__",
+    ],
 )

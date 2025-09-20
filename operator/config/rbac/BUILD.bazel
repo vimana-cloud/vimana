@@ -1,0 +1,9 @@
+filegroup(
+    name = "rbac",
+    srcs = glob(
+        ["*"],
+        allow_empty = True,
+        exclude = ["BUILD.bazel"],
+    ),
+    visibility = ["//operator/config:__pkg__"],
+)

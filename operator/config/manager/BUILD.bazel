@@ -1,0 +1,9 @@
+filegroup(
+    name = "manager",
+    srcs = glob(
+        ["*"],
+        allow_empty = True,
+        exclude = ["BUILD.bazel"],
+    ),
+    visibility = ["//operator/config:__pkg__"],
+)

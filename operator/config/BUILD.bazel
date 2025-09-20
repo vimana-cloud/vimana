@@ -1,0 +1,19 @@
+filegroup(
+    name = "config",
+    srcs = [
+        "//operator/config/crd",
+        "//operator/config/default",
+        "//operator/config/manager",
+        "//operator/config/manifests",
+        "//operator/config/network-policy",
+        "//operator/config/prometheus",
+        "//operator/config/rbac",
+        "//operator/config/samples",
+        "//operator/config/scorecard",
+    ] + glob(
+        ["*"],
+        allow_empty = True,
+        exclude = ["BUILD.bazel"],
+    ),
+    visibility = ["//operator:__pkg__"],
+)

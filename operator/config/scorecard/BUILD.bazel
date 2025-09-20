@@ -1,0 +1,12 @@
+filegroup(
+    name = "scorecard",
+    srcs = [
+        "//operator/config/scorecard/bases",
+        "//operator/config/scorecard/patches",
+    ] + glob(
+        ["*"],
+        allow_empty = True,
+        exclude = ["BUILD.bazel"],
+    ),
+    visibility = ["//operator/config:__pkg__"],
+)

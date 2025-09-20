@@ -1,0 +1,9 @@
+filegroup(
+    name = "patches",
+    srcs = glob(
+        ["*"],
+        allow_empty = True,
+        exclude = ["BUILD.bazel"],
+    ),
+    visibility = ["//operator/config/scorecard:__pkg__"],
+)
