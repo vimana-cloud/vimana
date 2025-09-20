@@ -40,6 +40,7 @@ go_test(
     ],
     embed = [":controller"],
     deps = [
+        "//operator/go/api/v1alpha1",
         "@com_github_onsi_ginkgo_v2//:ginkgo",
         "@com_github_onsi_gomega//:gomega",
         "@io_k8s_apimachinery//pkg/api/errors",
