@@ -33,6 +33,17 @@ oci_load(
     repo_tags = [operator_image_name + ":" + latest_tag],
 )
 
+pkg_tar(
+    name = "image-tar",
+    srcs = ["//operator/go/cmd"],
+)
+
+write_file(
+    name = "image-entrypoint",
+    out = "image-entrypoint.txt",
+    content = ["/manager"],  # Operator SDK convention.
+)
+
 # Equivalent of `make manifests` in a normal Operator SDK project.
 # Running this command will mutate the source tree in-place!
 sh_in_place(
@@ -50,13 +61,16 @@ sh_in_place(
     ],
 )
 
-pkg_tar(
-    name = "image-tar",
-    srcs = ["//operator/go/cmd"],
-)
-
-write_file(
-    name = "image-entrypoint",
-    out = "image-entrypoint.txt",
-    content = ["/manager"],  # Operator SDK convention.
+# Equivalent of `make generate` in a normal Operator SDK project.
+# Running this command will mutate the source tree in-place!
+sh_in_place(
+    name = "generate",
+    command = " ".join([
+        "\"$(location @rules_k8s//:controller-gen)\"",
+        "object:headerFile='/dev/null'",
+        "paths=\"./...\"",
+    ]),
+    data = [
+        "@rules_k8s//:controller-gen",
+    ],
 )
