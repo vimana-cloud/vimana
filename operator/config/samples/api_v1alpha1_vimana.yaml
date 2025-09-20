@@ -1,6 +1,0 @@
-apiVersion: api.vimana.host/v1alpha1
-kind: Vimana
-metadata:
-  name: vimana-sample
-spec: {}
-  # Default values copied from <project_dir>/helm-charts/vimana/values.yaml

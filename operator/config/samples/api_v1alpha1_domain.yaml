@@ -1,8 +1,0 @@
-apiVersion: api.vimana.host/v1alpha1
-kind: Domain
-metadata:
-  name: domain-sample
-spec:
-  # Default values copied from <project_dir>/helm-charts/domain/values.yaml
-  id: ""
-  aliases: []
