@@ -37,8 +37,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	apiv1alpha1 "vimana.host/operator/go/api/v1alpha1"
-	"vimana.host/operator/go/internal/controller"
+	apiv1alpha1 "vimana.host/operator/api/v1alpha1"
+	"vimana.host/operator/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 

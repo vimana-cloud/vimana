@@ -24,29 +24,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	apiv1alpha1 "vimana.host/operator/go/api/v1alpha1"
+	apiv1alpha1 "vimana.host/operator/api/v1alpha1"
 )
 
-// VimanaReconciler reconciles a Vimana object
-type VimanaReconciler struct {
+// ComponentReconciler reconciles a Component object
+type ComponentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=api.vimana.host,resources=vimanas,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=api.vimana.host,resources=vimanas/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=api.vimana.host,resources=vimanas/finalizers,verbs=update
+// +kubebuilder:rbac:groups=api.vimana.host,resources=components,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=api.vimana.host,resources=components/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=api.vimana.host,resources=components/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the Vimana object against the actual cluster state, and then
+// the Component object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/reconcile
-func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
 	// TODO(user): your logic here
@@ -55,8 +55,8 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *VimanaReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&apiv1alpha1.Vimana{}).
+		For(&apiv1alpha1.Component{}).
 		Complete(r)
 }

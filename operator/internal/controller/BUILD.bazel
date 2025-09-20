@@ -9,10 +9,10 @@ go_library(
         "server_controller.go",
         "vimana_controller.go",
     ],
-    importpath = "vimana.host/operator/go/internal/controller",
-    visibility = ["//operator/go:__subpackages__"],
+    importpath = "vimana.host/operator/internal/controller",
+    visibility = ["//operator/cmd:__pkg__"],
     deps = [
-        "//operator/go/api/v1alpha1",
+        "//operator/api/v1alpha1",
         "@io_k8s_apimachinery//pkg/runtime",
         "@io_k8s_sigs_controller_runtime//:controller-runtime",
         "@io_k8s_sigs_controller_runtime//pkg/client",
@@ -36,11 +36,11 @@ go_test(
     data = [
         ":etcd-asset",
         ":kube-apiserver-asset",
-        "//operator/go/config/crd/bases",
+        "//operator/config/crd/bases",
     ],
     embed = [":controller"],
     deps = [
-        "//operator/go/api/v1alpha1",
+        "//operator/api/v1alpha1",
         "@com_github_onsi_ginkgo_v2//:ginkgo",
         "@com_github_onsi_gomega//:gomega",
         "@io_k8s_apimachinery//pkg/api/errors",

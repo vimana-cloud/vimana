@@ -27,10 +27,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	apiv1alpha1 "vimana.host/operator/go/api/v1alpha1"
+	apiv1alpha1 "vimana.host/operator/api/v1alpha1"
 )
 
-var _ = Describe("Component Controller", func() {
+var _ = Describe("Vimana Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
@@ -40,13 +40,13 @@ var _ = Describe("Component Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		component := &apiv1alpha1.Component{}
+		vimana := &apiv1alpha1.Vimana{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind Component")
-			err := k8sClient.Get(ctx, typeNamespacedName, component)
+			By("creating the custom resource for the Kind Vimana")
+			err := k8sClient.Get(ctx, typeNamespacedName, vimana)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &apiv1alpha1.Component{
+				resource := &apiv1alpha1.Vimana{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
@@ -59,16 +59,16 @@ var _ = Describe("Component Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &apiv1alpha1.Component{}
+			resource := &apiv1alpha1.Vimana{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Cleanup the specific resource instance Component")
+			By("Cleanup the specific resource instance Vimana")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &ComponentReconciler{
+			controllerReconciler := &VimanaReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}

@@ -35,7 +35,7 @@ oci_load(
 
 pkg_tar(
     name = "image-tar",
-    srcs = ["//operator/go/cmd"],
+    srcs = ["//operator/cmd"],
 )
 
 write_file(

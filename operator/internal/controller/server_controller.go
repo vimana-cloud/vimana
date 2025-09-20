@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	apiv1alpha1 "vimana.host/operator/go/api/v1alpha1"
+	apiv1alpha1 "vimana.host/operator/api/v1alpha1"
 )
 
 // ServerReconciler reconciles a Server object
