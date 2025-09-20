@@ -1,0 +1,5 @@
+filegroup(
+    name = "bases",
+    srcs = glob(["*"]),
+    visibility = ["//operator/go/internal/controller:__pkg__"],
+)

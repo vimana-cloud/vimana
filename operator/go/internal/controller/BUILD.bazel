@@ -1,3 +1,4 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
@@ -28,6 +29,15 @@ go_test(
         "suite_test.go",
         "vimana_controller_test.go",
     ],
+    # Disable ANSI-escaped output in the test log.
+    args = ["-ginkgo.no-color"],
+    # These dependencies would normally be downloaded by `setup-envtest`:
+    # https://pkg.go.dev/sigs.k8s.io/controller-runtime/tools/setup-envtest
+    data = [
+        ":etcd-asset",
+        ":kube-apiserver-asset",
+        "//operator/go/config/crd/bases",
+    ],
     embed = [":controller"],
     deps = [
         "@com_github_onsi_ginkgo_v2//:ginkgo",
@@ -43,4 +53,24 @@ go_test(
         "@io_k8s_sigs_controller_runtime//pkg/log/zap",
         "@io_k8s_sigs_controller_runtime//pkg/reconcile",
     ],
+)
+
+# Bazel adds the `.exe` suffix to all executable files (even on Linux),
+# but the controller runtime's `envtest` expects to find binaries without the suffix.
+# Use `copy_file` to rename them.
+
+copy_file(
+    name = "etcd-asset",
+    src = "@rules_k8s//:etcd",
+    out = "assets/etcd",
+    allow_symlink = True,
+    is_executable = True,
+)
+
+copy_file(
+    name = "kube-apiserver-asset",
+    src = "@rules_k8s//:kube-apiserver",
+    out = "assets/kube-apiserver",
+    allow_symlink = True,
+    is_executable = True,
 )
