@@ -24,7 +24,7 @@ case "$action" in
   build)
     # Read all direct reverse dependencies in the same package (directory) as the source file
     # into an array.
-    readarray -t targets < <("$bazel" query "same_pkg_direct_rdeps($path)")
+    readarray -t targets < <("$bazel" query --keep_going "same_pkg_direct_rdeps($path)")
 
     target_count=${#targets[@]}
     if (( target_count == 0 ))
@@ -40,7 +40,7 @@ case "$action" in
     # out of the union of the direct reverse dependencies
     # plus any target that directly depends on any of those.
     readarray -t targets < <( \
-      "$bazel" query \
+      "$bazel" query --keep_going \
         "tests(same_pkg_direct_rdeps($path) + rdeps(//..., same_pkg_direct_rdeps($path), 1))" \
     )
 
