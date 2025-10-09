@@ -31,13 +31,15 @@ def sh_in_place(name, command, data = None):
 
     # Partition the command into a non-overlapping and complete set of substrings
     # in two categories: variables (i.e. `$(...)` segments) and non-variables (everything else).
-    # There are always exactly one more non-variable segment than there are variable segments.
     #
-    # We're not actually going to iterate over every character in the command.
-    # That's just an upper bound.
-    # Starlark has no while loops; only iteration (but no generators or recursion).
+    # There are always at least one more non-variable segment than there are variable segments.
     if len(command) == 0:
         non_variables.append("")
+
+    # We're not actually going to iterate over every character in the command.
+    # That's just an upper bound; we should break out much earlier.
+    # Starlark has no while loops; only bounded iteration
+    # (but no generators or recursion).
     for _i in range(len(command)):
         start = command.find("$(", end)
         if start == -1:
@@ -46,18 +48,23 @@ def sh_in_place(name, command, data = None):
         non_variables.append(command[end:start])
         end = command.find(")", start) + 1
         if end == 0:
-            # Closing parenthesis not found.
+            # Closing parenthesis not found. Pass the rest through verbatim.
+            non_variables.append(command[start:])
             break
         variables.append(command[start:end])
 
     # Take the command segments and swap the variable ones out
-    # for references that look like e.g. `${__data_0}`.
+    # for references that look like e.g. `${__data_0}`,
+    # and interleave them back with the non-command segments in the original order.
     command_segments = [
         segment
         for i in range(len(variables))
         for segment in [non_variables[i], "${{__data_{}}}".format(i)]
     ]
-    command_segments.append(non_variables[-1])
+
+    # Usually there is exactly 1 more non-variable segment than there are variable segments,
+    # but there may be 2 more if there was a malformed Make variable.
+    command_segments.extend(non_variables[len(variables):])
 
     # The lines of the generated script.
     # Should look something like this:
@@ -66,7 +73,9 @@ def sh_in_place(name, command, data = None):
     #     __data_1="$(realpath "${2}")"
     #     cd "$BUILD_WORKING_DIRECTORY"/<caller>
     #     <command>
-    content = ["set -e"] + [
+    content = [
+        "set -e",
+    ] + [
         "__data_{}=\"$(realpath \"${{{}}}\")\"".format(i, i + 1)
         for i in range(len(variables))
     ] + [
