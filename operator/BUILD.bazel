@@ -75,31 +75,26 @@ kubectl_delete(
     srcs = [":deploy-resources"],
 )
 
-# Equivalent of `make manifests` in a normal Operator SDK project.
-# Running this command will mutate the source tree in-place!
-sh_in_place(
-    name = "manifests",
-    command = " ".join([
-        "\"$(location @rules_k8s//:controller-gen)\"",
-        "rbac:roleName=manager-role",
-        "crd",
-        "webhook",
-        "paths=\"./...\"",
-        "output:crd:artifacts:config=config/crd/bases",
-    ]),
-    data = [
-        "@rules_k8s//:controller-gen",
-    ],
-)
-
-# Equivalent of `make generate` in a normal Operator SDK project.
+# Equivalent of `make generate manifests` in a normal Operator SDK project.
 # Running this command will mutate the source tree in-place!
 sh_in_place(
     name = "generate",
-    command = " ".join([
-        "\"$(location @rules_k8s//:controller-gen)\"",
-        "object:headerFile='/dev/null'",
-        "paths=\"./...\"",
+    command = " && ".join([
+        # Equivalent of `make generate`.
+        " ".join([
+            "\"$(location @rules_k8s//:controller-gen)\"",
+            "object:headerFile='/dev/null'",
+            "paths=\"./...\"",
+        ]),
+        # Equivalent of `make manifests`.
+        " ".join([
+            "\"$(location @rules_k8s//:controller-gen)\"",
+            "rbac:roleName=manager-role",
+            "crd",
+            "webhook",
+            "paths=\"./...\"",
+            "output:crd:artifacts:config=config/crd/bases",
+        ]),
     ]),
     data = [
         "@rules_k8s//:controller-gen",
