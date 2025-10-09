@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	gwapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	apiv1alpha1 "vimana.host/operator/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
@@ -57,7 +58,12 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths: []string{
+			// Our custom CRDs being tested.
+			filepath.Join("..", "..", "config", "crd", "bases"),
+			// "Standard" API dependencies (the Gateway API).
+			"apis",
+		},
 		ErrorIfCRDPathMissing: true,
 		// Expect to find both the `etcd` and `kube-apiserver` binaries in this directory.
 		BinaryAssetsDirectory: "assets",
@@ -69,6 +75,11 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
+	// Add the pre-requisite Gateway API to the Scheme.
+	err = gwapi.Install(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Add our custom APIs to the Scheme.
 	err = apiv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 

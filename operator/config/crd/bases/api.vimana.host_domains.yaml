@@ -37,15 +37,66 @@ spec:
           metadata:
             type: object
           spec:
-            description: DomainSpec defines the desired state of Domain
+            description: DomainSpec defines the desired state of a Domain.
             properties:
-              foo:
-                description: Foo is an example field of Domain. Edit domain_types.go
-                  to remove/update
+              aliases:
+                description: List of alias domain names.
+                items:
+                  type: string
+                type: array
+              failover:
+                description: List of domain names to forward traffic to in case of
+                  an outage.
+                items:
+                  type: string
+                type: array
+              grpc:
+                description: gRPC-specific configuration for the domain.
+                properties:
+                  reflection:
+                    description: |-
+                      Enabling gRPC reflection
+                      serves the special `grpc.reflection.v1.ServerReflection` service
+                      which provides a spec of all the services reachable on that domain.
+                    properties:
+                      allBut:
+                        description: |-
+                          Enable reflection for every service except these full-named services.
+                          Incompatible with `noneBut`.
+                        items:
+                          type: string
+                        type: array
+                      noneBut:
+                        description: |-
+                          Only enable reflection for these full-named services.
+                          Incompatible with `allBut`.
+                          The default is empty (reflection never enabled).
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                type: object
+              id:
+                description: Unique ID of the domain, as a hex-encoded string.
                 type: string
+              openApi:
+                description: |-
+                  Provide an auto-generated OpenAPI Description at `/.well-known/schema.json`
+                  covering all the HTTP-transcoded methods of all the servers in the domain.
+                type: boolean
+              regions:
+                description: |-
+                  Subset of regions in which servers within this domain may run.
+                  If empty, they could run anywhere globally.
+                  Array of names.
+                items:
+                  type: string
+                type: array
+            required:
+            - id
             type: object
           status:
-            description: DomainStatus defines the observed state of Domain
+            description: DomainStatus defines the observed state of a Domain.
             type: object
         type: object
     served: true

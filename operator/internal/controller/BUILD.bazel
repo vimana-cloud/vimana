@@ -13,10 +13,18 @@ go_library(
     visibility = ["//operator/cmd:__pkg__"],
     deps = [
         "//operator/api/v1alpha1",
+        "@io_k8s_apimachinery//pkg/api/errors",
+        "@io_k8s_apimachinery//pkg/api/meta",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
         "@io_k8s_apimachinery//pkg/runtime",
+        "@io_k8s_apimachinery//pkg/types",
         "@io_k8s_sigs_controller_runtime//:controller-runtime",
         "@io_k8s_sigs_controller_runtime//pkg/client",
+        "@io_k8s_sigs_controller_runtime//pkg/handler",
         "@io_k8s_sigs_controller_runtime//pkg/log",
+        "@io_k8s_sigs_controller_runtime//pkg/reconcile",
+        "@io_k8s_sigs_gateway_api//apis/v1:apis",
+        "@io_k8s_utils//ptr",
     ],
 )
 
@@ -31,12 +39,14 @@ go_test(
     ],
     # Disable ANSI-escaped output in the test log.
     args = ["-ginkgo.no-color"],
-    # These dependencies would normally be downloaded by `setup-envtest`:
-    # https://pkg.go.dev/sigs.k8s.io/controller-runtime/tools/setup-envtest
     data = [
+        # These dependencies would normally be downloaded by `setup-envtest`:
+        # https://pkg.go.dev/sigs.k8s.io/controller-runtime/tools/setup-envtest
         ":etcd-asset",
         ":kube-apiserver-asset",
         "//operator/config/crd/bases",
+        # Need to manually install the Gateway API CRDs for the operators to function.
+        ":gateway-api",
     ],
     embed = [":controller"],
     deps = [
@@ -53,6 +63,7 @@ go_test(
         "@io_k8s_sigs_controller_runtime//pkg/log",
         "@io_k8s_sigs_controller_runtime//pkg/log/zap",
         "@io_k8s_sigs_controller_runtime//pkg/reconcile",
+        "@io_k8s_sigs_gateway_api//apis/v1:apis",
     ],
 )
 
@@ -63,6 +74,7 @@ go_test(
 copy_file(
     name = "etcd-asset",
     src = "@rules_k8s//:etcd",
+    # The test harness expects to find the `etcd` binary at this path.
     out = "assets/etcd",
     allow_symlink = True,
     is_executable = True,
@@ -71,7 +83,17 @@ copy_file(
 copy_file(
     name = "kube-apiserver-asset",
     src = "@rules_k8s//:kube-apiserver",
+    # The test harness expects to find the `kube-apiserver` binary at this path.
     out = "assets/kube-apiserver",
     allow_symlink = True,
     is_executable = True,
+)
+
+copy_file(
+    name = "gateway-api",
+    src = "@rules_k8s//:gateway-api",
+    # The test harness expects to find the Gateway API's CRD installation file
+    # under the parent `apis/`.
+    out = "apis/gateway.yaml",
+    allow_symlink = True,
 )

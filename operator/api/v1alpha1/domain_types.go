@@ -1,19 +1,3 @@
-/*
-Copyright 2025.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package v1alpha1
 
 import (
@@ -23,25 +7,66 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// DomainSpec defines the desired state of Domain
+// DomainSpec defines the desired state of a Domain.
 type DomainSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Important: Run `bazel run //operator:generate` to regenerate code
+	//   after modifying this file.
 
-	// Foo is an example field of Domain. Edit domain_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Unique ID of the domain, as a hex-encoded string.
+	Id string `json:"id"`
+
+	// List of alias domain names.
+	Aliases []string `json:"aliases,omitempty"`
+
+	// Subset of regions in which servers within this domain may run.
+	// If empty, they could run anywhere globally.
+	// Array of names.
+	Regions []string `json:"regions,omitempty"`
+
+	// List of domain names to forward traffic to in case of an outage.
+	Failover []string `json:"failover,omitempty"`
+
+	// gRPC-specific configuration for the domain.
+	Grpc *DomainGrpc `json:"grpc,omitempty"`
+
+	// Provide an auto-generated OpenAPI Description at `/.well-known/schema.json`
+	// covering all the HTTP-transcoded methods of all the servers in the domain.
+	OpenApi bool `json:"openApi,omitempty"`
 }
 
-// DomainStatus defines the observed state of Domain
+// DomainGrpc defines the desired state of the gRPC settings of a Domain.
+type DomainGrpc struct {
+	// Enabling gRPC reflection
+	// serves the special `grpc.reflection.v1.ServerReflection` service
+	// which provides a spec of all the services reachable on that domain.
+	Reflection *GrpcReflection `json:"reflection,omitempty"`
+}
+
+// GrpcReflection defines the desired state of the gRPC reflection settings of a Domain.
+type GrpcReflection struct {
+	// Only enable reflection for these full-named services.
+	// Incompatible with `allBut`.
+	// The default is empty (reflection never enabled).
+	NoneBut []string `json:"noneBut,omitempty"`
+	// Enable reflection for every service except these full-named services.
+	// Incompatible with `noneBut`.
+	AllBut []string `json:"allBut,omitempty"`
+}
+
+// DomainStatus defines the observed state of a Domain.
 type DomainStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Important: Run `bazel run //operator:generate` to regenerate code
+	//   after modifying this file.
+
+	// Status conditions of the Vimana instance.
+	// +operator-sdk:csv:customresourcedefinitions:type=status
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
 
 // Domain is the Schema for the domains API
+// +kubebuilder:subresource:status
 type Domain struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
