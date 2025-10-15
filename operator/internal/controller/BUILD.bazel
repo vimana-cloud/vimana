@@ -13,6 +13,9 @@ go_library(
     visibility = ["//operator/cmd:__pkg__"],
     deps = [
         "//operator/api/v1alpha1",
+        "@com_github_envoyproxy_gateway//api/v1alpha1",
+        "@io_k8s_api//node/v1:node",
+        "@io_k8s_apiextensions_apiserver//pkg/apis/apiextensions/v1:apiextensions",
         "@io_k8s_apimachinery//pkg/api/errors",
         "@io_k8s_apimachinery//pkg/api/meta",
         "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
@@ -40,19 +43,22 @@ go_test(
     # Disable ANSI-escaped output in the test log.
     args = ["-ginkgo.no-color"],
     data = [
-        # These dependencies would normally be downloaded by `setup-envtest`:
+        # `etcd` and `kube-apiserver` would be downloaded by `setup-envtest`
+        # in a "normal" (non-Bazel) Operator SDK project.
         # https://pkg.go.dev/sigs.k8s.io/controller-runtime/tools/setup-envtest
+        ":envoy-gateway-crds",
         ":etcd-asset",
+        ":gateway-api-crds",
         ":kube-apiserver-asset",
         "//operator/config/crd/bases",
-        # Need to manually install the Gateway API CRDs for the operators to function.
-        ":gateway-api",
     ],
     embed = [":controller"],
     deps = [
         "//operator/api/v1alpha1",
+        "@com_github_envoyproxy_gateway//api/v1alpha1",
         "@com_github_onsi_ginkgo_v2//:ginkgo",
         "@com_github_onsi_gomega//:gomega",
+        "@io_k8s_api//core/v1:core",
         "@io_k8s_apimachinery//pkg/api/errors",
         "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
         "@io_k8s_apimachinery//pkg/types",
@@ -64,17 +70,18 @@ go_test(
         "@io_k8s_sigs_controller_runtime//pkg/log/zap",
         "@io_k8s_sigs_controller_runtime//pkg/reconcile",
         "@io_k8s_sigs_gateway_api//apis/v1:apis",
+        "@io_k8s_utils//ptr",
     ],
 )
 
 # Bazel adds the `.exe` suffix to all executable files (even on Linux),
-# but the controller runtime's `envtest` expects to find binaries without the suffix.
+# but the controller runtime's `envtest` expects to find both binaries,
+# without the suffix, under the `assets/` subdirectory.
 # Use `copy_file` to rename them.
 
 copy_file(
     name = "etcd-asset",
     src = "@rules_k8s//:etcd",
-    # The test harness expects to find the `etcd` binary at this path.
     out = "assets/etcd",
     allow_symlink = True,
     is_executable = True,
@@ -83,17 +90,23 @@ copy_file(
 copy_file(
     name = "kube-apiserver-asset",
     src = "@rules_k8s//:kube-apiserver",
-    # The test harness expects to find the `kube-apiserver` binary at this path.
     out = "assets/kube-apiserver",
     allow_symlink = True,
     is_executable = True,
 )
 
+# The test harness expects to find all CRD installation files under the `apis/` subdirectory.
+
 copy_file(
-    name = "gateway-api",
-    src = "@rules_k8s//:gateway-api",
-    # The test harness expects to find the Gateway API's CRD installation file
-    # under the parent `apis/`.
-    out = "apis/gateway.yaml",
+    name = "gateway-api-crds",
+    src = "@rules_k8s//:gateway-api-crds",
+    out = "apis/gateway-api.yaml",
+    allow_symlink = True,
+)
+
+copy_file(
+    name = "envoy-gateway-crds",
+    src = "@rules_k8s//:envoy-gateway-crds",
+    out = "apis/envoy-gateway.yaml",
     allow_symlink = True,
 )

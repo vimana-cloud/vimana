@@ -24,6 +24,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	gwapi "sigs.k8s.io/gateway-api/apis/v1"
 
+	envoygateway "github.com/envoyproxy/gateway/api/v1alpha1"
 	apiv1alpha1 "vimana.host/operator/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -61,7 +64,7 @@ var _ = BeforeSuite(func() {
 		CRDDirectoryPaths: []string{
 			// Our custom CRDs being tested.
 			filepath.Join("..", "..", "config", "crd", "bases"),
-			// "Standard" API dependencies (the Gateway API).
+			// CRD dependencies (the Gateway API and Envoy Gateway).
 			"apis",
 		},
 		ErrorIfCRDPathMissing: true,
@@ -75,8 +78,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	// Add the pre-requisite Gateway API to the Scheme.
+	// Add the pre-requisite gateway APIs to the Scheme.
 	err = gwapi.Install(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = envoygateway.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// Add our custom APIs to the Scheme.
@@ -89,6 +94,15 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
+	// Create the envoy-gateway-system namespace that's expected to be used for all gateways.
+	// This is normally handled by the `--namespace=envoy-gateway-system --create-namespace` flags
+	// passed to `helm install envoy-gateway oci://docker.io/envoyproxy/gateway-helm`.
+	err = k8sClient.Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: gatewayNamespace,
+		},
+	})
+	Expect(err).NotTo(HaveOccurred())
 })
 
 var _ = AfterSuite(func() {

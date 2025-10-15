@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gwapi "sigs.k8s.io/gateway-api/apis/v1"
 
+	nodev1 "k8s.io/api/node/v1"
 	apiv1alpha1 "vimana.host/operator/api/v1alpha1"
 )
 
@@ -81,7 +82,7 @@ var _ = Describe("Vimana Controller", func() {
 				Name:      gatewayName(resourceName),
 				Namespace: namespace,
 			}, &gwapi.Gateway{})
-			Expect(err).NotTo(BeNil(), "Expected Gateway to not exist")
+			Expect(err).NotTo(BeNil(), "Expected Gateway to *not* exist")
 			Expect(errors.IsNotFound(err)).To(BeTrue(), err.Error())
 		})
 
@@ -106,13 +107,39 @@ var _ = Describe("Vimana Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, domain)).To(Succeed())
+			runtimeClass := &nodev1.RuntimeClass{}
+			gatewayClass := &gwapi.GatewayClass{}
+			gateway := &gwapi.Gateway{}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 
 			Expect(err).NotTo(HaveOccurred())
-			gateway := &gwapi.Gateway{}
+
+			err = k8sClient.Get(ctx, types.NamespacedName{
+				Name: runtimeClassName,
+			}, runtimeClass)
+			Expect(err).To(BeNil(), "Expected RuntimeClass to exist")
+			Expect(runtimeClass.ObjectMeta.OwnerReferences).To(BeNil(), "Expected RuntimeClass to have no owner")
+			Expect(runtimeClass.Handler).To(Equal(runtimeHandlerName))
+			err = k8sClient.Get(ctx, types.NamespacedName{
+				Name: gatewayClassName,
+			}, gatewayClass)
+			Expect(err).To(BeNil(), "Expected GatewayClass to exist")
+			Expect(gatewayClass.ObjectMeta.OwnerReferences).To(BeNil(), "Expected GatewayClass to have no owner")
+			Expect(gatewayClass.Spec).To(Equal(
+				gwapi.GatewayClassSpec{
+					ControllerName: "gateway.envoyproxy.io/gatewayclass-controller",
+					ParametersRef: &gwapi.ParametersReference{
+						Group:     "gateway.envoyproxy.io",
+						Kind:      "EnvoyProxy",
+						Name:      gatewayConfigName,
+						Namespace: (*gwapi.Namespace)(ptr.To(gatewayNamespace)),
+					},
+					Description: ptr.To("Vimana Gateway class"),
+				},
+			))
 			err = k8sClient.Get(ctx, types.NamespacedName{
 				Name:      gatewayName(resourceName),
 				Namespace: namespace,
@@ -140,7 +167,7 @@ var _ = Describe("Vimana Controller", func() {
 							Hostname: (*gwapi.Hostname)(ptr.To(domainId + ".app.vimana.host")),
 							Port:     443,
 							Protocol: "HTTPS",
-							TLS: &gwapi.ListenerTLSConfig{
+							TLS: &gwapi.GatewayTLSConfig{
 								Mode: (*gwapi.TLSModeType)(ptr.To("Terminate")),
 								CertificateRefs: []gwapi.SecretObjectReference{
 									{
@@ -170,7 +197,7 @@ var _ = Describe("Vimana Controller", func() {
 							Hostname: (*gwapi.Hostname)(ptr.To("example.com")),
 							Port:     443,
 							Protocol: "HTTPS",
-							TLS: &gwapi.ListenerTLSConfig{
+							TLS: &gwapi.GatewayTLSConfig{
 								Mode: (*gwapi.TLSModeType)(ptr.To("Terminate")),
 								CertificateRefs: []gwapi.SecretObjectReference{
 									{
@@ -200,7 +227,7 @@ var _ = Describe("Vimana Controller", func() {
 							Hostname: (*gwapi.Hostname)(ptr.To("foo.bar.whatsittoyouz.net")),
 							Port:     443,
 							Protocol: "HTTPS",
-							TLS: &gwapi.ListenerTLSConfig{
+							TLS: &gwapi.GatewayTLSConfig{
 								Mode: (*gwapi.TLSModeType)(ptr.To("Terminate")),
 								CertificateRefs: []gwapi.SecretObjectReference{
 									{
@@ -229,14 +256,14 @@ var _ = Describe("Vimana Controller", func() {
 					Addresses:        nil,
 					Infrastructure:   nil,
 					AllowedListeners: nil,
-					TLS:              nil,
-					DefaultScope:     "",
 				},
 			))
 		})
 	})
 })
 
+// Given the name of a Vimana resource,
+// return the name of the corresponding Gateway resource that would be created by the controller.
 func gatewayName(vimanaName string) string {
 	return vimanaName + ".gateway"
 }

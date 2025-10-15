@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"reflect"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -15,19 +18,57 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	envoygateway "github.com/envoyproxy/gateway/api/v1alpha1"
+	nodev1 "k8s.io/api/node/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	gwapi "sigs.k8s.io/gateway-api/apis/v1"
 	apiv1alpha1 "vimana.host/operator/api/v1alpha1"
 )
 
-// Definitions to manage status conditions
 const (
-	gatewayClassName = "envoy-gateway"
+	runtimeClassName   = "workd-runtime"
+	runtimeHandlerName = "workd-handler"
+	gatewayClassName   = "envoy-gateway"
+	gatewayConfigName  = "envoy-gateway-config"
+	gatewayNamespace   = "envoy-gateway-system"
 
 	// conditionTypeAvailable represents the steady-state existing status of a Vimana.
 	conditionTypeAvailable = "Available"
+)
+
+var (
+	// expectedRuntimeClass is the expected state
+	// of the globally shared RuntimeClass that identifies the `workd` runtime handler.
+	expectedRuntimeClass = &nodev1.RuntimeClass{
+		ObjectMeta: metav1.ObjectMeta{
+			// RuntimeClass is cluster-scoped (no namespace).
+			Name: runtimeClassName,
+		},
+		Handler: runtimeHandlerName,
+	}
+	// expectedGatewayClass is the expected state
+	// of the globally shared GatewayClass used by all Vimana Gateways.
+	// It's just Envoy Gateway.
+	expectedGatewayClass = &gwapi.GatewayClass{
+		ObjectMeta: metav1.ObjectMeta{
+			// GatewayClass is cluster-scoped (no namespace).
+			Name: gatewayClassName,
+		},
+		Spec: gwapi.GatewayClassSpec{
+			ControllerName: "gateway.envoyproxy.io/gatewayclass-controller",
+			// Points to a config resource that can be used to customize Envoy Gateway.
+			ParametersRef: &gwapi.ParametersReference{
+				Group:     "gateway.envoyproxy.io",
+				Kind:      "EnvoyProxy",
+				Name:      gatewayConfigName,
+				Namespace: (*gwapi.Namespace)(ptr.To(gatewayNamespace)),
+			},
+			Description: ptr.To("Vimana Gateway class"),
+		},
+	}
 )
 
 // VimanaReconciler reconciles a Vimana object.
@@ -36,33 +77,61 @@ type VimanaReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+// Return the expected state of the namespaced EnvoyProxy configuration
+// for the Vimana with the given name.
+func envoyProxyResource(name string) *envoygateway.EnvoyProxy {
+	// Specify a static name for the gateway service by patching the Envoy proxy configuration.
+	// https://github.com/envoyproxy/gateway/issues/2141
+	serializedName, _ := json.Marshal(name) // Serializing a string should always succeed.
+	var patchBuffer bytes.Buffer
+	fmt.Fprintf(&patchBuffer, "{\"metadata\":{\"name\":%s}}", serializedName)
+
+	// https://gateway.envoyproxy.io/docs/api/extension_types/#envoyproxy
+	return &envoygateway.EnvoyProxy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      gatewayConfigName,
+			Namespace: gatewayNamespace,
+		},
+		Spec: envoygateway.EnvoyProxySpec{
+			Provider: &envoygateway.EnvoyProxyProvider{
+				Type: envoygateway.ProviderTypeKubernetes,
+				Kubernetes: &envoygateway.EnvoyProxyKubernetesProvider{
+					EnvoyService: &envoygateway.KubernetesServiceSpec{
+						Patch: &envoygateway.KubernetesPatchSpec{
+							Value: apiextensionsv1.JSON{
+								Raw: patchBuffer.Bytes(),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 // +kubebuilder:rbac:groups=api.vimana.host,resources=vimanas,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=api.vimana.host,resources=vimanas/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=api.vimana.host,resources=vimanas/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Vimana object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/reconcile
 func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
-	// TODO: Somehow, it should be impossible for multiple to co-exist in a namespace.
+	// TODO: Somehow, it should be impossible for multiple Vimanas to co-exist in a namespace.
 
 	vimana := &apiv1alpha1.Vimana{}
 	err := r.Get(ctx, req.NamespacedName, vimana)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Info("Vimana not found, assumed deleted", "namespace", req.Namespace, "name", req.Name)
+			logger.Info("Vimana not found, assumed deleted", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{}, nil
 		}
 		// Error reading the object; re-enqueue the request.
-		log.Error(err, "Failed to get Vimana", "namespace", req.Namespace, "name", req.Name)
+		logger.Error(err, "Failed to get Vimana", "namespace", req.Namespace, "name", req.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -78,7 +147,7 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			},
 		)
 		if err = r.Status().Update(ctx, vimana); err != nil {
-			log.Error(err, "Failed to initialize Vimana status", "namespace", req.Namespace, "name", req.Name)
+			logger.Error(err, "Failed to initialize Vimana status", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{}, err
 		}
 
@@ -87,7 +156,77 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// but this can help avoid errors that say
 		// "the object has been modified, please apply your changes to the latest version and try again".
 		if err := r.Get(ctx, req.NamespacedName, vimana); err != nil {
-			log.Error(err, "Failed to re-get Vimana", "namespace", req.Namespace, "name", req.Name)
+			logger.Error(err, "Failed to re-get Vimana", "namespace", req.Namespace, "name", req.Name)
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Start by making sure that the Vimana runtime class exists.
+	// This is a constant cluster-scoped resource that can be shared across namespaces.
+	// Because of this potential for sharing, the Vimana resource is not added as an owner,
+	// and the runtime class can outlive the original Vimana resource that caused it to be created.
+	// It would have to be cleaned up manually if you ever wanted to get rid of it after creation.
+	actualRuntimeClass := &nodev1.RuntimeClass{}
+	if err := r.Get(ctx, types.NamespacedName{Name: runtimeClassName}, actualRuntimeClass); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Create it if it doesn't exist.
+			err = r.Create(ctx, expectedRuntimeClass)
+			if err != nil {
+				logger.Error(err, "Failed to create the RuntimeClass", "name", runtimeClassName)
+				return ctrl.Result{}, err
+			}
+		} else {
+			// Error reading the object; re-enqueue the request.
+			logger.Error(err, "Failed to get RuntimeClass", "name", runtimeClassName)
+			return ctrl.Result{}, err
+		}
+	}
+
+	// We also have a gateway class that is cluster-scoped
+	// and can similarly outlive it's creating Vimana.
+	actualGatewayClass := &gwapi.GatewayClass{}
+	if err := r.Get(ctx, types.NamespacedName{Name: gatewayClassName}, actualGatewayClass); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Create it if it doesn't exist.
+			err = r.Create(ctx, expectedGatewayClass)
+			if err != nil {
+				logger.Error(err, "Failed to create the GatewayClass", "name", gatewayClassName)
+				return ctrl.Result{}, err
+			}
+		} else {
+			// Error reading the object; re-enqueue the request.
+			logger.Error(err, "Failed to get GatewayClass", "name", gatewayClassName)
+			return ctrl.Result{}, err
+		}
+	}
+
+	gatewayName := vimana.Name + ".gateway"
+
+	// Also make sure that the EnvoyProxy config exists.
+	// This is namespace-scoped, but it always lives in the Gateway system namespace
+	// (it does *not* inherit the namespace of the Vimana resource that owns it)
+	// and has a name derived from the owner's name.
+	actualEnvoyProxy := &envoygateway.EnvoyProxy{}
+	expectedEnvoyProxy := envoyProxyResource(gatewayName)
+	envoyProxyName := types.NamespacedName{Name: expectedEnvoyProxy.Name, Namespace: expectedEnvoyProxy.Namespace}
+	if err := r.Get(ctx, envoyProxyName, actualEnvoyProxy); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Create it if it doesn't exist.
+			err = r.Create(ctx, expectedEnvoyProxy)
+			if err != nil {
+				logger.Error(err, "Failed to create the EnvoyProxy configuration", "name", gatewayConfigName)
+				return ctrl.Result{}, err
+			}
+		} else {
+			// Error reading the object; re-enqueue the request.
+			logger.Error(err, "Failed to get EnvoyProxy configuration", "name", gatewayConfigName)
+			return ctrl.Result{}, err
+		}
+	} else if !reflect.DeepEqual(actualEnvoyProxy.Spec, expectedEnvoyProxy.Spec) {
+		// Only update if we successfully got the resource and it differs from expected.
+		actualEnvoyProxy.Spec = expectedEnvoyProxy.Spec
+		if err = r.Update(ctx, actualEnvoyProxy); err != nil {
+			logger.Error(err, "Failed to update incorrect EnvoyProxy configuration", "name", gatewayConfigName)
 			return ctrl.Result{}, err
 		}
 	}
@@ -96,27 +235,26 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	domains := &apiv1alpha1.DomainList{}
 	err = r.List(ctx, domains, client.InNamespace(req.Namespace))
 	if err != nil {
-		log.Error(err, "Failed to list Domains", "namespace", req.Namespace)
+		logger.Error(err, "Failed to list Domains", "namespace", req.Namespace)
 		return ctrl.Result{}, err
 	}
 	if len(domains.Items) == 0 {
 		// A gateway requires at least 1 listener to be valid,
 		// If there are no domains, there are no listeners, and there can be no gateway.
 		// Make sure it does not exist.
-		gatewayName := vimana.Name + ".gateway"
 		actualGateway := &gwapi.Gateway{}
 		err = r.Get(ctx, types.NamespacedName{Name: gatewayName, Namespace: vimana.Namespace}, actualGateway)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				// The gateway does exist, but there was some other error.
-				log.Error(err, "Failed to look up the existing Gateway", "namespace", vimana.Namespace, "name", gatewayName)
+				logger.Error(err, "Failed to look up the existing Gateway", "namespace", vimana.Namespace, "name", gatewayName)
 				return ctrl.Result{}, err
 			}
 			// The gateway already does not exist. Continue.
 		} else {
 			// The gateway exists. Delete it.
 			if err = r.Delete(ctx, actualGateway); err != nil {
-				log.Error(err, "Failed to delete the existing Gateway", "namespace", vimana.Namespace, "name", gatewayName)
+				logger.Error(err, "Failed to delete the existing Gateway", "namespace", vimana.Namespace, "name", gatewayName)
 				return ctrl.Result{}, err
 			}
 		}
@@ -144,7 +282,7 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 		expectedGateway := &gwapi.Gateway{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      vimana.Name + ".gateway",
+				Name:      gatewayName,
 				Namespace: vimana.Namespace,
 			},
 			Spec: gwapi.GatewaySpec{
@@ -155,7 +293,7 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 		// Set the Vimana as the owner of the Gateway.
 		if err := ctrl.SetControllerReference(vimana, expectedGateway, r.Scheme); err != nil {
-			log.Error(err, "Failed to set owner reference for Gateway", "namespace", expectedGateway.Namespace, "name", expectedGateway.Name)
+			logger.Error(err, "Failed to set owner reference for Gateway", "namespace", expectedGateway.Namespace, "name", expectedGateway.Name)
 			return ctrl.Result{}, err
 		}
 
@@ -164,22 +302,22 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		err = r.Get(ctx, types.NamespacedName{Name: expectedGateway.Name, Namespace: expectedGateway.Namespace}, actualGateway)
 		if err != nil && apierrors.IsNotFound(err) {
 			// The gateway does not exist. Create it.
-			log.Info("Creating a new Gateway", "namespace", expectedGateway.Namespace, "name", expectedGateway.Name)
+			logger.Info("Creating a new Gateway", "namespace", expectedGateway.Namespace, "name", expectedGateway.Name)
 			err = r.Create(ctx, expectedGateway)
 			if err != nil {
-				log.Error(err, "Failed to create the new Gateway", "namespace", expectedGateway.Namespace, "name", expectedGateway.Name)
+				logger.Error(err, "Failed to create the new Gateway", "namespace", expectedGateway.Namespace, "name", expectedGateway.Name)
 				return ctrl.Result{}, err
 			}
 		} else if err != nil {
-			log.Error(err, "Failed to get the existing Gateway", "namespace", expectedGateway.Namespace, "name", expectedGateway.Name)
+			logger.Error(err, "Failed to get the existing Gateway", "namespace", expectedGateway.Namespace, "name", expectedGateway.Name)
 			return ctrl.Result{}, err
 		} else {
 			// Update the existing Gateway by overwriting it with the expected spec.
 			actualGateway.Spec = expectedGateway.Spec
-			log.Info("Updating existing Gateway", "namespace", actualGateway.Namespace, "name", actualGateway.Name)
+			logger.Info("Updating existing Gateway", "namespace", actualGateway.Namespace, "name", actualGateway.Name)
 			err = r.Update(ctx, actualGateway)
 			if err != nil {
-				log.Error(err, "Failed to update Gateway", "namespace", actualGateway.Namespace, "name", actualGateway.Name)
+				logger.Error(err, "Failed to update Gateway", "namespace", actualGateway.Namespace, "name", actualGateway.Name)
 				return ctrl.Result{}, err
 			}
 		}
@@ -202,7 +340,7 @@ func listener(domain string, namespace *gwapi.Namespace, allowedRoutes *gwapi.Al
 		Protocol: gwapi.HTTPSProtocolType,
 		Port:     443,
 		Hostname: (*gwapi.Hostname)(ptr.To(domain)),
-		TLS: &gwapi.ListenerTLSConfig{
+		TLS: &gwapi.GatewayTLSConfig{
 			CertificateRefs: []gwapi.SecretObjectReference{
 				{
 					Kind:      secretKind,
@@ -221,18 +359,31 @@ func (r *VimanaReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&apiv1alpha1.Vimana{}).
 		Watches(&apiv1alpha1.Domain{}, handler.EnqueueRequestsFromMapFunc(r.domainReconciliationRequest)).
 		Owns(&gwapi.Gateway{}).
+		Owns(&gwapi.GatewayClass{}).
 		Complete(r)
 }
 
 func (r *VimanaReconciler) domainReconciliationRequest(ctx context.Context, obj client.Object) []reconcile.Request {
-	log := logf.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
 	// If there is an existing Vimana in this namespace, reconcile it.
 	namespace := obj.(*apiv1alpha1.Domain).GetNamespace()
-	vimana, err := r.getSingleVimana(ctx, namespace)
+	vimanas := &apiv1alpha1.VimanaList{}
+	err := r.List(ctx, vimanas, client.InNamespace(namespace))
 	if err != nil {
-		log.Error(err, "Failed getting Vimana for domain", "namespace", namespace)
+		logger.Error(err, "Failed getting Vimana for domain", "namespace", namespace)
+		return nil
 	}
+	vimanasCount := len(vimanas.Items)
+	if vimanasCount > 1 {
+		logger.Error(nil, fmt.Sprintf("There are %d existing Vimanas in this namespace", vimanasCount), "namespace", namespace)
+		return nil
+	}
+	if vimanasCount == 0 {
+		logger.Error(nil, "There are no existing Vimanas in this namespace", "namespace", namespace)
+		return nil
+	}
+	vimana := vimanas.Items[0]
 
 	return []reconcile.Request{
 		{NamespacedName: types.NamespacedName{
@@ -240,22 +391,4 @@ func (r *VimanaReconciler) domainReconciliationRequest(ctx context.Context, obj 
 			Namespace: vimana.Namespace,
 		}},
 	}
-}
-
-// If there is a single Vimana resource in the given namespace, return it.
-// Otherwise, return an error.
-func (r *VimanaReconciler) getSingleVimana(ctx context.Context, namespace string) (*apiv1alpha1.Vimana, error) {
-	vimanas := &apiv1alpha1.VimanaList{}
-	err := r.List(ctx, vimanas, client.InNamespace(namespace))
-	if err != nil {
-		return nil, err
-	}
-	vimanasCount := len(vimanas.Items)
-	if vimanasCount > 1 {
-		return nil, fmt.Errorf("There are %d existing Vimanas in this namespace", vimanasCount)
-	}
-	if vimanasCount == 0 {
-		return nil, fmt.Errorf("There are no existing Vimanas in this namespace")
-	}
-	return &vimanas.Items[0], nil
 }
