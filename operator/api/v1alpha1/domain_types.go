@@ -12,7 +12,7 @@ type DomainSpec struct {
 	// Important: Run `bazel run //operator:generate` to regenerate code
 	//   after modifying this file.
 
-	// Unique ID of the domain, as a hex-encoded string.
+	// Auto-generated unique ID of the domain, as a hex-encoded string.
 	Id string `json:"id"`
 
 	// List of alias domain names.
@@ -20,14 +20,13 @@ type DomainSpec struct {
 
 	// Subset of regions in which servers within this domain may run.
 	// If empty, they could run anywhere globally.
-	// Array of names.
 	Regions []string `json:"regions,omitempty"`
 
 	// List of domain names to forward traffic to in case of an outage.
 	Failover []string `json:"failover,omitempty"`
 
 	// gRPC-specific configuration for the domain.
-	Grpc *DomainGrpc `json:"grpc,omitempty"`
+	Grpc DomainGrpc `json:"grpc,omitempty"`
 
 	// Provide an auto-generated OpenAPI Description at `/.well-known/schema.json`
 	// covering all the HTTP-transcoded methods of all the servers in the domain.
@@ -36,10 +35,10 @@ type DomainSpec struct {
 
 // DomainGrpc defines the desired state of the gRPC settings of a Domain.
 type DomainGrpc struct {
-	// Enabling gRPC reflection
-	// serves the special `grpc.reflection.v1.ServerReflection` service
-	// which provides a spec of all the services reachable on that domain.
-	Reflection *GrpcReflection `json:"reflection,omitempty"`
+	// Enable gRPC reflection for some subset of services within this domain.
+	// Serves the special `grpc.reflection.v1.ServerReflection` service
+	// which provides a spec of the specified services.
+	Reflection GrpcReflection `json:"reflection,omitempty"`
 }
 
 // GrpcReflection defines the desired state of the gRPC reflection settings of a Domain.

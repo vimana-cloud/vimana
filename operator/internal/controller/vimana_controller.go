@@ -28,12 +28,11 @@ import (
 )
 
 const (
-	runtimeClassName      = "workd-runtime"
-	runtimeHandlerName    = "workd-handler"
-	gatewayClassName      = "envoy-gateway"
-	gatewayConfigName     = "envoy-gateway-config"
-	gatewayNamespace      = "envoy-gateway-system"
-	canonicalDomainFormat = "%s.app.vimana.host"
+	runtimeClassName   = "workd-runtime"
+	runtimeHandlerName = "workd-handler"
+	gatewayClassName   = "envoy-gateway"
+	gatewayConfigName  = "envoy-gateway-config"
+	gatewayNamespace   = "envoy-gateway-system"
 )
 
 var (
@@ -177,12 +176,13 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
+	gatewayName := vimana.Name + ".gateway"
+	gatewayNamespacedName := types.NamespacedName{Name: gatewayName, Namespace: vimana.Namespace}
+
 	// Also make sure that the EnvoyProxy config exists.
 	// This is namespace-scoped, but it always lives in the Gateway system namespace
 	// (it does *not* inherit the namespace of the Vimana resource that owns it)
 	// and has a name derived from the owner's name.
-	gatewayName := vimana.Name + ".gateway"
-	gatewayNamespacedName := types.NamespacedName{Name: gatewayName, Namespace: vimana.Namespace}
 	expectedEnvoyProxy := envoyProxyResource(gatewayName)
 	envoyProxyName := types.NamespacedName{Name: expectedEnvoyProxy.Name, Namespace: expectedEnvoyProxy.Namespace}
 	err = ensureResourceHasSpec(r.Client, ctx, envoyProxyName, &envoygateway.EnvoyProxy{}, expectedEnvoyProxy, envoyProxySpecDiffers, envoyProxyCopySpec)
@@ -217,7 +217,7 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	var listeners []gwapi.Listener
 	for _, domain := range domains.Items {
-		canonical := fmt.Sprintf(canonicalDomainFormat, domain.Spec.Id)
+		canonical := canonicalDomain(domain.Spec.Id)
 		namespace := (*gwapi.Namespace)(ptr.To(domain.GetNamespace()))
 		listeners = append(listeners, listener(canonical, namespace, allowedRoutes, secretKind))
 		for _, alias := range domain.Spec.Aliases {
@@ -242,7 +242,7 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	// Create or Update the existing Gateway.
+	// Create or Update the Gateway.
 	err = ensureResourceHasSpec(r.Client, ctx, gatewayNamespacedName, &gwapi.Gateway{}, expectedGateway, gatewaySpecDiffers, gatewayCopySpec)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -284,7 +284,7 @@ func (r *VimanaReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&apiv1alpha1.Vimana{}).
 		Watches(&apiv1alpha1.Domain{}, handler.EnqueueRequestsFromMapFunc(r.domainReconciliationRequest)).
 		Owns(&gwapi.Gateway{}).
-		Owns(&gwapi.GatewayClass{}).
+		Owns(&envoygateway.EnvoyProxy{}).
 		Complete(r)
 }
 
@@ -296,7 +296,7 @@ func (r *VimanaReconciler) domainReconciliationRequest(ctx context.Context, obj 
 	vimanas := &apiv1alpha1.VimanaList{}
 	err := r.List(ctx, vimanas, client.InNamespace(namespace))
 	if err != nil {
-		logger.Error(err, "Failed getting Vimana for domain", "namespace", namespace)
+		logger.Error(err, "Failed getting Vimana for Domain", "namespace", namespace)
 		return nil
 	}
 	vimanasCount := len(vimanas.Items)

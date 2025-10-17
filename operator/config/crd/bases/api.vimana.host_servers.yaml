@@ -39,10 +39,48 @@ spec:
           spec:
             description: ServerSpec defines the desired state of Server
             properties:
-              foo:
-                description: Foo is an example field of Server. Edit server_types.go
-                  to remove/update
+              auth:
+                description: Authentication configuration for the server.
+                properties:
+                  jwks:
+                    description: URLs of JSON web key set that can be used to validate
+                      JWTs on incoming requests.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              features:
+                additionalProperties:
+                  type: object
+                description: Map from feature flag names to configurations.
+                type: object
+              id:
+                description: User-provided unique ID of the server.
                 type: string
+              reflection:
+                description: |-
+                  Whether gRPC reflection is enabled for all the services on this server.
+                  If this is enabled,
+                  then neither `grpc.reflection.v1.ServerReflection` nor `grpc.reflection.v1alpha1.ServerReflection`
+                  may be specified under `Services`.
+                type: boolean
+              services:
+                description: List of fully-qualified gRPC service names served by
+                  this server.
+                items:
+                  type: string
+                type: array
+              versionWeights:
+                additionalProperties:
+                  format: int32
+                  type: integer
+                description: |-
+                  Map from version strings to traffic weights.
+                  The traffic proportion is the weight divided by the total of all weights.
+                type: object
+            required:
+            - auth
+            - id
             type: object
           status:
             description: ServerStatus defines the observed state of Server

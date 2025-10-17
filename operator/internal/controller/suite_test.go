@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/onsi/gomega/format"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -71,6 +72,10 @@ var _ = BeforeSuite(func() {
 		// Expect to find both the `etcd` and `kube-apiserver` binaries in this directory.
 		BinaryAssetsDirectory: "assets",
 	}
+
+	// Disable truncation for assertion errors.
+	// https://onsi.github.io/gomega/#adjusting-output
+	format.MaxLength = 0
 
 	var err error
 	// cfg is defined in this file globally.

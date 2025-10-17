@@ -2,6 +2,9 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -14,7 +17,27 @@ import (
 const (
 	// conditionTypeAvailable represents the steady-state existing status of a resource.
 	conditionTypeAvailable = "Available"
+
+	labelDomainKey = "vimana.host/domain"
 )
+
+// Return the canonical domain name of a domain, derived from the unique ID.
+func canonicalDomain(domainId string) string {
+	return fmt.Sprintf("%s.app.vimana.host", domainId)
+}
+
+// Return the name of the component.
+func componentName(domainId, serverId, version string) string {
+	return fmt.Sprintf("%s:%s@%s", domainId, serverId, version)
+}
+
+// Return a valid K8s resource name
+// that is deterministically derived from (and "uniquely" identifies) the provided content string.
+// The prefix must be an alphabetical character.
+func contentAddressedName(content string, prefix rune) string {
+	hash := sha256.Sum224([]byte(content))
+	return fmt.Sprintf("%c-%s", prefix, hex.EncodeToString(hash[:]))
+}
 
 // Extend the interface of a generic K8s object
 // with extra methods to facilitate the operator pattern.

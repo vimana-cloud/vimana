@@ -27,7 +27,6 @@ var _ = Describe("Vimana Controller", func() {
 		domainAliases := []string{"example.com", "foo.bar.whatsittoyouz.net"}
 		domainRegions := []string{"aws/us-east"}
 		domainFailover := []string{}
-		var domainGrpc *apiv1alpha1.DomainGrpc
 		domainOpenApi := false
 
 		ctx := context.Background()
@@ -102,7 +101,7 @@ var _ = Describe("Vimana Controller", func() {
 					Aliases:  domainAliases,
 					Regions:  domainRegions,
 					Failover: domainFailover,
-					Grpc:     domainGrpc,
+					Grpc:     apiv1alpha1.DomainGrpc{},
 					OpenApi:  domainOpenApi,
 				},
 			}
