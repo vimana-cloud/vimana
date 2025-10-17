@@ -5,6 +5,7 @@ go_library(
     name = "controller",
     srcs = [
         "component_controller.go",
+        "controllers_common.go",
         "domain_controller.go",
         "server_controller.go",
         "vimana_controller.go",
