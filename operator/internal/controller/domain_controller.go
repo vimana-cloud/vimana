@@ -19,8 +19,8 @@ import (
 )
 
 var (
-	// The port number used for all gRPC backend servers.
-	grpcPortNumber = gwapi.PortNumber(80)
+	// Turn this into a variable so we can take its address.
+	grpcPortNumberForGateway = gwapi.PortNumber(grpcPortNumber)
 
 	// K8s resource kind for a Service.
 	serviceKind = gwapi.Kind("Service")
@@ -36,8 +36,8 @@ type DomainReconciler struct {
 }
 
 // Return true iff the two objects are *not* equal.
-func grpcRouteSpecDiffers(left, right *gwapi.GRPCRoute) bool {
-	return !reflect.DeepEqual(left.Spec, right.Spec)
+func grpcRouteSpecDiffers(actual, expected *gwapi.GRPCRoute) bool {
+	return !reflect.DeepEqual(actual.Spec, expected.Spec)
 }
 
 // Mutate the "spec" value of the receiver to match that of the other object.
@@ -100,9 +100,9 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			backendRefs = append(backendRefs, gwapi.GRPCBackendRef{
 				BackendRef: gwapi.BackendRef{
 					BackendObjectReference: gwapi.BackendObjectReference{
-						Name: gwapi.ObjectName(contentAddressedName(componentName(domain.Spec.Id, server.Spec.Id, version), 's')),
+						Name: gwapi.ObjectName(prefixed(hashed(componentName(domain.Spec.Id, server.Spec.Id, version)), 's')),
 						Kind: &serviceKind,
-						Port: &grpcPortNumber,
+						Port: &grpcPortNumberForGateway,
 					},
 					Weight: &weight,
 				},
@@ -123,14 +123,16 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      grpcRouteNamespacedName.Name,
 			Namespace: grpcRouteNamespacedName.Namespace,
+			Labels: map[string]string{
+				labelDomainKey: domain.Spec.Id,
+			},
 		},
 		Spec: gwapi.GRPCRouteSpec{
 			CommonRouteSpec: gwapi.CommonRouteSpec{
 				ParentRefs: []gwapi.ParentReference{
 					{
-						// TODO: Look up the gateway's actual name.
-						Name: gwapi.ObjectName("vimana-gateway"),
-						// TODO: Should we also specify the namespace? Does it default to the domain's namespace?
+						Name: gwapi.ObjectName(gatewayName(domain.Spec.Vimana)),
+						// The default namespace for the referent is the same as that of the referrer.
 					},
 				},
 			},
@@ -146,7 +148,7 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// Create or Update the GRPCRoute.
-	err = ensureResourceHasSpec(r.Client, ctx, grpcRouteNamespacedName, &gwapi.GRPCRoute{}, expectedGrpcRoute, grpcRouteSpecDiffers, grpcRouteCopySpec)
+	err = ensureResourceHasSpecAndLabels(r.Client, ctx, grpcRouteNamespacedName, &gwapi.GRPCRoute{}, expectedGrpcRoute, grpcRouteSpecDiffers, grpcRouteCopySpec)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

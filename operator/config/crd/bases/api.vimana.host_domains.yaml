@@ -77,8 +77,8 @@ spec:
                     type: object
                 type: object
               id:
-                description: Auto-generated unique ID of the domain, as a hex-encoded
-                  string.
+                description: Auto-generated unique ID of the domain, as a length-32
+                  hex-encoded string.
                 type: string
               openApi:
                 description: |-
@@ -92,8 +92,14 @@ spec:
                 items:
                   type: string
                 type: array
+              vimana:
+                description: |-
+                  Resource name of the Vimana under which this domain exists.
+                  This relationship defines which Gateway the domain is attached to.
+                type: string
             required:
             - id
+            - vimana
             type: object
           status:
             description: DomainStatus defines the observed state of a Domain.

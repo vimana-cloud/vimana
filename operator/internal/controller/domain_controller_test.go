@@ -20,6 +20,7 @@ var _ = Describe("Domain Controller", func() {
 	Context("When reconciling a resource", func() {
 		const namespace = "default"
 		const domainId = "0123456789abcdef0123456789abcdef"
+		const vimanaId = "the-vimana"
 		aliases := []string{"example.com", "api.example.fersher.net"}
 		regions := []string{"/us-east", "gcp/us-west1"}
 		failover := []string{"backup.example.fersher.net"}
@@ -44,6 +45,7 @@ var _ = Describe("Domain Controller", func() {
 					},
 					Spec: apiv1alpha1.DomainSpec{
 						Id:       domainId,
+						Vimana:   vimanaId,
 						Aliases:  aliases,
 						Regions:  regions,
 						Failover: failover,
@@ -113,7 +115,7 @@ var _ = Describe("Domain Controller", func() {
 
 			// Verify parent reference
 			Expect(grpcRoute.Spec.ParentRefs).To(HaveLen(1))
-			Expect(grpcRoute.Spec.ParentRefs[0].Name).To(Equal(gwapi.ObjectName("vimana-gateway")))
+			Expect(grpcRoute.Spec.ParentRefs[0].Name).To(Equal(gwapi.ObjectName("the-vimana.gateway")))
 		})
 
 		It("should successfully reconcile with servers and create routing rules", func() {
@@ -176,6 +178,11 @@ var _ = Describe("Domain Controller", func() {
 				Namespace: namespace,
 			}, grpcRoute)
 			Expect(err).To(BeNil(), "Expected GRPCRoute to exist")
+			Expect(grpcRoute.ObjectMeta.Name).To(Equal(domainId))
+			Expect(grpcRoute.ObjectMeta.Namespace).To(Equal(namespace))
+			Expect(grpcRoute.ObjectMeta.Labels).To(Equal(map[string]string{
+				"vimana.host/domain": domainId,
+			}))
 			Expect(grpcRoute.Spec).To(Equal(gwapi.GRPCRouteSpec{
 				CommonRouteSpec: gwapi.CommonRouteSpec{
 					ParentRefs: []gwapi.ParentReference{
@@ -183,7 +190,7 @@ var _ = Describe("Domain Controller", func() {
 							Group:       (*gwapi.Group)(ptr.To("gateway.networking.k8s.io")),
 							Kind:        (*gwapi.Kind)(ptr.To("Gateway")),
 							Namespace:   nil,
-							Name:        "vimana-gateway",
+							Name:        "the-vimana.gateway",
 							SectionName: nil,
 							Port:        nil,
 						},

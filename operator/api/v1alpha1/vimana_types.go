@@ -16,10 +16,6 @@ type VimanaSpec struct {
 	// The cluster will only run pods and only host data
 	// that are cleared for at least 1 of these regions.
 	Regions []string `json:"regions,omitempty"`
-
-	// Hostname and optional port of the image registry
-	// used for all component images within this Vimana cluster.
-	Registry string `json:"registry,omitempty"`
 }
 
 // VimanaStatus defines the observed state of a Vimana cluster.
@@ -55,4 +51,9 @@ type VimanaList struct {
 
 func init() {
 	SchemeBuilder.Register(&Vimana{}, &VimanaList{})
+}
+
+// Return a pointer to the slice of conditions for this resource.
+func (resource *Vimana) GetConditions() *[]metav1.Condition {
+	return &resource.Status.Conditions
 }

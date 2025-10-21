@@ -39,10 +39,26 @@ spec:
           spec:
             description: ComponentSpec defines the desired state of Component
             properties:
-              foo:
-                description: Foo is an example field of Component. Edit component_types.go
-                  to remove/update
+              domain:
+                description: ID of the domain to which this server belongs.
                 type: string
+              image:
+                description: Image URL.
+                type: string
+              server:
+                description: ID of the server to which this component belongs.
+                type: string
+              version:
+                description: |-
+                  Version of the component.
+                  Must be a valid semantic version string.
+                  Must be unique for the server.
+                type: string
+            required:
+            - domain
+            - image
+            - server
+            - version
             type: object
           status:
             description: ComponentStatus defines the observed state of Component

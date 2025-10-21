@@ -21,7 +21,7 @@ var _ = Describe("Vimana Controller", func() {
 	Context("When reconciling a resource", func() {
 		const namespace = "default"
 		const resourceName = "test-resource"
-		const registry = "some.hosted.registry.somewhere"
+		const gatewayName = "test-resource.gateway"
 		vimanaRegions := []string{"/us-east", "aws/us-east"}
 		const domainId = "0123456789abcdef0123456789abcdef"
 		domainAliases := []string{"example.com", "foo.bar.whatsittoyouz.net"}
@@ -47,8 +47,7 @@ var _ = Describe("Vimana Controller", func() {
 						Namespace: namespace,
 					},
 					Spec: apiv1alpha1.VimanaSpec{
-						Regions:  vimanaRegions,
-						Registry: registry,
+						Regions: vimanaRegions,
 					},
 				}
 
@@ -78,7 +77,7 @@ var _ = Describe("Vimana Controller", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 			err = k8sClient.Get(ctx, types.NamespacedName{
-				Name:      gatewayName(resourceName),
+				Name:      gatewayName,
 				Namespace: namespace,
 			}, &gwapi.Gateway{})
 			Expect(err).NotTo(BeNil(), "Expected Gateway to *not* exist")
@@ -120,12 +119,16 @@ var _ = Describe("Vimana Controller", func() {
 				Name: runtimeClassName,
 			}, runtimeClass)
 			Expect(err).To(BeNil(), "Expected RuntimeClass to exist")
+			// Cluster-scoped resources are not given an owner
+			// because they could be shared among many Vimana resources (and thus outlive any of them).
 			Expect(runtimeClass.ObjectMeta.OwnerReferences).To(BeNil(), "Expected RuntimeClass to have no owner")
 			Expect(runtimeClass.Handler).To(Equal(runtimeHandlerName))
 			err = k8sClient.Get(ctx, types.NamespacedName{
 				Name: gatewayClassName,
 			}, gatewayClass)
 			Expect(err).To(BeNil(), "Expected GatewayClass to exist")
+			// Cluster-scoped resources are not given an owner
+			// because they could be shared among many Vimana resources (and thus outlive any of them).
 			Expect(gatewayClass.ObjectMeta.OwnerReferences).To(BeNil(), "Expected GatewayClass to have no owner")
 			Expect(gatewayClass.Spec).To(Equal(
 				gwapi.GatewayClassSpec{
@@ -140,7 +143,7 @@ var _ = Describe("Vimana Controller", func() {
 				},
 			))
 			err = k8sClient.Get(ctx, types.NamespacedName{
-				Name:      gatewayName(resourceName),
+				Name:      gatewayName,
 				Namespace: namespace,
 			}, gateway)
 			Expect(err).To(BeNil(), "Expected Gateway to exist")
@@ -260,9 +263,3 @@ var _ = Describe("Vimana Controller", func() {
 		})
 	})
 })
-
-// Given the name of a Vimana resource,
-// return the name of the corresponding Gateway resource that would be created by the controller.
-func gatewayName(vimanaName string) string {
-	return vimanaName + ".gateway"
-}

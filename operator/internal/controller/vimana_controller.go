@@ -28,11 +28,9 @@ import (
 )
 
 const (
-	runtimeClassName   = "workd-runtime"
-	runtimeHandlerName = "workd-handler"
-	gatewayClassName   = "envoy-gateway"
-	gatewayConfigName  = "envoy-gateway-config"
-	gatewayNamespace   = "envoy-gateway-system"
+	gatewayClassName  = "envoy-gateway"
+	gatewayConfigName = "envoy-gateway-config"
+	gatewayNamespace  = "envoy-gateway-system"
 )
 
 var (
@@ -185,7 +183,7 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// and has a name derived from the owner's name.
 	expectedEnvoyProxy := envoyProxyResource(gatewayName)
 	envoyProxyName := types.NamespacedName{Name: expectedEnvoyProxy.Name, Namespace: expectedEnvoyProxy.Namespace}
-	err = ensureResourceHasSpec(r.Client, ctx, envoyProxyName, &envoygateway.EnvoyProxy{}, expectedEnvoyProxy, envoyProxySpecDiffers, envoyProxyCopySpec)
+	err = ensureResourceHasSpecAndLabels(r.Client, ctx, envoyProxyName, &envoygateway.EnvoyProxy{}, expectedEnvoyProxy, envoyProxySpecDiffers, envoyProxyCopySpec)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -243,7 +241,7 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// Create or Update the Gateway.
-	err = ensureResourceHasSpec(r.Client, ctx, gatewayNamespacedName, &gwapi.Gateway{}, expectedGateway, gatewaySpecDiffers, gatewayCopySpec)
+	err = ensureResourceHasSpecAndLabels(r.Client, ctx, gatewayNamespacedName, &gwapi.Gateway{}, expectedGateway, gatewaySpecDiffers, gatewayCopySpec)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

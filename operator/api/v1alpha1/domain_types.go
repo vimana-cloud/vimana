@@ -4,7 +4,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // DomainSpec defines the desired state of a Domain.
@@ -12,8 +11,12 @@ type DomainSpec struct {
 	// Important: Run `bazel run //operator:generate` to regenerate code
 	//   after modifying this file.
 
-	// Auto-generated unique ID of the domain, as a hex-encoded string.
+	// Auto-generated unique ID of the domain, as a length-32 hex-encoded string.
 	Id string `json:"id"`
+
+	// Resource name of the Vimana under which this domain exists.
+	// This relationship defines which Gateway the domain is attached to.
+	Vimana string `json:"vimana"`
 
 	// List of alias domain names.
 	Aliases []string `json:"aliases,omitempty"`

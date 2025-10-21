@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -18,8 +19,36 @@ const (
 	// conditionTypeAvailable represents the steady-state existing status of a resource.
 	conditionTypeAvailable = "Available"
 
-	labelDomainKey = "vimana.host/domain"
+	labelDomainKey  = "vimana.host/domain"
+	labelServerKey  = "vimana.host/server"
+	labelVersionKey = "vimana.host/version"
 )
+
+const (
+	// Name of the runtime class used for all Vimana pods.
+	// This is the name that's visible in the API.
+	runtimeClassName = "workd-runtime"
+	// Name of the runtime handler used for all Vimana pods.
+	// This is the value that's passed to the container runtime in the RunPodSandbox request.
+	runtimeHandlerName = "workd-handler"
+	// The port number used for all gRPC backend servers.
+	grpcPortNumber = 80
+)
+
+// Extend the interface of a generic K8s object
+// with extra methods to facilitate the operator pattern.
+type ApiResource interface {
+	client.Object
+
+	// Return a (mutable) pointer to the slice of conditions for this resource.
+	GetConditions() *[]metav1.Condition
+}
+
+// Given the name of a Vimana resource,
+// return the name of the corresponding Gateway resource that would be created by the controller.
+func gatewayName(vimanaName string) string {
+	return vimanaName + ".gateway"
+}
 
 // Return the canonical domain name of a domain, derived from the unique ID.
 func canonicalDomain(domainId string) string {
@@ -31,21 +60,20 @@ func componentName(domainId, serverId, version string) string {
 	return fmt.Sprintf("%s:%s@%s", domainId, serverId, version)
 }
 
-// Return a valid K8s resource name
-// that is deterministically derived from (and "uniquely" identifies) the provided content string.
-// The prefix must be an alphabetical character.
-func contentAddressedName(content string, prefix rune) string {
-	hash := sha256.Sum224([]byte(content))
-	return fmt.Sprintf("%c-%s", prefix, hex.EncodeToString(hash[:]))
+// Return the hex-encoded SHA-224 hash of a string.
+// The result always contains 56 hexadecimal characters.
+func hashed(name string) string {
+	hash := sha256.Sum224([]byte(name))
+	return hex.EncodeToString(hash[:])
 }
 
-// Extend the interface of a generic K8s object
-// with extra methods to facilitate the operator pattern.
-type ApiResource interface {
-	client.Object
-
-	// Return a (mutable) pointer to the slice of conditions for this resource.
-	GetConditions() *[]metav1.Condition
+// Add a prefix of the form `<prefix>-` to a string.
+// When passed a value returned by `hashed` and an alphabetical prefix,
+// this function is guaranteed to return a valid K8s resource name,
+// which must start with an alphabetical character
+// and contain only at most 64 alphanumeric characters and dashes.
+func prefixed(content string, prefix rune) string {
+	return fmt.Sprintf("%c-%s", prefix, content)
 }
 
 // ensureClusterResource ensures a cluster-scoped resource exists by creating it if not found.
@@ -70,14 +98,14 @@ func ensureClusterResourceExists(
 	return err
 }
 
-// ensureResourceHasSpec ensures a namespaced resource exists
+// ensureResourceHasSpecAndLabels ensures a namespaced resource exists
 // and updates it if the actual spec differs from the expected spec.
-func ensureResourceHasSpec[T client.Object](
+func ensureResourceHasSpecAndLabels[T client.Object](
 	client client.Client,
 	ctx context.Context,
 	namespacedName types.NamespacedName,
 	actual, expected T,
-	specDiffers func(left, right T) bool,
+	specDiffers func(actual, expected T) bool,
 	copySpec func(receiver, giver T),
 ) error {
 	logger := log.FromContext(ctx)
@@ -93,12 +121,23 @@ func ensureResourceHasSpec[T client.Object](
 			// Error reading the object; re-enqueue the request.
 			logger.Error(err, "Failed to get resource", "namespace", namespacedName.Namespace, "name", namespacedName.Name)
 		}
-	} else if specDiffers(actual, expected) {
+	} else {
 		// Only update the resource if it differs from expected.
-		copySpec(actual, expected)
-		err = client.Update(ctx, actual)
-		if err != nil {
-			logger.Error(err, "Failed to update resource", "namespace", namespacedName.Namespace, "name", namespacedName.Name)
+		needsUpdate := false
+		if specDiffers(actual, expected) {
+			copySpec(actual, expected)
+			needsUpdate = true
+		}
+		expectedLabels := expected.GetLabels()
+		if !reflect.DeepEqual(actual.GetLabels(), expectedLabels) {
+			actual.SetLabels(expectedLabels)
+			needsUpdate = true
+		}
+		if needsUpdate {
+			err = client.Update(ctx, actual)
+			if err != nil {
+				logger.Error(err, "Failed to update resource", "namespace", namespacedName.Namespace, "name", namespacedName.Name)
+			}
 		}
 	}
 	return err
@@ -151,7 +190,6 @@ func ensureResourceDeleted(client client.Client, ctx context.Context, namespaced
 		// Some other error occurred.
 		logger.Error(err, "Failed to look up resource", "namespace", namespacedName.Namespace, "name", namespacedName.Name)
 	} else if err = client.Delete(ctx, resource); err != nil {
-		// The resource exists. Delete it.
 		logger.Error(err, "Failed to delete resource", "namespace", namespacedName.Namespace, "name", namespacedName.Name)
 	}
 	return err

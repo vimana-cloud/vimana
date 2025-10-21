@@ -47,11 +47,6 @@ spec:
                 items:
                   type: string
                 type: array
-              registry:
-                description: |-
-                  Hostname and optional port of the image registry
-                  used for all component images within this Vimana cluster.
-                type: string
             type: object
           status:
             description: VimanaStatus defines the observed state of a Vimana cluster.

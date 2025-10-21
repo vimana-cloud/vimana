@@ -49,13 +49,18 @@ spec:
                       type: string
                     type: array
                 type: object
+              domain:
+                description: ID of the domain to which this server belongs.
+                type: string
               features:
                 additionalProperties:
                   type: object
                 description: Map from feature flag names to configurations.
                 type: object
               id:
-                description: User-provided unique ID of the server.
+                description: |-
+                  User-provided ID of the server.
+                  Must be unique for the domain.
                 type: string
               reflection:
                 description: |-
@@ -80,6 +85,7 @@ spec:
                 type: object
             required:
             - auth
+            - domain
             - id
             type: object
           status:
