@@ -69,6 +69,14 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
+	// Set the status as Unknown when no status is available.
+	if len(domain.Status.Conditions) == 0 {
+		err = updateAvailabilityStatus(r.Client, ctx, domain, metav1.ConditionUnknown, "Reconciling", "Starting reconciliation")
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	// List all the servers under the domain.
 	servers := &apiv1alpha1.ServerList{}
 	err = r.List(ctx, servers, client.InNamespace(req.Namespace), client.MatchingLabels{labelDomainKey: domain.Spec.Id})
@@ -95,8 +103,13 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			})
 		}
 
+		// Sort the versions so there's a deterministic ordering to the backend refs in the generated GRPCRoute.
+		// This may help to avoid unnecessary updates when the generated GRPCRoute is identical to the pre-existing version
+		// except for the ordering of the backend refs (whose order does not matter).
+		versions := sortedKeys(server.Spec.VersionWeights)
 		backendRefs := make([]gwapi.GRPCBackendRef, 0, len(server.Spec.VersionWeights))
-		for version, weight := range server.Spec.VersionWeights {
+		for _, version := range versions {
+			weight := server.Spec.VersionWeights[version]
 			backendRefs = append(backendRefs, gwapi.GRPCBackendRef{
 				BackendRef: gwapi.BackendRef{
 					BackendObjectReference: gwapi.BackendObjectReference{
@@ -144,15 +157,18 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Set the Domain as the owner of the GRPCRoute.
 	if err = ctrl.SetControllerReference(domain, expectedGrpcRoute, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for GRPCRoute", "namespace", expectedGrpcRoute.Namespace, "name", expectedGrpcRoute.Name)
+		updateAvailabilityStatus(r.Client, ctx, domain, metav1.ConditionFalse, "GRPCRouteOwner", "Failed to set owner for GRPCRoute")
 		return ctrl.Result{}, err
 	}
 
 	// Create or Update the GRPCRoute.
 	err = ensureResourceHasSpecAndLabels(r.Client, ctx, grpcRouteNamespacedName, &gwapi.GRPCRoute{}, expectedGrpcRoute, grpcRouteSpecDiffers, grpcRouteCopySpec)
 	if err != nil {
+		updateAvailabilityStatus(r.Client, ctx, domain, metav1.ConditionFalse, "GRPCRouteUpsert", "Failed to update GRPCRoute for domain")
 		return ctrl.Result{}, err
 	}
 
+	updateAvailabilityStatus(r.Client, ctx, domain, metav1.ConditionTrue, "Reconciled", "Successfully reconciled domain")
 	return ctrl.Result{}, nil
 }
 

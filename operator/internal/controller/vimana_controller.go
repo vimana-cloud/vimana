@@ -164,6 +164,7 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// It would have to be cleaned up manually if you ever wanted to get rid of it after creation.
 	err = ensureClusterResourceExists(r.Client, ctx, runtimeClassName, &nodev1.RuntimeClass{}, expectedRuntimeClass)
 	if err != nil {
+		updateAvailabilityStatus(r.Client, ctx, vimana, metav1.ConditionFalse, "RuntimeClass", "Failed to ensure RuntimeClass exists")
 		return ctrl.Result{}, err
 	}
 
@@ -171,6 +172,7 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// and can similarly outlive it's creating Vimana.
 	err = ensureClusterResourceExists(r.Client, ctx, gatewayClassName, &gwapi.GatewayClass{}, expectedGatewayClass)
 	if err != nil {
+		updateAvailabilityStatus(r.Client, ctx, vimana, metav1.ConditionFalse, "GatewayClass", "Failed to ensure GatewayClass exists")
 		return ctrl.Result{}, err
 	}
 
@@ -183,8 +185,18 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// and has a name derived from the owner's name.
 	expectedEnvoyProxy := envoyProxyResource(gatewayName)
 	envoyProxyName := types.NamespacedName{Name: expectedEnvoyProxy.Name, Namespace: expectedEnvoyProxy.Namespace}
+
+	// Set the Vimana as the owner of the EnvoyProxy.
+	// TODO: This is illegal because they live in different namespaces. Revisit this!
+	//if err = ctrl.SetControllerReference(vimana, expectedEnvoyProxy, r.Scheme); err != nil {
+	//	logger.Error(err, "Failed to set owner reference for EnvoyProxy", "namespace", expectedEnvoyProxy.Namespace, "name", expectedEnvoyProxy.Name)
+	//	updateAvailabilityStatus(r.Client, ctx, vimana, metav1.ConditionFalse, "EnvoyProxyOwner", "Failed to set owner for EnvoyProxy")
+	//	return ctrl.Result{}, err
+	//}
+
 	err = ensureResourceHasSpecAndLabels(r.Client, ctx, envoyProxyName, &envoygateway.EnvoyProxy{}, expectedEnvoyProxy, envoyProxySpecDiffers, envoyProxyCopySpec)
 	if err != nil {
+		updateAvailabilityStatus(r.Client, ctx, vimana, metav1.ConditionFalse, "EnvoyProxyUpsert", "Failed to update EnvoyProxy config")
 		return ctrl.Result{}, err
 	}
 
@@ -237,17 +249,18 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Set the Vimana as the owner of the Gateway.
 	if err = ctrl.SetControllerReference(vimana, expectedGateway, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for Gateway", "namespace", expectedGateway.Namespace, "name", expectedGateway.Name)
+		updateAvailabilityStatus(r.Client, ctx, vimana, metav1.ConditionFalse, "GatewayOwner", "Failed to set owner for Gateway")
 		return ctrl.Result{}, err
 	}
 
 	// Create or Update the Gateway.
 	err = ensureResourceHasSpecAndLabels(r.Client, ctx, gatewayNamespacedName, &gwapi.Gateway{}, expectedGateway, gatewaySpecDiffers, gatewayCopySpec)
 	if err != nil {
+		updateAvailabilityStatus(r.Client, ctx, vimana, metav1.ConditionFalse, "GatewayUpsert", "Failed to update Gateway for vimana")
 		return ctrl.Result{}, err
 	}
 
-	// TODO: Update conditions, etc.
-
+	updateAvailabilityStatus(r.Client, ctx, vimana, metav1.ConditionTrue, "Reconciled", "Successfully reconciled vimana")
 	return ctrl.Result{}, nil
 }
 

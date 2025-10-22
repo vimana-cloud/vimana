@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"reflect"
+	"sort"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -74,6 +75,16 @@ func hashed(name string) string {
 // and contain only at most 64 alphanumeric characters and dashes.
 func prefixed(content string, prefix rune) string {
 	return fmt.Sprintf("%c-%s", prefix, content)
+}
+
+// Return the keys of a map in sorted order.
+func sortedKeys[T any](dictionary map[string]T) []string {
+	keys := make([]string, 0, len(dictionary))
+	for key := range dictionary {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // ensureClusterResource ensures a cluster-scoped resource exists by creating it if not found.

@@ -72,8 +72,12 @@ type FeatureFlag struct {
 
 // ServerStatus defines the observed state of Server
 type ServerStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Important: Run `bazel run //operator:generate` to regenerate code
+	//   after modifying this file.
+
+	// Status conditions of the Server instance.
+	// +operator-sdk:csv:customresourcedefinitions:type=status
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 
 // +kubebuilder:object:root=true
@@ -99,4 +103,9 @@ type ServerList struct {
 
 func init() {
 	SchemeBuilder.Register(&Server{}, &ServerList{})
+}
+
+// Return a pointer to the slice of conditions for this resource.
+func (resource *Server) GetConditions() *[]metav1.Condition {
+	return &resource.Status.Conditions
 }

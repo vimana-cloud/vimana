@@ -28,8 +28,12 @@ type ComponentSpec struct {
 
 // ComponentStatus defines the observed state of Component
 type ComponentStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Important: Run `bazel run //operator:generate` to regenerate code
+	//   after modifying this file.
+
+	// Status conditions of the Component instance.
+	// +operator-sdk:csv:customresourcedefinitions:type=status
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 
 // +kubebuilder:object:root=true
@@ -55,4 +59,9 @@ type ComponentList struct {
 
 func init() {
 	SchemeBuilder.Register(&Component{}, &ComponentList{})
+}
+
+// Return a pointer to the slice of conditions for this resource.
+func (resource *Component) GetConditions() *[]metav1.Condition {
+	return &resource.Status.Conditions
 }

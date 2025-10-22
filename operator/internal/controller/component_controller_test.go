@@ -83,6 +83,19 @@ var _ = Describe("Component Controller", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 
+			// Verify status conditions
+			err = k8sClient.Get(ctx, typeNamespacedName, component)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(component.Status.Conditions).To(HaveLen(1))
+			condition := component.Status.Conditions[0]
+			Expect(condition).To(Equal(metav1.Condition{
+				Type:               "Available",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Reconciled",
+				Message:            "Successfully reconciled component",
+				LastTransitionTime: condition.LastTransitionTime, // non-deterministic
+			}))
+
 			deployments := &appsv1.DeploymentList{}
 			err = k8sClient.List(ctx, deployments)
 			Expect(err).To(BeNil(), "Expected Deployment listing to succeed")

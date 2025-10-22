@@ -60,7 +60,7 @@ type DomainStatus struct {
 	// Important: Run `bazel run //operator:generate` to regenerate code
 	//   after modifying this file.
 
-	// Status conditions of the Vimana instance.
+	// Status conditions of the Domain instance.
 	// +operator-sdk:csv:customresourcedefinitions:type=status
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
@@ -88,4 +88,9 @@ type DomainList struct {
 
 func init() {
 	SchemeBuilder.Register(&Domain{}, &DomainList{})
+}
+
+// Return a pointer to the slice of conditions for this resource.
+func (resource *Domain) GetConditions() *[]metav1.Condition {
+	return &resource.Status.Conditions
 }

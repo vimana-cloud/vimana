@@ -92,6 +92,19 @@ var _ = Describe("Domain Controller", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 
+			// Verify status conditions
+			err = k8sClient.Get(ctx, typeNamespacedName, domain)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domain.Status.Conditions).To(HaveLen(1))
+			condition := domain.Status.Conditions[0]
+			Expect(condition).To(Equal(metav1.Condition{
+				Type:               "Available",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Reconciled",
+				Message:            "Successfully reconciled domain",
+				LastTransitionTime: condition.LastTransitionTime, // non-deterministic
+			}))
+
 			grpcRoute := &gwapi.GRPCRoute{}
 			err = k8sClient.Get(ctx, types.NamespacedName{
 				Name:      domainId,
@@ -171,6 +184,19 @@ var _ = Describe("Domain Controller", func() {
 			})
 
 			Expect(err).NotTo(HaveOccurred())
+
+			// Verify status conditions
+			err = k8sClient.Get(ctx, typeNamespacedName, domain)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domain.Status.Conditions).To(HaveLen(1))
+			condition := domain.Status.Conditions[0]
+			Expect(condition).To(Equal(metav1.Condition{
+				Type:               "Available",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Reconciled",
+				Message:            "Successfully reconciled domain",
+				LastTransitionTime: condition.LastTransitionTime, // non-deterministic
+			}))
 
 			grpcRoute := &gwapi.GRPCRoute{}
 			err = k8sClient.Get(ctx, types.NamespacedName{
@@ -344,6 +370,19 @@ var _ = Describe("Domain Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
+
+			// Verify status conditions
+			err = k8sClient.Get(ctx, typeNamespacedName, domain)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domain.Status.Conditions).To(HaveLen(1))
+			condition := domain.Status.Conditions[0]
+			Expect(condition).To(Equal(metav1.Condition{
+				Type:               "Available",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Reconciled",
+				Message:            "Successfully reconciled domain",
+				LastTransitionTime: condition.LastTransitionTime, // non-deterministic
+			}))
 
 			err = k8sClient.Get(ctx, types.NamespacedName{
 				Name:      domainId,

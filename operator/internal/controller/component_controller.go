@@ -86,6 +86,14 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
+	// Set the status as Unknown when no status is available.
+	if len(component.Status.Conditions) == 0 {
+		err = updateAvailabilityStatus(r.Client, ctx, component, metav1.ConditionUnknown, "Reconciling", "Starting reconciliation")
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	labels := map[string]string{
 		labelDomainKey:  component.Spec.Domain,
 		labelServerKey:  component.Spec.Server,
@@ -138,12 +146,14 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Set the Component as the owner of the Deployment.
 	if err = ctrl.SetControllerReference(component, expectedDeployment, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for Deployment", "namespace", expectedDeployment.Namespace, "name", expectedDeployment.Name)
+		updateAvailabilityStatus(r.Client, ctx, component, metav1.ConditionFalse, "DeploymentOwner", "Failed to set owner for deployment")
 		return ctrl.Result{}, err
 	}
 
 	// Create or Update the Deployment.
 	err = ensureResourceHasSpecAndLabels(r.Client, ctx, deploymentNamespacedName, &appsv1.Deployment{}, expectedDeployment, deploymentSpecDiffers, deploymentCopySpec)
 	if err != nil {
+		updateAvailabilityStatus(r.Client, ctx, component, metav1.ConditionFalse, "DeploymentUpsert", "Failed to update deployment for component")
 		return ctrl.Result{}, err
 	}
 
@@ -174,15 +184,18 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Set the Component as the owner of the Service.
 	if err = ctrl.SetControllerReference(component, expectedService, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set owner reference for Service", "namespace", expectedService.Namespace, "name", expectedService.Name)
+		updateAvailabilityStatus(r.Client, ctx, component, metav1.ConditionFalse, "ServiceOwner", "Failed to set owner for service")
 		return ctrl.Result{}, err
 	}
 
 	// Create or Update the Service.
 	err = ensureResourceHasSpecAndLabels(r.Client, ctx, serviceNamespacedName, &corev1.Service{}, expectedService, serviceSpecDiffers, serviceCopySpec)
 	if err != nil {
+		updateAvailabilityStatus(r.Client, ctx, component, metav1.ConditionFalse, "ServiceUpsert", "Failed to update service for component")
 		return ctrl.Result{}, err
 	}
 
+	updateAvailabilityStatus(r.Client, ctx, component, metav1.ConditionTrue, "Reconciled", "Successfully reconciled component")
 	return ctrl.Result{}, nil
 }
 

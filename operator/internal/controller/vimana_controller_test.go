@@ -115,6 +115,19 @@ var _ = Describe("Vimana Controller", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 
+			// Verify status conditions
+			err = k8sClient.Get(ctx, typeNamespacedName, vimana)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(vimana.Status.Conditions).To(HaveLen(1))
+			condition := vimana.Status.Conditions[0]
+			Expect(condition).To(Equal(metav1.Condition{
+				Type:               "Available",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Reconciled",
+				Message:            "Successfully reconciled vimana",
+				LastTransitionTime: condition.LastTransitionTime, // non-deterministic
+			}))
+
 			err = k8sClient.Get(ctx, types.NamespacedName{
 				Name: runtimeClassName,
 			}, runtimeClass)
