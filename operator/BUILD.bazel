@@ -26,6 +26,7 @@ oci_push(
     image = ":image",
     remote_tags = [latest_tag],
     repository = local_registry + "/" + operator_image_name,
+    visibility = ["//dev/minikube:__pkg__"],
 )
 
 oci_load(
@@ -64,6 +65,7 @@ kubectl_delete(
 kubectl_apply(
     name = "deploy",
     srcs = [":deploy-resources"],
+    visibility = ["//dev/minikube:__pkg__"],
 )
 
 # Equivalent to `make undeploy` in a normal Operator SDK project.
@@ -101,6 +103,7 @@ sh_in_place(
     ],
 )
 
+# Generate K8s resources for the CRDs.
 # Partially equivalent to `make install` or `make uninstall` in a normal Operator SDK project
 # (if combined with `kubectl apply` or `kubectl delete`).
 genrule(
@@ -115,6 +118,7 @@ genrule(
     tools = ["@rules_k8s//:kustomize"],
 )
 
+# Generate K8s resources for the CRDS, RBAC policies, and the controller manager deployment.
 # Partially equivalent to `make deploy` or `make undeploy` in a normal Operator SDK project
 # (if combined with `kubectl apply` or `kubectl delete`).
 # Importantly, however, any prerequisite `kustomize edit set` command

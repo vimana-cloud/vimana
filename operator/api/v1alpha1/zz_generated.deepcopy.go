@@ -360,7 +360,11 @@ func (in *ServerSpec) DeepCopyInto(out *ServerSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	in.Auth.DeepCopyInto(&out.Auth)
+	if in.Auth != nil {
+		in, out := &in.Auth, &out.Auth
+		*out = new(ServerAuth)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Features != nil {
 		in, out := &in.Features, &out.Features
 		*out = make(map[string]FeatureFlag, len(*in))

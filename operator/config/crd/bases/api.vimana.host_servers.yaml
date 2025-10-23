@@ -84,7 +84,6 @@ spec:
                   The traffic proportion is the weight divided by the total of all weights.
                 type: object
             required:
-            - auth
             - domain
             - id
             type: object

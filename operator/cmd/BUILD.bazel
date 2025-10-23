@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//operator/api/v1alpha1",
         "//operator/internal/controller",
+        "@com_github_envoyproxy_gateway//api/v1alpha1",
         "@io_k8s_apimachinery//pkg/runtime",
         "@io_k8s_apimachinery//pkg/util/runtime",
         "@io_k8s_client_go//kubernetes/scheme",
@@ -19,12 +20,18 @@ go_library(
         "@io_k8s_sigs_controller_runtime//pkg/metrics/filters",
         "@io_k8s_sigs_controller_runtime//pkg/metrics/server",
         "@io_k8s_sigs_controller_runtime//pkg/webhook",
+        "@io_k8s_sigs_gateway_api//apis/v1:apis",
     ],
 )
 
 go_binary(
     name = "cmd",
-    basename = "manager",  # Operator SDK convention.
+    # It's an Operator SDK convention to name this binary `manager`.
+    basename = "manager",
     embed = [":cmd_lib"],
+    # Force static linking
+    # so the resulting binary can be deployed on the `distroless-static` base container image.
+    pure = "on",
+    static = "on",
     visibility = ["//visibility:public"],
 )

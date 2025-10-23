@@ -1,15 +1,14 @@
-"""A basic E2E test that walks through most of Vimana's functionality."""
+"""A basic E2E test that walks through some of Vimana's functionality."""
 
 from os import environ
 from unittest import TestCase, main
 
 import grpc
-
 from work.runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
 from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
 
-# https://github.com/grpc/grpc/blob/v1.71.0/doc/environment_variables.md
-environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'e2e/walkthrough-bootstrap.root.cert'
+# https://github.com/grpc/grpc/blob/v1.76.0/doc/environment_variables.md
+environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'e2e/walkthrough-certificates.root.cert'
 
 
 class Walkthough(TestCase):

@@ -1,39 +1,43 @@
 load("@environment//:environment.bzl", "localhost")
 load("@rules_k8s//:test.bzl", "k8s_cluster_test")
 load("@rules_python//python:py_binary.bzl", "py_binary")
-load("//cluster/bootstrap:bootstrap.bzl", "bootstrap", "component", "domain", "service")
+load("//cluster/bootstrap:bootstrap.bzl", "self_signed_tls", "vimana_image_push")
 
-bootstrap(
-    name = "walkthrough-bootstrap",
-    cluster_registry = "host.minikube.internal:5000",
-    domains = {
-        "00000000000000000000000000000001": domain(
-            aliases = ["api.vimana.host"],
-            services = {
-                "foo.bar.AdderService": service(
-                    components = {
-                        "1.0.0": component(
-                            metadata = "//work/runtime/tests/components:adder-metadata",
-                            module = "//work/runtime/tests/components:adder-c",
-                        ),
-                    },
-                ),
-            },
-        ),
-    },
+vimana_image_push(
+    name = "adder-push-local",
+    component = "//work/runtime/tests/components:adder-c",
+    domain_id = "00000000000000000000000000000001",
+    metadata = "//work/runtime/tests/components:adder-metadata",
     registry = "http://{}:5000".format(localhost),
+    server_id = "the-adder-server",
+    version = "1.0.0",
 )
+
+self_signed_tls(
+    name = "walkthrough-certificates",
+    domains = [
+        "00000000000000000000000000000001.app.vimana.host",
+        "api.vimana.host",
+    ],
+)
+
+exports_files(["walkthrough-bootstrap.yaml"])
 
 k8s_cluster_test(
     name = "walkthrough-test",
-    objects = [":walkthrough-bootstrap"],
+    cleanup = False,
+    objects = [
+        ":walkthrough-bootstrap.yaml",
+        ":walkthrough-certificates",
+    ],
     services = {
-        "vimana-gateway": [
+        "the-vimana-gateway": [
             "api.vimana.host",
-            "api.fersher.host",
         ],
     },
-    setup = [":walkthrough-bootstrap"],
+    setup = [
+        ":adder-push-local",
+    ],
     tags = ["external"],  # Never cache test results.
     test = ":walkthrough",
 )
@@ -42,7 +46,7 @@ py_binary(
     name = "walkthrough",
     srcs = ["walkthrough.py"],
     data = [
-        ":walkthrough-bootstrap",
+        ":walkthrough-certificates",
     ],
     deps = [
         "//work/runtime/tests/components:adder-py-grpc",

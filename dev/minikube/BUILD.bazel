@@ -28,13 +28,15 @@ sh_binary(
         "$(location @rules_k8s//:minikube)",
         "$(location @rules_k8s//:minikube-bin)",
         "$(location :kicbase-image-push-local)",
+        "$(location //operator:image-push-local)",
         kicbase_local_repo,
         cluster_registry,
-        "$(location //gateway:cluster.yaml)",
+        "$(location //operator:deploy)",
     ],
     data = [
         ":kicbase-image-push-local",
-        "//gateway:cluster.yaml",
+        "//operator:deploy",
+        "//operator:image-push-local",
         "@rules_k8s//:helm",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
@@ -50,8 +52,10 @@ sh_binary(
 )
 
 # If there's a running minikube cluster started by `:restart`,
-# this action uploads a fresh build of `workd` to the running kicbase container
-# then restarts the daemon.
+# Deploy fresh builds of both the container runtime and API operator in it
+# without a full reset.
+# This can significantly speed up iteration,
+# but be mindful of the safety disclaimer at the top of this script!
 sh_binary(
     name = "hotswap",
     srcs = ["hotswap.sh"],
@@ -60,17 +64,21 @@ sh_binary(
         "$(location @rules_k8s//:minikube-bin)",
         "$(location @rules_k8s//:kubectl)",
         "$(location //cluster/node:workd-x86_64-linux)",
+        "$(location //operator:image-push-local)",
+        "$(location //operator:deploy)",
     ],
     data = [
         "//cluster/node:workd-x86_64-linux",
         "//dev:bash-util",
+        "//operator:deploy",
+        "//operator:image-push-local",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
         "@rules_k8s//:minikube-bin",
     ],
 )
 
-# Kicbase (Kubernetes In (a) Container base?) is like the node image for Minikube.
+# Kicbase (Kubernetes In (a) Container? base) is like the node image for Minikube.
 oci_image(
     name = "kicbase-image",
     base = "@kicbase",

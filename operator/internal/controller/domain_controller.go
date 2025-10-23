@@ -48,6 +48,8 @@ func grpcRouteCopySpec(receiver, giver *gwapi.GRPCRoute) {
 // +kubebuilder:rbac:groups=api.vimana.host,resources=domains,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=api.vimana.host,resources=domains/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=api.vimana.host,resources=domains/finalizers,verbs=update
+// +kubebuilder:rbac:groups=api.vimana.host,resources=servers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=grpcroutes,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

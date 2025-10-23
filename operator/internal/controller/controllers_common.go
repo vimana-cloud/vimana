@@ -48,7 +48,7 @@ type ApiResource interface {
 // Given the name of a Vimana resource,
 // return the name of the corresponding Gateway resource that would be created by the controller.
 func gatewayName(vimanaName string) string {
-	return vimanaName + ".gateway"
+	return vimanaName + "-gateway"
 }
 
 // Return the canonical domain name of a domain, derived from the unique ID.

@@ -16,15 +16,16 @@ minikube_bin="$4"
 # Path to a binary that, when run,
 # builds and pushes the latest `workd`-enhanced Kicbase image
 # to the registry where minikube will look for it.
-push_kicbase="$5"
+push_kicbase_image="$5"
+push_operator_image="$6"
 # Full name (including registry) of the Kicbase image.
 # Probably `localhost:5000/kicbase-workd:latest`.
-kicbase_repo="$6"
+kicbase_repo="$7"
 # Probably `host.minikube.internal:5000`.
-cluster_registry="$7"
-# Path to the cluster-wide gateway resource configuration.
-gateway_config="$8"
-shift 8
+cluster_registry="$8"
+# Path to an executable that will install the Vimana APIs and operator in our cluster.
+deploy_operator="$9"
+shift 9
 
 function _minikube {
   # Leaky abstraction :(
@@ -43,11 +44,16 @@ docker rm minikube 2> /dev/null || true
 # so minikube will re-pull it from the local registry.
 docker image rm --force "$kicbase_repo" 2> /dev/null || true
 
-# Push the most up-to-date version of Vimana-enabled Kicbase to the local registry.
+# Push the most up-to-date versions of locally-built images to the local registry.
+# This includes Vimana-enabled Kicbase and the operator image.
 # This should be the command for `bazel run //dev/minikube:kicbase-image-push-local`
 # and it should push to the same registry as `$kicbase_repo`.
-"$push_kicbase" --insecure || {
+"$push_kicbase_image" --insecure || {
   log-error "Failed to push ${bold}${kicbase_repo}${reset}"
+  exit 1
+}
+"$push_operator_image" --insecure || {
+  log-error 'Failed to push operator image'
   exit 1
 }
 
@@ -70,11 +76,15 @@ _minikube addons enable metrics-server
 
 # Install Envoy Gateway.
 # This also sets up the Gateway API Custom Resource Definitions (CRDs).
+# Use gateway namespace mode so that generated gateway services
+# are in the same namespace as their `Gateway` resource:
+# https://gateway.envoyproxy.io/docs/tasks/operations/gateway-namespace-mode/.
 # TODO: Use `rules_oci` to download the chart and re-use the exact same version in prod.
-"$helm" install envoy-gateway 'oci://docker.io/envoyproxy/gateway-helm' \
+"$helm" install \
+  --set=config.envoyGateway.provider.kubernetes.deploy.type=GatewayNamespace \
+  envoy-gateway 'oci://docker.io/envoyproxy/gateway-helm' \
   --version=v1.4.2 \
   --namespace=envoy-gateway-system \
-  --create-namespace \
-  --set=config.envoyGateway.provider.kubernetes.deploy.type=GatewayNamespace
+  --create-namespace
 
-"$kubectl" apply --filename="$gateway_config"
+"$deploy_operator"

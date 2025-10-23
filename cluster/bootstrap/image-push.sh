@@ -12,23 +12,17 @@ set -e
 
 registry="$1"   # e.g. `http://localhost:5000`.
 domain="$2"     # e.g. `1234567890abcdef1234567890abcdef`.
-service="$3"    # e.g. `some.package.FooService`.
+server="$3"     # e.g. `some-server`.
 version="$4"    # e.g. `1.0.0-release`.
 component="$5"  # Compiled Wasm component module path.
 metadata="$6"   # Serialized container metadata path.
-
-# Repository namespace components must contain only lowercase letters and digits,
-# so use `od` to hex-encode the service.
-# Flip each pair of nibbles to make it nibble-wise little-endian
-# because that's how workd happens to work.
-service_hex="$(echo -n "$service" | od -A n -t x1 | tr -d " \n" | sed 's/\(.\)\(.\)/\2\1/g')"
 
 # $1: Path to file containing blob to push.
 function push-blob {
   local path="$1"
 
   # https://specs.opencontainers.org/distribution-spec/#pushing-blobs
-  local post_url="${registry}/v2/${domain}/${service_hex}/blobs/uploads/"
+  local post_url="${registry}/v2/${domain}/${server}/blobs/uploads/"
   # Follow redirects, fail on non-200-range status code,
   # and extract the value of the `Location` header.
   # Note that HTTP/1.1 response headers
@@ -133,7 +127,7 @@ trap delete-temporary-files EXIT
 } > "$manifest"
 
 # https://specs.opencontainers.org/distribution-spec/#pushing-manifests
-tag_url="${registry}/v2/${domain}/${service_hex}/manifests/${version}"
+tag_url="${registry}/v2/${domain}/${server}/manifests/${version}"
 curl -X PUT --silent --location --fail "$tag_url" \
     -H "Content-Type: application/vnd.oci.image.manifest.v1+json" \
     --data-binary "@$manifest" || {
@@ -159,4 +153,4 @@ else
   magenta=''
 fi
 
-echo >&2 -e "${bold}Pushed$reset ${blue}${domain}${reset}:${yellow}${service}${reset}@${magenta}${version}$reset"
+echo >&2 -e "${bold}Pushed$reset ${blue}${domain}${reset}:${yellow}${server}${reset}@${magenta}${version}$reset"

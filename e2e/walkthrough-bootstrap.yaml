@@ -1,0 +1,46 @@
+apiVersion: api.vimana.host/v1alpha1
+kind: Vimana
+metadata:
+  name: the-vimana
+spec:
+  regions: []
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Domain
+metadata:
+  name: 'foo-domain'
+  labels:
+    vimana.host/domain: '00000000000000000000000000000001'
+spec:
+  id: '00000000000000000000000000000001'
+  vimana: the-vimana
+  aliases:
+    - 'api.vimana.host'
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Server
+metadata:
+  name: 'the-adder-server'
+  labels:
+    vimana.host/domain: '00000000000000000000000000000001'
+    vimana.host/server: 'the-adder-server'
+spec:
+  id: 'the-adder-server'
+  domain: '00000000000000000000000000000001'
+  services: ["foo.bar.AdderService"]
+  versionWeights:
+    "1.0.0": 1
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Component
+metadata:
+  name: 'baz-component'
+  labels:
+    vimana.host/domain: '00000000000000000000000000000001'
+    vimana.host/server: 'the-adder-server'
+    vimana.host/version: '1.0.0'
+spec:
+  version: "1.0.0"
+  server: "the-adder-server"
+  domain: "00000000000000000000000000000001"
+  image: "host.minikube.internal:5000/00000000000000000000000000000001/the-adder-server:1.0.0"

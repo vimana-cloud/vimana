@@ -28,7 +28,7 @@ type ServerSpec struct {
 	Reflection bool `json:"reflection,omitempty"`
 
 	// Authentication configuration for the server.
-	Auth ServerAuth `json:"auth"`
+	Auth *ServerAuth `json:"auth,omitempty"`
 
 	// Map from feature flag names to configurations.
 	Features map[string]FeatureFlag `json:"features,omitempty"`

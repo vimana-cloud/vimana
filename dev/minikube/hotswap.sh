@@ -1,9 +1,12 @@
-# Hot-swap a freshly-built copy of `workd` into a running minikube cluster.
+# Hot-swap a freshly-built copy of `workd` into a running minikube cluster,
+# and re-deploy the API operator.
 #
-# This should not affect any running `kube-system` containers that use containerd,
+# CAUTION:
+# This should not affect any running containers that use containerd,
 # however it does forcibly shut down all running Vimana containers
 # *without notifying the control plane*, which may cause strange behavior
 # including disappeared pods getting replaced by the deployment controller.
+# It's best to only run this script if there are no running Vimana containers!
 
 set -e
 source 'dev/bash-util.sh'
@@ -15,7 +18,10 @@ minikube_bin="$2"
 kubectl="$3"
 # Path to freshly-compiled `workd` binary.
 workd="$4"
-shift 4
+push_operator_image="$5"
+# Path to an executable that will install the Vimana APIs and operator in our cluster.
+deploy_operator="$6"
+shift 6
 
 function _minikube {
   # Leaky abstraction :(
@@ -35,3 +41,10 @@ _minikube status > /dev/null 2> /dev/null || {
 # Just copy the new binary into kicbase, then restart the daemon.
 docker cp --follow-link "$workd" minikube:/usr/bin/workd
 docker exec minikube systemctl restart workd
+
+# Push the latest operator image and re-deploy it.
+"$push_operator_image" --insecure || {
+  log-error 'Failed to push operator image'
+  exit 1
+}
+"$deploy_operator"

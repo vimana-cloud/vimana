@@ -21,6 +21,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	envoygateway "github.com/envoyproxy/gateway/api/v1alpha1"
+	gwapi "sigs.k8s.io/gateway-api/apis/v1"
 	apiv1alpha1 "vimana.host/operator/api/v1alpha1"
 	"vimana.host/operator/internal/controller"
 	// +kubebuilder:scaffold:imports
@@ -33,6 +35,9 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+
+	utilruntime.Must(gwapi.Install(scheme))
+	utilruntime.Must(envoygateway.AddToScheme(scheme))
 
 	utilruntime.Must(apiv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme

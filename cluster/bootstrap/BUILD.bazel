@@ -17,3 +17,8 @@ sh_binary(
     srcs = ["image-push.sh"],
     visibility = ["//visibility:public"],
 )
+
+sh_binary(
+    name = "self-signed-tls",
+    srcs = ["self-signed-tls.sh"],
+)

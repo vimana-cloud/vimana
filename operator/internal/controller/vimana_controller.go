@@ -3,8 +3,6 @@ package controller
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -126,6 +124,11 @@ func envoyProxyResource(name string) *envoygateway.EnvoyProxy {
 // +kubebuilder:rbac:groups=api.vimana.host,resources=vimanas,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=api.vimana.host,resources=vimanas/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=api.vimana.host,resources=vimanas/finalizers,verbs=update
+// +kubebuilder:rbac:groups=api.vimana.host,resources=domains,verbs=get;list;watch
+// +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gatewayclasses,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=gateway.envoyproxy.io,resources=envoyproxies,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -176,7 +179,7 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	gatewayName := vimana.Name + ".gateway"
+	gatewayName := gatewayName(vimana.Name)
 	gatewayNamespacedName := types.NamespacedName{Name: gatewayName, Namespace: vimana.Namespace}
 
 	// Also make sure that the EnvoyProxy config exists.
@@ -269,10 +272,9 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 // guaranteed valid and *probably* unique per domain.
 // The associated certificate is expected to have the name `c-<hash>` for the same reasons.
 func listener(domain string, namespace *gwapi.Namespace, allowedRoutes *gwapi.AllowedRoutes, secretKind *gwapi.Kind) gwapi.Listener {
-	hash := sha256.Sum256([]byte(domain))
-	hashHex := hex.EncodeToString(hash[:])
+	hashHex := hashed(domain)
 	return gwapi.Listener{
-		Name:     gwapi.SectionName(fmt.Sprintf("l-%s", hashHex)),
+		Name:     gwapi.SectionName(prefixed(hashHex, 'l')),
 		Protocol: gwapi.HTTPSProtocolType,
 		Port:     443,
 		Hostname: (*gwapi.Hostname)(ptr.To(domain)),
@@ -280,7 +282,7 @@ func listener(domain string, namespace *gwapi.Namespace, allowedRoutes *gwapi.Al
 			CertificateRefs: []gwapi.SecretObjectReference{
 				{
 					Kind:      secretKind,
-					Name:      gwapi.ObjectName(fmt.Sprintf("c-%s", hashHex)),
+					Name:      gwapi.ObjectName(prefixed(hashHex, 'c')),
 					Namespace: namespace,
 				},
 			},

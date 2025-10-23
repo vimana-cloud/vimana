@@ -8,16 +8,16 @@ Use [minikube] to test locally.
 
 Start a local minikube cluster with Vimana enabled.
 Note that this does more than just `minikube start`;
-it first builds a "kicbase" image with the latest local build of Vimana,
-uses a fork of minikube that supports Vimana,
-and installs Istio.
+it first builds a "kicbase" image with the latest local build of Vimana's container runtime,
+uses a fork of minikube that supports that runtime,
+and installs the Vimana API controller and Envoy Gateway.
 
 ```bash
 bazel run //dev/minikube:restart
 ```
 
 Starting minikube can take a while.
-Iterate faster by hot-swapping a freshly-built runtime binary
+Iterate faster by hot-swapping a freshly-built runtime binary and controller
 into the running minikube cluster.
 
 ```bash
@@ -32,6 +32,6 @@ bazel run //dev/minikube:hotswap
 >
 > You generally don't have to worry about this between E2E test runs,
 > since each test uses a unique K8s namespace that is deleted on exit
-> (unless cleanup is disabled).
+> (unless cleanup is explicitly disabled).
 
 [minikube]: https://minikube.sigs.k8s.io/
