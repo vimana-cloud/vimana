@@ -288,6 +288,14 @@ crate.spec(
     package = "wasmtime",
     version = "35.0.0",
 )
+crate.spec(
+    package = "wit-encoder",
+    version = "0.240.0",
+)
+crate.spec(
+    package = "semver",
+    version = "1.0.27",
+)
 
 # Generate certain binaries needed for building.
 crate.annotation(

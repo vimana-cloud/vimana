@@ -1,1 +1,29 @@
-How witty
+package foo:bar;
+
+// TODO: foobar -> foo:bar
+// https://github.com/bytecodealliance/wit-bindgen/issues/1224
+package foobar:services {
+
+    // use vimana:grpc/imports.{context};
+
+    interface %all-scalars-service {
+        use foobar:types/types.{%all-scalars-type};
+
+        //%do-something: func(context: context, request: %all-scalars-type) -> %all-scalars-type;
+        %do-something: func(request: %all-scalars-type) -> %all-scalars-type;
+    }
+}
+
+// TODO: foobar -> foo:bar
+// https://github.com/bytecodealliance/wit-bindgen/issues/1224
+package foobar:types {
+    interface types {
+        record %all-scalars-type {
+            %bytes-implicit: list<u8>,
+        }
+    }
+}
+
+world server {
+    export foobar:services/%all-scalars-service;
+}

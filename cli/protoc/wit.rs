@@ -1,391 +1,230 @@
-use std::fmt::{Display, Formatter, Result as FmtResult};
+//! The compilation step involves consolidating TODO
 
+use std::cell::OnceCell;
+use std::collections::HashMap;
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult, Write};
+use std::ops::{Deref, DerefMut};
+
+use anyhow::{anyhow, bail, Error, Result};
 use heck::ToKebabCase;
+use prost_types::compiler::code_generator_response::File;
+use prost_types::compiler::{CodeGeneratorRequest, CodeGeneratorResponse};
+use prost_types::field_descriptor_proto::{Label, Type};
+use prost_types::{DescriptorProto, FieldDescriptorProto, FileDescriptorProto};
+use semver::Version;
+use wit_encoder::{
+    Include, Interface, Package, PackageName, Render, World, WorldItem, WorldNamedInterface,
+};
 
+use metadata_proto::work::runtime::field::{Coding, CompoundCoding, ScalarCoding};
 use metadata_proto::work::runtime::Field;
 
-const INDENTATION: &str = "  ";
+/// Name of the generated WIT file in the output directory.
+const WIT_FILENAME: &str = "server.wit";
+/// The single generated world always has the static name 'server'.
+/// Individual services are converted to interfaces.
+const SERVER_WORLD_NAME: &str = "server";
+/// Version of the Vimana API to import.
+const VIMANA_API_VERSION: &str = "0.0.0";
+/// Version of the WASI API to import.
+const WASI_API_VERSION: &str = "0.2.0";
 
-/// Boilerplate for a `String`-based newtype
-/// that represents both a Protobuf name and a WIT version of that name.
-/// Initialized with the Protobuf version,
-/// it implements `Display` using the WIT version,
-/// but `Debug` using the Protobuf version.
-macro_rules! proto_wit_name {
-    ($(#[$meta:meta])* $type_name:ident, $argument:ident => $to_wit:block,) => {
-        $(#[$meta])*
-        #[derive(Debug)]
-        struct $type_name(String);
-
-        impl $type_name {
-            fn from_proto<T: Into<String>>(name: T) -> Self {
-                Self(name.into())
-            }
-
-            fn to_wit(&self) -> String {
-                let $argument = &self.0;
-                $to_wit
-            }
-        }
-
-        impl Display for $type_name {
-            fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-                formatter.write_str(&self.to_wit())
-            }
-        }
-    };
-
-    // Assume conversion via [heck::ToKebabCase] by default.
-    ($(#[$meta:meta])* $type_name:ident,) => {
-        proto_wit_name!(
-            $(#[$meta])*
-            $type_name,
-            name => { name.to_kebab_case() },
-        );
-    };
+#[derive(Copy, Clone)]
+enum ProtoSyntax {
+    Proto2,
+    Proto3,
+    Editions,
 }
 
-proto_wit_name!(
-    /// A Protobuf package name and a namespaced WIT package name.
-    PackageName,
-    name => { name.replace('.', ":") },
-);
+// TODO: Upstream this.
+//   https://github.com/bytecodealliance/wasm-tools/issues/2270
+struct NestedPackage(Package);
 
-proto_wit_name!(
-    /// A protobuf service name and a WIT interface name.
-    InterfaceName,
-);
+// Temporary crutch to render a nested package
+// based on the non-nested rendering of the package.
+// TODO: Delete this once `NestedPackage` is upstreamed.
+impl Display for NestedPackage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let normal_package_string = self.0.to_string();
+        let mut lines = normal_package_string.split('\n');
 
-proto_wit_name!(
-    /// A protobuf RPC name and a WIT function name.
-    FunctionName,
-);
-
-proto_wit_name!(
-    /// A protobuf message name and a WIT record name.
-    RecordName,
-);
-
-proto_wit_name!(
-    /// A protobuf message field name and a WIT record field name.
-    RecordFieldName,
-);
-
-// https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md#top-level-items
-/// Vimana generates one WIT file per package,
-/// containing one interface per service,
-/// and a nested package containing the types.
-struct Package {
-    /// Full package name, including optional version.
-    full_name: FullPackageName,
-
-    /// Interfaces within the package.
-    interfaces: Vec<Interface>,
-}
-
-/// A full package name, including optional version.
-struct FullPackageName {
-    /// Package name (including namespaces) without a version.
-    name: PackageName,
-
-    /// Package version.
-    version: Option<String>,
-}
-
-// https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md#item-interface
-/// An interface that is a member of a [package](Package),
-/// which corresponds to a Protobuf service.
-struct Interface {
-    /// Interface ID (name).
-    id: InterfaceName,
-
-    functions: Vec<Function>,
-
-    records: Vec<Record>,
-}
-
-// https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md#item-interface
-/// A function that is a member of an [interface](Interface),
-/// which corresponds to a Protobuf RPC.
-struct Function {
-    id: FunctionName,
-
-    /// Parameter names and types.
-    parameters: Vec<Parameter>,
-
-    /// Result type.
-    result: QualifiedRecordName,
-}
-
-/// A parameter to a [function](Function).
-/// Vimana's generated RPC methods always take record-typed parameters.
-struct Parameter {
-    /// Parameter name.
-    /// Represented as a simple string because there is no Protobuf equivalent.
-    id: String,
-
-    /// Parameter type.
-    r#type: QualifiedRecordName,
-}
-
-/// A fully-qualified record name, including the full package name.
-struct QualifiedRecordName {
-    /// Record name.
-    name: RecordName,
-
-    /// Unversioned package name.
-    package: PackageName,
-}
-
-// https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md#item-record-bag-of-named-fields
-struct Record {
-    /// Record name.
-    id: RecordName,
-
-    /// List of record fields.
-    fields: Vec<RecordField>,
-}
-
-// https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md#item-record-bag-of-named-fields
-struct RecordField {
-    /// Record field name.
-    id: RecordFieldName,
-
-    r#type: Field,
-}
-
-impl Package {
-    fn new(name: PackageName, version: Option<String>) -> Self {
-        Self {
-            full_name: FullPackageName { name, version },
-            interfaces: Vec::new(),
-        }
-    }
-
-    fn add_interface(&mut self, interface: Interface) {
-        self.interfaces.push(interface)
-    }
-}
-
-impl Interface {
-    fn new(id: InterfaceName) -> Self {
-        Self {
-            id,
-            functions: Vec::new(),
-            records: Vec::new(),
-        }
-    }
-
-    fn add_function(&mut self, function: Function) {
-        self.functions.push(function)
-    }
-}
-
-impl Function {
-    fn new(id: FunctionName, parameters: Vec<Parameter>, result: QualifiedRecordName) -> Self {
-        Self {
-            id,
-            parameters,
-            result,
-        }
-    }
-}
-
-impl Parameter {
-    fn new(id: String, r#type: QualifiedRecordName) -> Self {
-        Self { id, r#type }
-    }
-}
-
-impl QualifiedRecordName {
-    fn new(name: RecordName, package: PackageName) -> Self {
-        Self { name, package }
-    }
-}
-
-impl Display for Package {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        write!(formatter, "\npackage {};\n", self.full_name)?;
-        for interface in &self.interfaces {
-            write!(formatter, "\n{}", interface)?;
-        }
-        Ok(())
-    }
-}
-
-impl Display for FullPackageName {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        write!(formatter, "{}", self.name)?;
-        if let Some(version) = &self.version {
-            formatter.write_str("@")?;
-            formatter.write_str(version)?;
-        }
-        Ok(())
-    }
-}
-
-impl Display for Interface {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        write!(formatter, "interface {} {{\n", self.id)?;
-        for function in &self.functions {
-            write!(formatter, "\n{}{};\n", INDENTATION, function)?;
-        }
-        for record in &self.records {
-            // Indentation and the trailing newline are handled in [Record::fmt].
-            write!(formatter, "\n{}", record)?;
-        }
-        formatter.write_str("}\n")?;
-        Ok(())
-    }
-}
-
-impl Display for Function {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        write!(formatter, "{}: func(", self.id)?;
-        let mut parameters = self.parameters.iter();
-        if let Some(parameter) = parameters.next() {
-            write!(formatter, "{}", parameter)?;
-            for parameter in parameters {
-                write!(formatter, ", {}", parameter)?;
+        write!(f, "package {} {{\n", self.0.name())?;
+        for line in lines.skip(1) {
+            if line.len() > 0 {
+                write!(f, "  {}\n", line)?;
+            } else {
+                f.write_char('\n')?;
             }
         }
-        write!(formatter, ") -> {}", self.result)?;
-        Ok(())
+        f.write_str("}\n")
     }
 }
 
-impl Display for Parameter {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        write!(formatter, "{}: {}", self.id, self.r#type)
+impl NestedPackage {
+    /// Create a new instance of `NestedPackage`.
+    pub fn new(name: PackageName) -> Self {
+        Self(Package::new(name))
     }
 }
 
-impl Display for QualifiedRecordName {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        write!(formatter, "{}:{}", self.package, self.name)
+impl Deref for NestedPackage {
+    type Target = Package;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-impl Display for Record {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        write!(formatter, "{}record {} {{", INDENTATION, self.id)?;
-        let mut fields = self.fields.iter();
-        if let Some(field) = fields.next() {
-            write!(
-                formatter,
-                "\n{}{}{}: {}",
-                INDENTATION,
-                INDENTATION,
-                field.id,
-                record_wit_type(&field.r#type),
-            )?;
-            for field in fields {
-                write!(
-                    formatter,
-                    ",\n{}{}{}: {}",
-                    INDENTATION,
-                    INDENTATION,
-                    field.id,
-                    record_wit_type(&field.r#type),
-                )?;
-            }
+impl DerefMut for NestedPackage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<File> {
+    // Mapping from all filenames to file descriptors.
+    let mut file_descriptors: HashMap<String, &FileDescriptorProto> = HashMap::new();
+    // Mapping from all fully-qualified message type names to resolved message types.
+    let mut compiled_messages: HashMap<String, Field> = HashMap::new();
+
+    for proto_file in &request.proto_file {
+        let file_name = proto_file
+            .name
+            .clone()
+            .ok_or_else(|| anyhow!("Proto file lacks a name"))?;
+
+        let syntax = match proto_file.syntax.as_ref().map(String::as_str) {
+            None | Some("proto2") => ProtoSyntax::Proto2,
+            Some("proto3") => ProtoSyntax::Proto3,
+            Some("editions") => bail!("Editions syntax is not yet supported"),
+            Some(syntax) => bail!("Unknown syntax '{syntax}' in '{file_name}'"),
+        };
+
+        for message_type in &proto_file.message_type {
+            let message_name = message_type
+                .name
+                .clone()
+                .ok_or_else(|| anyhow!("Message in '{file_name}' lacks a name"))?;
+            //let subfields =
+            //    compile_message(&message_name, message_type, syntax, &compiled_messages)?;
+            //compiled_messages.insert(
+            //    message_name,
+            //    Field {
+            //        number: 0,               // Ignored.
+            //        name: String::default(), // Ignored.
+            //        subfields,
+            //        // Coding ignored for top-level messages.
+            //        coding: None,
+            //    },
+            //);
         }
-        write!(formatter, "\n{}}}", INDENTATION)
+
+        file_descriptors.insert(file_name, proto_file);
     }
+
+    // Main package, in Protobuf syntax.
+    // All proto files within `file_to_generate` must be part of the same package.
+    let mut package_name: OnceCell<String> = OnceCell::new();
+    // Version of the main package.
+    let mut package_version: OnceCell<Version> = OnceCell::new();
+
+    // One implementation config is generated per service.
+    for file_to_generate in &request.file_to_generate {
+        let file_descriptor = file_descriptors.get(file_to_generate).ok_or_else(|| {
+            anyhow!("Malformed request contains unknown file '{file_to_generate}")
+        })?;
+
+        // Check that the file's package name is consistent with all the other source files.
+        let file_package_name = file_descriptor
+            .package
+            .as_ref()
+            .ok_or_else(|| anyhow!("Proto file '{file_to_generate}' lacks a package"))?;
+        let package_name = package_name.get_or_init(|| file_package_name.clone());
+        if file_package_name != package_name {
+            bail!("Conflicting packages: '{package_name:?}' and '{file_package_name:?}'")
+        }
+
+        //for service_descriptor in &file_descriptor.service {
+        //    let service_name = service_descriptor
+        //        .name
+        //        .clone()
+        //        .ok_or(Error::leaf("Service has empty name"))?;
+        //    let mut streaming: bool = false;
+
+        //    for method_descriptor in &service_descriptor.method {
+        //        let request_type = method_descriptor.input_type.as_ref().unwrap();
+        //        let response_type = method_descriptor.output_type.as_ref().unwrap();
+
+        //        let client_streaming = method_descriptor.client_streaming.unwrap_or(false);
+        //        let server_streaming = method_descriptor.server_streaming.unwrap_or(false);
+        //        if client_streaming || server_streaming {
+        //            streaming = true;
+        //        }
+
+        //        match method_descriptor.options.as_ref() {
+        //            Some(options) => {
+        //                for option in &options.uninterpreted_option {
+        //                    // TODO
+        //                }
+        //            }
+        //            None => (),
+        //        }
+
+        //        if streaming && service.http_routes.len() > 0 {
+        //            return Err(error(
+        //                "Service cannot include both streaming RPCs and JSON transcoding",
+        //            ));
+        //        }
+
+        //        service.type_imports.push(String::from(response_type));
+        //        insert_types_recursively(&mut descriptors, request_type, package)?;
+        //        insert_types_recursively(&mut descriptors, response_type, package)?;
+        //    }
+        //    package.services.push(service);
+        //}
+    }
+
+    let package_name = convert_package_name(
+        package_name
+            .get()
+            .ok_or_else(|| anyhow!("No package specified"))?,
+        package_version.take(),
+    )?;
+    let service_package_name = "TODO";
+    let mut package = Package::new(package_name.clone());
+    let mut world = World::new(SERVER_WORLD_NAME);
+    world.include(Include::new(format!("wasi:cli/imports@{WASI_API_VERSION}")));
+    world.include(Include::new(format!(
+        "vimana:grpc/imports@{VIMANA_API_VERSION}"
+    )));
+    package.world(world);
+
+    let service_package = NestedPackage::new(package_name);
+    let types_package = "TODO";
+
+    Ok(File {
+        name: Some(String::from(WIT_FILENAME)),
+        insertion_point: None,
+        content: Some(format!("{package}\n{service_package}\n{types_package}")),
+        // TODO: Add generated code info to help with debugging.
+        generated_code_info: None,
+    })
 }
 
-fn record_wit_type(field: &Field) -> String {
-    String::from("TODO")
+fn convert_package_name(proto_name: &str, version: Option<Version>) -> Result<PackageName> {
+    let mut parts: Vec<&str> = proto_name.split('.').collect();
+    if parts.len() < 2 {
+        bail!("Package name '{proto_name}' must contain at least one namespace");
+    }
+    let name = String::from(parts.pop().unwrap());
+    Ok(PackageName::new(parts.join(":"), name, version))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn sub_namespace(base: PackageName) {}
 
-    use std::env::var;
-    use std::io::{pipe, PipeReader, Write};
-    use std::mem::drop;
-    use std::process::Command;
-
-    #[test]
-    #[ignore = "Multi-part namespaces not yet supported"]
-    fn empty_package_no_version() {
-        let package = Package::new(PackageName::from_proto("foo.bar.baz"), None);
-
-        validate(
-            &package,
-            r#"
-package foo:bar:baz;
-"#,
-        );
-    }
-
-    #[test]
-    fn empty_package_with_version() {
-        let package = Package::new(
-            PackageName::from_proto("host.vimana"),
-            Some("0.2.4-fersher".into()),
-        );
-
-        validate(
-            &package,
-            r#"
-package host:vimana@0.2.4-fersher;
-"#,
-        );
-    }
-
-    #[test]
-    #[ignore = "Multi-part namespaces not yet supported"]
-    fn interface_with_functions() {
-        let mut interface = Interface::new(InterfaceName::from_proto("SomeService"));
-        interface.add_function(Function::new(
-            FunctionName::from_proto("SomeRPCMethod"),
-            vec![],
-            QualifiedRecordName::new(
-                RecordName::from_proto("ReturnType"),
-                PackageName::from_proto("some.other.package"),
-            ),
-        ));
-        let mut package = Package::new(PackageName::from_proto("foo"), None);
-        package.add_interface(interface);
-
-        validate(
-            &package,
-            r#"
-package foo;
-
-interface some-service {
-
-  some-rpc-method: func() -> some:other:package:return-type;
-}
-"#,
-        );
-    }
-
-    fn validate(package: &Package, expected_wit: &str) {
-        // First check that the WIT is literally what we're expecting.
-        assert_eq!(package.to_string(), expected_wit);
-
-        // Then use `wasm-tools` to validate it.
-        let wasm_tools_path = var("WASMTOOLS").expect("Must set `WASMTOOLS` env var for test");
-        let output = Command::new(wasm_tools_path)
-            .args(["component", "wit", "--wasm", "--all-features"])
-            .stdin(str_pipe(expected_wit))
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "WIT validation failed.\n{}",
-            String::from_utf8(output.stderr).unwrap()
-        );
-    }
-
-    /// Create a new unnamed pipe to feed a string to a command's standard input.
-    fn str_pipe(input: &str) -> PipeReader {
-        let (reader, mut writer) = pipe().unwrap();
-        writer.write_all(input.as_bytes()).unwrap();
-        drop(writer); // Flush the pipe.
-        reader
-    }
+/// Convert a protobuf short name to a WIT short name.
+/// This mainly involves converting `snake_case` to `kebab-case`.
+fn proto_name_to_wit_name(proto_name: &String) -> String {
+    // TODO: Think about edge cases.
+    proto_name.replace("_", "-")
 }
