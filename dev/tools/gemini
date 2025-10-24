@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-GOOGLE_CLOUD_PROJECT='vimana-dev' exec bazel run @nodejs//:npx \
-  --ui_event_filters=-info,-debug,-stderr \
-  --run_under="cd '${PWD//'/'\"'\"'}' && " \
-  -- @google/gemini-cli "$@"
