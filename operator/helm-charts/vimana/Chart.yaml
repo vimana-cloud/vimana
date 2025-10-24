@@ -1,8 +1,0 @@
-apiVersion: v2
-appVersion: 1.16.0
-description: |
-  The Vimana resource manages pan-cluster resources
-  such as the gateway and runtime class used by all Vimana services / components.
-name: vimana
-type: application
-version: 0.1.0

@@ -1,7 +1,0 @@
-# Default spec for domain resources.
-
-# Unique ID of the domain.
-id: ""
-
-# List of alias domain names.
-aliases: []

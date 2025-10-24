@@ -1,7 +1,0 @@
-load("//operator:build-tools.bzl", "pkg_directory")
-
-pkg_directory(
-    name = "component",
-    subdirectories = ["templates"],
-    visibility = [":__subpackages__"],
-)

@@ -1,3 +1,0 @@
-load("//operator:build-tools.bzl", "pkg_directory")
-
-pkg_directory(name = "templates")
