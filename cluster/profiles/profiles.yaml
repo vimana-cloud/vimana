@@ -4,9 +4,13 @@
 # which must be defined here.
 # This file must validate against the JSON schema in `schema.yaml`.
 # Fake examples are provided here by default. Delete them.
+#
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ NEVER COMMIT REAL PROFILES TO THE REPO ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+#
+# Tell Git to ignore your local changes with:
+#   git update-index --skip-worktree cluster/profiles/profiles.yaml
 
 gcp-example.com:
   state-store: "gs://google-storage-bucket/"
