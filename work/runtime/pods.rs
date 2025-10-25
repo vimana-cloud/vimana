@@ -91,74 +91,73 @@ async fn initialize_grpc(
     name: Arc<ComponentName>,
 ) -> StdResult<Arc<Routes>, Error> {
     let container = containers.get(name.as_ref()).await?;
-    let metadata = (&container.metadata.grpc)
-        .as_ref()
-        .ok_or(anyhow!("gRPC metadata is empty"))?;
 
     let linker = grpc_linker(&wasmtime)?;
     let instantiator = linker
         .instantiate_pre(&container.component)
         .context("Linking error")?;
 
-    let mut method_router = Routes::default().into_axum_router();
-    for (method_name, method) in metadata.methods.iter() {
-        let codec = Codec::new(
-            method
-                .request
-                .as_ref()
-                .ok_or(anyhow!("Metadata missing request"))?,
-            method
-                .response
-                .as_ref()
-                .ok_or(anyhow!("Metadata missing response"))?,
-            name.clone(),
-        )?;
+    let mut service_router = Routes::default().into_axum_router();
+    for service in container.metadata.service.iter() {
+        let mut method_router = Routes::default().into_axum_router();
 
-        let export_index = container
-            .component
-            .get_export_index(None, &method.function)
-            .ok_or_else(|| anyhow!("Function not found: {:?}", method.function))?;
+        for (method_name, method) in service.methods.iter() {
+            let codec = Codec::new(
+                method
+                    .request
+                    .as_ref()
+                    .ok_or(anyhow!("Metadata missing request"))?,
+                method
+                    .response
+                    .as_ref()
+                    .ok_or(anyhow!("Metadata missing response"))?,
+                name.clone(),
+            )?;
 
-        let method = Method(Arc::new(MethodInner {
-            function: export_index,
-            instantiator: instantiator.clone(),
-            wasmtime: wasmtime.clone(),
-            state: Arc::new(HostState::new()),
-            component: name.clone(),
-        }));
+            let export_index = container
+                .component
+                .get_export_index(None, &method.function)
+                .ok_or_else(|| anyhow!("Function not found: {:?}", method.function))?;
 
-        method_router = method_router.route(
-            &format!("/{}", method_name),
-            post(|request: HttpRequest<AxumBody>| {
-                Box::pin(async move {
-                    // Codec and method objects are cloned here.
-                    let codec = codec;
-                    let method = method;
+            let method = Method(Arc::new(MethodInner {
+                function: export_index,
+                instantiator: instantiator.clone(),
+                wasmtime: wasmtime.clone(),
+                state: Arc::new(HostState::new()),
+                component: name.clone(),
+            }));
 
-                    let mut grpc = Grpc::new(codec)
-                        .apply_compression_config(
-                            EnabledCompressionEncodings::default(),
-                            EnabledCompressionEncodings::default(),
-                        )
-                        .apply_max_message_size_config(
-                            MAX_DECODING_MESSAGE_SIZE,
-                            MAX_ENCODING_MESSAGE_SIZE,
-                        );
-                    // TODO: Handle streaming RPC's (currently assumes all are unary).
-                    Ok::<HttpResponse<BoxBody>, Infallible>(grpc.unary(method, request).await)
-                })
-            }),
-        );
+            method_router = method_router.route(
+                &format!("/{}", method_name),
+                post(|request: HttpRequest<AxumBody>| {
+                    Box::pin(async move {
+                        // Codec and method objects are cloned here.
+                        let codec = codec;
+                        let method = method;
+
+                        let mut grpc = Grpc::new(codec)
+                            .apply_compression_config(
+                                EnabledCompressionEncodings::default(),
+                                EnabledCompressionEncodings::default(),
+                            )
+                            .apply_max_message_size_config(
+                                MAX_DECODING_MESSAGE_SIZE,
+                                MAX_ENCODING_MESSAGE_SIZE,
+                            );
+                        // TODO: Handle streaming RPC's (currently assumes all are unary).
+                        Ok::<HttpResponse<BoxBody>, Infallible>(grpc.unary(method, request).await)
+                    })
+                }),
+            );
+        }
+
+        service_router = service_router.nest(&format!("/{}", service.name), method_router);
     }
 
-    Ok(Arc::new(Routes::from(
-        Routes::default()
-            .into_axum_router()
-            .nest(&format!("/{}", metadata.service), method_router),
-    )))
+    Ok(Arc::new(Routes::from(service_router)))
 }
 
-// TODO: Revisit these limits.
+// TODO: Revisit these limits. They were chosen arbitrarily.
 /// Maximum request size is 1MiB.
 const MAX_DECODING_MESSAGE_SIZE: Option<usize> = Some(1024 * 1024);
 /// Maximum response size is 1MiB.

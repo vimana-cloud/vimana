@@ -12,7 +12,7 @@ use names::Name;
 
 const EMPTY: [u8; 0] = [];
 
-const COMPONENT_NAME: &str = "1234567890abcdef1234567890abcdef:package.Service@1.2.3";
+const COMPONENT_NAME: &str = "1234567890abcdef1234567890abcdef:some-server-id@1.2.3";
 
 /// Every decoding success test (where decoding is not expected to fail)
 /// follows the same pattern.

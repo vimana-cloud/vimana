@@ -41,26 +41,26 @@ const HEX_CHARS: &[u8] = b"0123456789abcdef";
 
 pub type PodId = usize;
 
-/// Permissively [parses](Self::parse) a service / version name:
-///     [ domain ':' ] service-name [ '@' version [ '#' pod-id ] ]
+/// Permissively [parses](Self::parse) a server / version name:
+///     [ domain-id ':' ] server-id [ '@' version [ '#' pod-id ] ]
 ///
 /// Use the conversion functions to validate and convert to particular name types.
 pub struct Name<'a> {
     pub domain: Option<&'a str>,
-    pub service: &'a str,
+    pub server: &'a str,
     pub version: Option<&'a str>,
     pub pod: Option<&'a str>,
 }
 
 impl<'a> Name<'a> {
-    /// Permissively parse a service / version name:
-    ///     [ domain ':' ] service-name [ '@' version [ '#' pod-id ] ]
+    /// Permissively parse a server / version name:
+    ///     [ domain-id ':' ] server-id [ '@' version [ '#' pod-id ] ]
     pub fn parse(full: &'a str) -> Self {
         let mut domain: Option<&'a str> = None;
         let mut version: Option<&'a str> = None;
         let mut pod: Option<&'a str> = None;
 
-        // Used to mark the boundaries of the service name part:
+        // Used to mark the boundaries of the server name part:
         let mut start = 0;
         let mut end = full.len();
 
@@ -82,11 +82,11 @@ impl<'a> Name<'a> {
                 (version, pod) = parse_version(&full[end + 1..]);
             }
         }
-        let service = &full[start..end];
+        let server = &full[start..end];
 
         Name {
             domain,
-            service,
+            server,
             version,
             pod,
         }
@@ -99,7 +99,7 @@ impl<'a> Name<'a> {
         if let Some(domain) = self.domain {
             if let Some(version) = self.version {
                 if self.pod.is_none() {
-                    return ComponentName::new(DomainUuid::parse(domain)?, self.service, version);
+                    return ComponentName::new(DomainUuid::parse(domain)?, self.server, version);
                 }
             }
         }
@@ -114,7 +114,7 @@ impl<'a> Name<'a> {
             if let Some(version) = self.version {
                 if let Some(pod) = self.pod {
                     let component =
-                        ComponentName::new(DomainUuid::parse(domain)?, self.service, version)?;
+                        ComponentName::new(DomainUuid::parse(domain)?, self.server, version)?;
                     let pod = usize::from_str_radix(pod, 16).context("Invalid pod ID")?;
                     return Ok(PodName::new(component, pod));
                 }
@@ -142,7 +142,7 @@ impl<'a> Debug for Name<'a> {
             formatter.write_str(domain)?;
             formatter.write_char(DOMAIN_SEPARATOR)?;
         }
-        formatter.write_str(self.service)?;
+        formatter.write_str(self.server)?;
         if let Some(version) = self.version {
             formatter.write_char(VERSION_SEPARATOR)?;
             formatter.write_str(version)?;
@@ -193,46 +193,46 @@ impl Display for DomainUuid {
     }
 }
 
-/// A service name:
-///     domain ':' service-name
+/// A server name:
+///     domain-id ':' server-id
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ServiceName {
+pub struct ServerName {
     pub domain: DomainUuid,
-    pub service: String,
+    pub server: String,
 }
 
-impl ServiceName {
-    pub fn new<S>(domain: DomainUuid, service: S) -> Result<Self>
+impl ServerName {
+    pub fn new<S>(domain: DomainUuid, server: S) -> Result<Self>
     where
         S: Into<String>,
     {
-        let service: String = service.into();
-        if is_valid_service_name(&service) {
-            Ok(Self { domain, service })
+        let server: String = server.into();
+        if is_valid_server_name(&server) {
+            Ok(Self { domain, server })
         } else {
-            Err(anyhow!("Invalid service name: {:?}", service))
+            Err(anyhow!("Invalid server ID: {:?}", server))
         }
     }
 }
 
-impl Display for ServiceName {
+impl Display for ServerName {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         Display::fmt(&self.domain, formatter)?;
         formatter.write_char(DOMAIN_SEPARATOR)?;
-        formatter.write_str(&self.service)
+        formatter.write_str(&self.server)
     }
 }
 
-/// A component name (versioned service):
-///     domain ':' service-name '@' version
+/// A component name (versioned server):
+///     domain-id ':' server-id '@' version
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ComponentName {
-    pub service: ServiceName,
+    pub server: ServerName,
     pub version: String,
 }
 
 impl ComponentName {
-    pub fn new<S, V>(domain: DomainUuid, service: S, version: V) -> Result<Self>
+    pub fn new<S, V>(domain: DomainUuid, server: S, version: V) -> Result<Self>
     where
         S: Into<String>,
         V: Into<String>,
@@ -240,7 +240,7 @@ impl ComponentName {
         let version: String = version.into();
         if is_valid_version(&version) {
             Ok(Self {
-                service: ServiceName::new(domain, service)?,
+                server: ServerName::new(domain, server)?,
                 version,
             })
         } else {
@@ -251,14 +251,14 @@ impl ComponentName {
 
 impl Display for ComponentName {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(&self.service, formatter)?;
+        Display::fmt(&self.server, formatter)?;
         formatter.write_char(VERSION_SEPARATOR)?;
         formatter.write_str(&self.version)
     }
 }
 
 /// A pod / container name:
-///     domain ':' service-name '@' version '#' pod-id
+///     domain-id ':' server-id '@' version '#' pod-id
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PodName {
     pub component: ComponentName,
@@ -285,29 +285,21 @@ impl Display for PodName {
 /// Maximum length (inclusive) for K8s labels values.
 const K8S_LABEL_VALUE_MAX_LENGTH: usize = 63;
 
-/// Predicate for syntactically valid service names.
+/// Predicate for syntactically valid server names.
 /// These are stored as
-/// [K8s labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set),
-/// which dictates all constraints unless otherwise noted.
+/// [K8s labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set)
+/// and as [resource names](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/),
+/// which together dictate the following constraints:
 ///
 /// True iff `name`:
 ///   - Contains no more than 63 bytes.
-///   - Consists of only ASCII alphanumerics and underscores.
-///   - Starts and ends with alphanumerics.
-///   - Contains at least two non-empty parts separated by dots (`.`),
-///     (because full service names always have a package prefix).
-///   - Each part cannot start with a digit
-///     (because Protobuf disallows it).
-fn is_valid_service_name(name: &str) -> bool {
+///   - Consists of only lowercase ASCII alphanumerics and dashes.
+///   - Starts with an alphabetical character and ends with an alphanumeric.
+fn is_valid_server_name(name: &str) -> bool {
     lazy_static! {
-        static ref PATH_RE: Regex = Regex::new(concat!(
-            r"^[A-Za-z][0-9A-Za-z_]*\.",                         // first part and dot
-            r"(?:[A-Za-z_][0-9A-Za-z_]*\.)*",                    // middle parts and dots
-            r"(?:[A-Za-z_][0-9A-Za-z_]*[0-9A-Za-z]|[A-Za-z])$",  // final part
-        ))
-        .unwrap();
+        static ref PATH_RE: Regex = Regex::new(r"^[a-z](?:[0-9a-z-]{0,61}[0-9a-z])?$").unwrap();
     }
-    name.len() <= K8S_LABEL_VALUE_MAX_LENGTH && PATH_RE.is_match(name)
+    PATH_RE.is_match(name)
 }
 
 /// Predicate for valid version strings.
@@ -336,7 +328,7 @@ fn is_valid_version(version: &str) -> bool {
         ))
         .unwrap();
     }
-    version.len() < K8S_LABEL_VALUE_MAX_LENGTH && VERSION_RE.is_match(version)
+    version.len() <= K8S_LABEL_VALUE_MAX_LENGTH && VERSION_RE.is_match(version)
 }
 
 #[inline(always)]
@@ -460,13 +452,13 @@ mod tests {
         0x1a,
     ];
     const GOOD_DOMAIN: &str = "1234567890abcdef0f9ed8c7654b32a1";
-    const GOOD_SERVICE: &str = "abc._._1.Ser_vicE";
+    const GOOD_SERVER: &str = "some-server-id";
     const GOOD_VERSION: &str = "10.0.456-pre-release5";
     const GOOD_POD_ID: &str = "a10f0";
     const GOOD_COMPONENT: &str =
-        "1234567890abcdef0f9ed8c7654b32a1:abc._._1.Ser_vicE@10.0.456-pre-release5";
+        "1234567890abcdef0f9ed8c7654b32a1:some-server-id@10.0.456-pre-release5";
     const GOOD_POD: &str =
-        "1234567890abcdef0f9ed8c7654b32a1:abc._._1.Ser_vicE@10.0.456-pre-release5#a10f0";
+        "1234567890abcdef0f9ed8c7654b32a1:some-server-id@10.0.456-pre-release5#a10f0";
 
     #[test]
     fn parse_component() {
@@ -475,10 +467,10 @@ mod tests {
         assert!(component.is_ok());
         let component = component.unwrap();
         assert_eq!(
-            component.service.domain,
+            component.server.domain,
             DomainUuid::parse(GOOD_DOMAIN).unwrap(),
         );
-        assert_eq!(component.service.service, GOOD_SERVICE);
+        assert_eq!(component.server.server, GOOD_SERVER);
         assert_eq!(component.version, GOOD_VERSION);
         assert_eq!(format!("{component}"), GOOD_COMPONENT);
     }
@@ -493,17 +485,17 @@ mod tests {
         ];
 
         for (pod_id_str, pod_id) in good_pod_ids.iter() {
-            let name = format!("{GOOD_DOMAIN}:{GOOD_SERVICE}@{GOOD_VERSION}#{pod_id_str}");
+            let name = format!("{GOOD_DOMAIN}:{GOOD_SERVER}@{GOOD_VERSION}#{pod_id_str}");
 
             let pod_name = Name::parse(&name).pod();
 
             assert!(pod_name.is_ok());
             let pod_name = pod_name.unwrap();
             assert_eq!(
-                pod_name.component.service.domain,
+                pod_name.component.server.domain,
                 DomainUuid::parse(GOOD_DOMAIN).unwrap(),
             );
-            assert_eq!(pod_name.component.service.service, GOOD_SERVICE);
+            assert_eq!(pod_name.component.server.server, GOOD_SERVER);
             assert_eq!(pod_name.component.version, GOOD_VERSION);
             assert_eq!(&pod_name.pod, pod_id);
             assert_eq!(format!("{pod_name}"), name);
@@ -515,7 +507,7 @@ mod tests {
         let bad_pod_ids = vec!["abcdefg", "-1", "10000000000000000"];
 
         for pod_id in bad_pod_ids.iter() {
-            let name = format!("{GOOD_DOMAIN}:{GOOD_SERVICE}@{GOOD_VERSION}#{pod_id}");
+            let name = format!("{GOOD_DOMAIN}:{GOOD_SERVER}@{GOOD_VERSION}#{pod_id}");
 
             let pod_name = Name::parse(&name).pod();
 
@@ -535,17 +527,17 @@ mod tests {
         ];
 
         for version in good_versions.iter() {
-            let name = format!("{GOOD_DOMAIN}:{GOOD_SERVICE}@{version}");
+            let name = format!("{GOOD_DOMAIN}:{GOOD_SERVER}@{version}");
 
             let component = Name::parse(&name).component();
 
             assert!(component.is_ok());
             let component = component.unwrap();
             assert_eq!(
-                component.service.domain,
+                component.server.domain,
                 DomainUuid::parse(GOOD_DOMAIN).unwrap(),
             );
-            assert_eq!(component.service.service, GOOD_SERVICE);
+            assert_eq!(component.server.server, GOOD_SERVER);
             assert_eq!(component.version, *version);
             assert_eq!(format!("{component}"), name);
         }
@@ -563,7 +555,7 @@ mod tests {
         ];
 
         for version in bad_versions.iter() {
-            let name = format!("{GOOD_DOMAIN}:{GOOD_SERVICE}@{version}");
+            let name = format!("{GOOD_DOMAIN}:{GOOD_SERVER}@{version}");
             let component = Name::parse(&name).component();
 
             assert!(component.is_err());
@@ -575,22 +567,51 @@ mod tests {
     }
 
     #[test]
-    fn parse_services_bad() {
-        let bad_services = vec![
-            "NoPackage",
-            "_package.StartsWithUnderscore",
-            "this.service.name.would.be.too.long.due.to.being.over.SixtyThree",
-        ];
+    fn parse_server_good() {
+        let good_servers = vec!["simple", "contains-dash", "ends-with-digit-1"];
 
-        for service in bad_services.iter() {
-            let name = format!("{GOOD_DOMAIN}:{service}@{GOOD_VERSION}");
+        for server in good_servers.iter() {
+            let name = format!("{GOOD_DOMAIN}:{server}@{GOOD_VERSION}");
 
             let component = Name::parse(&name).component();
 
-            assert!(component.is_err());
+            assert!(component.is_ok());
+            let component = component.unwrap();
+            assert_eq!(
+                component.server.domain,
+                DomainUuid::parse(GOOD_DOMAIN).unwrap(),
+            );
+            assert_eq!(component.server.server, *server);
+            assert_eq!(component.version, GOOD_VERSION);
+            assert_eq!(format!("{component}"), name);
+        }
+    }
+
+    #[test]
+    fn parse_server_bad() {
+        let bad_servers = vec![
+            "",
+            "contains.period",
+            "contains-Capital",
+            "contains_underscore",
+            "-starts-with-dash",
+            "1-starts-with-digit",
+            "this-server-name-would-be-too-long-due-to-being-over-sixty-three",
+        ];
+
+        for server in bad_servers.iter() {
+            let name = format!("{GOOD_DOMAIN}:{server}@{GOOD_VERSION}");
+
+            let component = Name::parse(&name).component();
+
+            assert!(
+                component.is_err(),
+                "Expected server ID {:?} to be invalid",
+                server
+            );
             assert_eq!(
                 component.unwrap_err().to_string(),
-                format!("Invalid service name: {:?}", service),
+                format!("Invalid server ID: {:?}", server),
             );
         }
     }

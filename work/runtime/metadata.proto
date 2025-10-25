@@ -7,15 +7,16 @@ package work.runtime;
 // All information necessary to operate any component.
 message Metadata {
 
-  // For components that implement a gRPC service.
-  GrpcMetadata grpc = 1;
+  // The set of gRPC services implemented by this component.
+  repeated GrpcService service = 1;
 }
 
-// All information necessary to operate a gRPC service.
-message GrpcMetadata {
+// All information necessary to operate a single gRPC service.
+message GrpcService {
 
-  // Name of the service (e.g. `package.ServiceName`).
-  string service = 1;
+  // Fully-qualified name of the service (e.g. `package.ServiceName`).
+  // Must be unique within a component.
+  string name = 1;
 
   // Mapping from gRPC method names (e.g. `MethodName`) to descriptors.
   map<string, GrpcMethod> methods = 2;

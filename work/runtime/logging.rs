@@ -19,8 +19,8 @@ macro_rules! log {
         let component: &ComponentName = $component;
         $crate::event!(
             $level,
-            domain = component.service.domain.to_string(),
-            service = component.service.service,
+            domain = component.server.domain.to_string(),
+            server = component.server.server,
             version = component.version,
             $($arg)+
         );
@@ -30,8 +30,8 @@ macro_rules! log {
         let pod: &PodName = $pod;
         $crate::event!(
             $level,
-            domain = pod.component.service.domain.to_string(),
-            service = pod.component.service.service,
+            domain = pod.component.server.domain.to_string(),
+            server = pod.component.server.server,
             version = pod.component.version,
             pod = pod.pod.to_string(),
             $($arg)+
@@ -77,5 +77,16 @@ macro_rules! log_info {
     };
     (pod: $pod:expr, $($arg:tt)+) => {
         $crate::log!($crate::Level::INFO, pod: $pod, $($arg)+)
+    };
+}
+
+/// Log normal runtime information
+/// when there really is no relevant component or pod name to use as context,
+/// such as when behavior relevant to the system as a whole but not to any individual component.
+/// Always use [`log_info`] instead if possible.
+#[macro_export]
+macro_rules! log_info_globally {
+    ($($arg:tt)+) => {
+        $crate::event!($crate::Level::INFO, $($arg)+);
     };
 }

@@ -4,7 +4,6 @@ from ipaddress import ip_address
 from unittest import main
 
 from grpc import RpcError, StatusCode, insecure_channel
-
 from work.runtime.tests.api_pb2 import (
     ContainerConfig,
     ContainerMetadata,
@@ -32,6 +31,7 @@ from work.runtime.tests.api_pb2 import (
 )
 from work.runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
 from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
+
 from work.runtime.tests.util import (
     RUNTIME_HANDLER,
     RUNTIME_NAME,
@@ -74,7 +74,7 @@ class SuccessTest(WorkdTestCase):
                 image=ImageSpec(
                     image=self.imageId(
                         'a4f7b91e3c0d8e5a2f9c6d4b7e1a3c8f',
-                        'this.should.never.be.Found',
+                        'this-should-never-be-found',
                         '10.10.10',
                     ),
                     runtime_handler=RUNTIME_HANDLER,
@@ -92,7 +92,7 @@ class SuccessTest(WorkdTestCase):
         noneUsedBytes, noneInodesUsed = self.verifyFsUsage()
 
         domain, _, _, _, _, firstImageSpec = self.setupImage(
-            service='just.some.Image',
+            server='just-some-image',
             version='1.2.3',
             module='work/runtime/tests/components/adder-c.component.wasm',
             metadata='work/runtime/tests/components/adder.binpb',
@@ -102,9 +102,9 @@ class SuccessTest(WorkdTestCase):
         self.assertGreater(singleUsedBytes, noneUsedBytes)
         self.assertEqual(singleInodesUsed, noneInodesUsed + 5)
 
-        # Push a new version. This should share a service directory.
+        # Push a new version. This should share a server directory.
         _, _, _, _, _, secondImageSpec = self.setupImage(
-            service='just.some.Image',
+            server='just-some-image',
             version='4.5.6',
             module='work/runtime/tests/components/adder-c.component.wasm',
             metadata='work/runtime/tests/components/adder.binpb',
@@ -133,8 +133,8 @@ class SuccessTest(WorkdTestCase):
         self.assertEqual(removedInodesUsed, noneInodesUsed)
 
     def test_SimpleContainerLifecycle(self):
-        domain, service, version, componentName, labels, imageSpec = self.setupImage(
-            service='package.Serviss',
+        domain, server, version, componentName, labels, imageSpec = self.setupImage(
+            server='servur',
             version='1.2.3-fureal',
             module='work/runtime/tests/components/adder-c.component.wasm',
             metadata='work/runtime/tests/components/adder.binpb',
@@ -156,7 +156,7 @@ class SuccessTest(WorkdTestCase):
         )
 
         podSandboxId = response.pod_sandbox_id
-        expectedPodPrefix = f'p-{domain}:{service}@{version}#'
+        expectedPodPrefix = f'p-{domain}:{server}@{version}#'
         self.assertTrue(podSandboxId.startswith(expectedPodPrefix))
         try:
             int(podSandboxId[len(expectedPodPrefix) :])
@@ -230,8 +230,8 @@ class SuccessTest(WorkdTestCase):
         )
 
     def test_ContainerStatus(self):
-        domain, service, version, componentName, labels, imageSpec = self.setupImage(
-            service='some.Service',
+        domain, server, version, componentName, labels, imageSpec = self.setupImage(
+            server='some-server',
             version='1.2.3',
             module='work/runtime/tests/components/adder-c.component.wasm',
             metadata='work/runtime/tests/components/adder.binpb',

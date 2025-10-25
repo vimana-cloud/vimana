@@ -1,8 +1,8 @@
 # gRPC service metadata for `AdderService`
 # should match `adder.wit`.
 
-grpc {
-  service: "foo.bar.AdderService"
+service {
+  name: "foo.bar.AdderService"
   methods {
     key: "AddFloats"
     value {

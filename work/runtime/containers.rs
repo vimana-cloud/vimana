@@ -25,7 +25,7 @@ use wasmtime::Engine as WasmEngine;
 
 use logging::log_info;
 use metadata_proto::work::runtime::Metadata;
-use names::{hexify_string, ComponentName};
+use names::ComponentName;
 
 /// Each component directory under [store root](ContainerStore::root)
 /// has a file called `container` containing the pre-compiled [Component] and the [Metadata].
@@ -50,7 +50,7 @@ pub(crate) struct ContainerStore {
     /// Means to fetch containers from a remote container registry.
     client: ContainerClient,
 
-    /// Global Wasm engine to run hosted services.
+    /// Global Wasm engine to run hosted servers.
     /// This must be the exact same engine used in the [client](ContainerClient).
     wasmtime: WasmEngine,
 }
@@ -139,11 +139,11 @@ impl ContainerStore {
                     (!image_spec_path.exists()) as u64,
                 )
             } else {
-                let service_path = component_path.parent().unwrap();
-                if service_path.exists() {
+                let server_path = component_path.parent().unwrap();
+                if server_path.exists() {
                     (1, 1, 1)
                 } else {
-                    let domain_path = service_path.parent().unwrap();
+                    let domain_path = server_path.parent().unwrap();
                     if domain_path.exists() {
                         (2, 1, 1)
                     } else {
@@ -344,7 +344,7 @@ impl ContainerStore {
             filesystem_usage.bytes -= image_spec_metadata.len();
             filesystem_usage.inodes -= 1;
 
-            // Remove the version, service, and domain directories if they're empty.
+            // Remove the version, server, and domain directories if they're empty.
             for directory in component_path.ancestors().take(3) {
                 if sync_remove_dir(directory).is_ok() {
                     filesystem_usage.inodes -= 1;
@@ -378,8 +378,8 @@ impl ContainerStore {
     /// would be stored under `<root>/00000000000000000000000000000001/bar.baz.Foo/1.0.0/`.
     fn component_path(&self, name: &ComponentName) -> PathBuf {
         self.root
-            .join(name.service.domain.to_string())
-            .join(&name.service.service)
+            .join(name.server.domain.to_string())
+            .join(&name.server.server)
             .join(&name.version)
     }
 }
@@ -394,7 +394,7 @@ struct ContainerClient {
     /// Set of registries that should be fetched via HTTP rather than HTTPS.
     insecure_registries: Arc<HashSet<String>>,
 
-    /// Global Wasm engine to run hosted services.
+    /// Global Wasm engine to run hosted servers.
     /// This must be the exact same engine used in the [store](ContainerStore).
     wasmtime: WasmEngine,
 }
@@ -413,9 +413,9 @@ impl ContainerClient {
     async fn fetch(&self, registry: &str, name: &ComponentName) -> Result<Arc<Container>> {
         log_info!(component: name, "Fetching image from {:?}", registry);
 
-        // Any URL path for `1234567890abcdef1234567890abcdef:package.Service`
-        // would begin with `/v2/1234567890abcdef1234567890abcdef/071636b6167656e235562767963656/`.
-        let service_url = format!(
+        // Any URL path for `1234567890abcdef1234567890abcdef:server-id`
+        // would begin with `/v2/1234567890abcdef1234567890abcdef/server-id/`.
+        let server_url = format!(
             "{}://{}/v2/{}/{}",
             if self.insecure_registries.contains(registry) {
                 "http"
@@ -423,15 +423,13 @@ impl ContainerClient {
                 "https"
             },
             registry,
-            name.service.domain,
-            // Repository namespace components must contain only lowercase letters and digits,
-            // so hex-encode the service name.
-            hexify_string(&name.service.service),
+            name.server.domain,
+            name.server.server,
         );
 
         // Pull the manifest:
         // https://specs.opencontainers.org/distribution-spec/#pulling-manifests.
-        let manifest_url = format!("{service_url}/manifests/{}", name.version);
+        let manifest_url = format!("{server_url}/manifests/{}", name.version);
         let response = self
             .http
             .get(&manifest_url)
@@ -450,12 +448,12 @@ impl ContainerClient {
             if manifest.layers.len() == 2 {
                 // Fetch the layers in parallel.
                 let component_fetch = spawn(self.clone().fetch_component(format!(
-                    "{service_url}/blobs/{}",
+                    "{server_url}/blobs/{}",
                     manifest.layers.get(0).unwrap().digest,
                 )));
                 let metadata_result = self
                     .fetch_metadata(format!(
-                        "{service_url}/blobs/{}",
+                        "{server_url}/blobs/{}",
                         manifest.layers.get(1).unwrap().digest,
                     ))
                     .await;

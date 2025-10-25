@@ -20,7 +20,7 @@ pub type TonicResult<T> = StdResult<Response<T>, Status>;
 // These labels must be present on every pod and container using the Vimana handler:
 
 const LABEL_DOMAIN_KEY: &str = "vimana.host/domain";
-const LABEL_SERVICE_KEY: &str = "vimana.host/service";
+const LABEL_SERVER_KEY: &str = "vimana.host/server";
 const LABEL_VERSION_KEY: &str = "vimana.host/version";
 
 fn component_name_from_labels(labels: &HashMap<String, String>) -> Result<ComponentName> {
@@ -32,8 +32,8 @@ fn component_name_from_labels(labels: &HashMap<String, String>) -> Result<Compon
         )?,
         String::from(
             labels
-                .get(LABEL_SERVICE_KEY)
-                .ok_or(anyhow!("Missing required service label"))?,
+                .get(LABEL_SERVER_KEY)
+                .ok_or(anyhow!("Missing required server label"))?,
         ),
         String::from(
             labels

@@ -24,7 +24,7 @@ use crate::containers::ContainerStore;
 use crate::cri::runtime::CONTAINER_RUNTIME_HANDLER;
 use crate::cri::{component_name_from_labels, GlobalLogs, LogErrorToStatus, TonicResult};
 use crate::state::now;
-use names::{unhexify_string, ComponentName, DomainUuid};
+use names::{ComponentName, DomainUuid};
 
 /// Wrapper around [WorkRuntime] that implements [ImageService]
 /// with a downstream server for OCI requests.
@@ -239,7 +239,7 @@ impl ProxyingImageService {
 fn registry_and_component_from_image_spec(image_id: &str) -> Result<(String, ComponentName)> {
     lazy_static! {
         // Use a permissive regex to parse the image ID:
-        //     <registry>/<domain>/<service-hex>:<version>
+        //     <registry>/<domain-id>/<server-id>:<version>
         static ref IMAGE_ID_RE: Regex = Regex::new(r"^([^/]*)/([^/]*)/([^:]*):(.*)$").unwrap();
     }
 
@@ -248,13 +248,9 @@ fn registry_and_component_from_image_spec(image_id: &str) -> Result<(String, Com
     };
     let registry = &image_id[1];
     let domain = &image_id[2];
-    let service_hex = &image_id[3];
+    let server = &image_id[3];
     let version = &image_id[4];
 
-    let name = ComponentName::new(
-        DomainUuid::parse(domain)?,
-        unhexify_string(service_hex)?,
-        version,
-    )?;
+    let name = ComponentName::new(DomainUuid::parse(domain)?, server, version)?;
     Ok((String::from(registry), name))
 }

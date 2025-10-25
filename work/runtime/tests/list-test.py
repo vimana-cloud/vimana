@@ -31,6 +31,7 @@ from work.runtime.tests.api_pb2 import (
     StopContainerRequest,
     StopPodSandboxRequest,
 )
+
 from work.runtime.tests.util import RUNTIME_HANDLER, WorkdTestCase, hexUuid
 
 # The number of nanoseconds it takes for this test to time out.
@@ -57,33 +58,33 @@ class ListTest(WorkdTestCase):
     def setUpClass(cls):
         """Create a bunch of pods in various phases of the lifecycle and with various labels.
 
-        6 pods are created with the same domain, service, and version (1 in each lifecycle phase).
-        1 pod is created with a different domain, service and version (in the `Created` phase).
+        6 pods are created with the same domain, server, and version (1 in each lifecycle phase).
+        1 pod is created with a different domain, server and version (in the `Created` phase).
         """
         super().setUpClass()
 
         (
             cls.fooDomain,
-            cls.fooService,
+            cls.fooServer,
             cls.fooVersion,
             cls.fooComponentName,
             cls.fooLabels,
             cls.fooImageSpec,
         ) = cls.setupImage(
-            service='foo.AdderService',
+            server='adder-server',
             version='1.2.3',
             module='work/runtime/tests/components/adder-c.component.wasm',
             metadata='work/runtime/tests/components/adder.binpb',
         )
         (
             cls.barDomain,
-            cls.barService,
+            cls.barServer,
             cls.barVersion,
             cls.barComponentName,
             cls.barLabels,
             cls.barImageSpec,
         ) = cls.setupImage(
-            service='bar.AdderService',
+            server='another-adder-server',
             version='0.0.0',
             module='work/runtime/tests/components/adder-c.component.wasm',
             metadata='work/runtime/tests/components/adder.binpb',
@@ -474,7 +475,7 @@ class ListTest(WorkdTestCase):
                 filter=PodSandboxFilter(
                     label_selector={
                         'vimana.host/domain': self.fooDomain,
-                        'vimana.host/service': self.fooService,
+                        'vimana.host/server': self.fooServer,
                         'vimana.host/version': self.fooVersion,
                     }
                 )
@@ -499,7 +500,7 @@ class ListTest(WorkdTestCase):
                 filter=ContainerFilter(
                     label_selector={
                         'vimana.host/domain': self.barDomain,
-                        'vimana.host/service': self.barService,
+                        'vimana.host/server': self.barServer,
                         'vimana.host/version': self.barVersion,
                     }
                 )

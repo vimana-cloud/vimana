@@ -212,13 +212,13 @@ class WorkdTester:
                         self._workdLogQueue.shutdown()
 
     def pushImage(
-        self, domain: str, service: str, version: str, module: str, metadata: str
+        self, domain: str, server: str, version: str, module: str, metadata: str
     ):
         """Push a Vimana Wasm "container" image to the running container registry
 
         Args:
             domain:    e.g. `1234567890abcdef1234567890abcdef`
-            service:   e.g. `some.package.FooService`
+            server:    e.g. `some-server-id`
             version:   e.g. `1.0.0-release`
             module:    Path to compiled Wasm component byte code file.
             metadata:  Path to serialized gRPC service metadata file.
@@ -227,7 +227,7 @@ class WorkdTester:
             _pushImagePath,
             f'http://localhost:{self._imageRegistryPort}',
             domain,
-            service,
+            server,
             version,
             module,
             metadata,
@@ -238,7 +238,7 @@ class WorkdTester:
 
     def setupImage(
         self,
-        service: str,
+        server: str,
         version: str,
         module: str,
         metadata: str,
@@ -252,15 +252,15 @@ class WorkdTester:
         If the domain is not supplied, use a random domain.
         """
         domain = domain or hexUuid()
-        componentName = f'{domain}:{service}@{version}'
+        componentName = f'{domain}:{server}@{version}'
         labels = {
             'vimana.host/domain': domain,
-            'vimana.host/service': service,
+            'vimana.host/server': server,
             'vimana.host/version': version,
         }
-        self.pushImage(domain, service, version, module, metadata)
+        self.pushImage(domain, server, version, module, metadata)
         imageSpec = ImageSpec(
-            image=self.imageId(domain, service, version),
+            image=self.imageId(domain, server, version),
             runtime_handler=RUNTIME_HANDLER,
         )
         self.imageService.PullImage(
@@ -269,15 +269,10 @@ class WorkdTester:
                 sandbox_config=PodSandboxConfig(labels=labels),
             ),
         )
-        return (domain, service, version, componentName, labels, imageSpec)
+        return (domain, server, version, componentName, labels, imageSpec)
 
-    def imageId(self, domain: str, service: str, version: str) -> str:
-        # TODO: Rewrite the image pusher in Python and use it to construct the URL for pulling.
-        serviceHex = service.encode().hex()
-        serviceHex = ''.join(
-            lower + upper for lower, upper in zip(serviceHex[1::2], serviceHex[0::2])
-        )
-        return f'localhost:{self._imageRegistryPort}/{domain}/{serviceHex}:{version}'
+    def imageId(self, domain: str, server: str, version: str) -> str:
+        return f'localhost:{self._imageRegistryPort}/{domain}/{server}:{version}'
 
     def verifyFsUsage(self, testCase: TestCase) -> (int, int):
         """
@@ -415,6 +410,16 @@ def _findAvailablePort(attempts: int = 5) -> int:
     raise RuntimeError(f'Could not find an open port after {attempts} attempts.')
 
 
+def _isPortAvailable(port: int) -> bool:
+    with closing(socket(AF_INET, SOCK_STREAM)) as sock:
+        errno = sock.connect_ex(('localhost', port))
+        # Error codes 111 (on Linux) and 61 (on Mac)
+        # seem to indicate connection refused (the port is available).
+        if errno == 111 or errno == 61:
+            return True
+    return False
+
+
 def _collectLogs(stdout: TextIO, queue: Queue):
     """Read all lines from the `stdout` pipe, adding each line to the queue."""
     # Invoke `readline` iteratively until EOF is indicated by the sentinel value `b''`.
@@ -425,16 +430,6 @@ def _collectLogs(stdout: TextIO, queue: Queue):
             # If the test is shutting down, nobody wants the remaining logs.
             break
     stdout.close()
-
-
-def _isPortAvailable(port: int) -> bool:
-    with closing(socket(AF_INET, SOCK_STREAM)) as sock:
-        errno = sock.connect_ex(('localhost', port))
-        # Error codes 111 (on Linux) and 61 (on Mac)
-        # seem to indicate connection refused (the port is available).
-        if errno == 111 or errno == 61:
-            return True
-    return False
 
 
 def _waitFor(predicate: Callable[[], bool]):
