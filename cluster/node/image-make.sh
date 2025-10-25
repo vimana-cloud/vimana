@@ -4,8 +4,8 @@ set -e
 source 'dev/bash-util.sh'
 assert-bazel-run
 
-workd_binary_path="$1"
-workd_service_path="$2"
+vimanad_binary_path="$1"
+vimanad_service_path="$2"
 containerd_config_path="$3"
 shift 3
 
@@ -85,7 +85,7 @@ function make-image-gcp {
 
   log-info "Uploading artifacts to ${bold}${instance_name}${reset}"
   gcloud compute scp \
-    "$workd_binary_path" "$workd_service_path" "$containerd_config_path" \
+    "$vimanad_binary_path" "$vimanad_service_path" "$containerd_config_path" \
     "$instance_name":'~/' \
     --project="$gcp_project" \
     --zone="$instance_zone"
@@ -93,7 +93,7 @@ function make-image-gcp {
   # SSH into the instance to:
   # - Move uploaded artifacts into proper directories (owned by root),
   #   which is more difficult to do directly via `scp`.
-  # - Enable (but do not start) the `workd` daemon.
+  # - Enable (but do not start) the `vimanad` daemon.
   # - Install [`cloud-init`](https://cloud-init.io/),
   #   which kOps expects to be enabled on the node image.
   # - Install `containerd` so kOps doesn't have to install it during node-up.
@@ -104,10 +104,10 @@ function make-image-gcp {
       set -e
       sudo apt-get update
       sudo apt-get install -y cloud-init containerd
-      sudo mv ~/'$(basename "$workd_binary_path")' /usr/bin/workd
-      sudo mv ~/'$(basename "$workd_service_path")' /etc/systemd/system/workd.service
+      sudo mv ~/'$(basename "$vimanad_binary_path")' /usr/bin/vimanad
+      sudo mv ~/'$(basename "$vimanad_service_path")' /etc/systemd/system/vimanad.service
       sudo mv ~/'$(basename "$containerd_config_path")' /etc/containerd/config.toml
-      sudo systemctl enable workd
+      sudo systemctl enable vimanad
 EOF
 
   log-info "Stopping ${bold}${instance_name}${reset} to preserve disk integrity during snapshot"

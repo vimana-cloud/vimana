@@ -28,10 +28,10 @@ const (
 const (
 	// Name of the runtime class used for all Vimana pods.
 	// This is the name that's visible in the API.
-	runtimeClassName = "workd-runtime"
+	runtimeClassName = "vimana-runtime"
 	// Name of the runtime handler used for all Vimana pods.
 	// This is the value that's passed to the container runtime in the RunPodSandbox request.
-	runtimeHandlerName = "workd-handler"
+	runtimeHandlerName = "vimana-handler"
 	// The port number used for all gRPC backend servers.
 	grpcPortNumber = 80
 )

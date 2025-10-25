@@ -49,7 +49,8 @@ impl ImageService for ProxyingImageService {
         let image_spec = filter.image.unwrap_or_default();
         let handler = image_spec.runtime_handler;
 
-        // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
+        // Unless `vimanad` is explicitly chosen,
+        // forward all requests to the downstream OCI runtime.
         // This supports running K8s control plane pods like `kube-controller-manager` etc.
         if handler != "TODO-this-should-be-something-else-but-what?" {
             return self

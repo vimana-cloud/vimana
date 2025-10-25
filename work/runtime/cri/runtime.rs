@@ -39,9 +39,9 @@ use names::{Name, PodName};
 /// "For now it expects 0.1.0." - https://github.com/cri-o/cri-o/blob/v1.31.3/server/version.go.
 const KUBELET_API_VERSION: &str = "0.1.0";
 /// Name of the Vimana container runtime.
-pub(crate) const CONTAINER_RUNTIME_NAME: &str = "workd";
+pub(crate) const CONTAINER_RUNTIME_NAME: &str = "vimana";
 /// Name of the Vimana container runtime handler.
-pub(super) const CONTAINER_RUNTIME_HANDLER: &str = "workd-handler";
+pub(super) const CONTAINER_RUNTIME_HANDLER: &str = "vimana-handler";
 /// Version of the Vimana container runtime.
 pub(crate) const CONTAINER_RUNTIME_VERSION: &str = "0.0.0";
 /// Version of the CRI API supported by the runtime.
@@ -131,7 +131,8 @@ impl RuntimeService for ProxyingRuntimeService {
         &self,
         request: Request<v1::RunPodSandboxRequest>,
     ) -> TonicResult<v1::RunPodSandboxResponse> {
-        // Unless workd is explicitly chosen, forward all requests to the downstream OCI runtime.
+        // Unless `vimanad` is explicitly chosen,
+        // forward all requests to the downstream OCI runtime.
         // This supports running K8s control plane pods like `kube-controller-manager` etc.
         if request.get_ref().runtime_handler != CONTAINER_RUNTIME_HANDLER {
             let response = self.downstream.lock().await.run_pod_sandbox(request).await;
@@ -270,7 +271,7 @@ impl RuntimeService for ProxyingRuntimeService {
             .list_pod_sandbox(Request::new(request.get_ref().clone()))
             .await
             .and_then(|mut downstream_result| {
-                // Upstream is the `workd` runtime.
+                // Upstream is the Vimana runtime.
                 self.list_pod_sandbox_upstream(request.into_inner())
                     .map(|upstream_result| {
                         downstream_result
@@ -768,7 +769,7 @@ impl ProxyingRuntimeService {
             || !(id.starts_with(POD_PREFIX) || id.starts_with(CONTAINER_PREFIX))
     }
 
-    /// Perform sandbox listing in the workd runtime.
+    /// Perform sandbox listing in the Vimana runtime.
     fn list_pod_sandbox_upstream(
         &self,
         request: v1::ListPodSandboxRequest,
@@ -812,7 +813,7 @@ impl ProxyingRuntimeService {
         Ok(Response::new(response))
     }
 
-    /// Perform sandbox listing in the workd runtime.
+    /// Perform sandbox listing in the Vimana runtime.
     fn list_containers_upstream(
         &self,
         request: v1::ListContainersRequest,
@@ -865,7 +866,7 @@ impl ProxyingRuntimeService {
 fn cri_pod_sandbox(name: &PodName, pod: &Pod) -> v1::PodSandbox {
     v1::PodSandbox {
         id: pod_prefix(name),
-        // All Workd containers use the same runtime.
+        // All Vimana containers use the same runtime.
         runtime_handler: String::from(CONTAINER_RUNTIME_HANDLER),
         // Pod sandboxes are always ready (containers might not be).
         state: pod_state_to_cri_pod_state(pod.state) as i32,

@@ -1,4 +1,4 @@
-# Hot-swap a freshly-built copy of `workd` into a running minikube cluster,
+# Hot-swap a freshly-built copy of `vimanad` into a running minikube cluster,
 # and re-deploy the API operator.
 #
 # CAUTION:
@@ -16,8 +16,8 @@ assert-bazel-run
 minikube_wrapper="$1"
 minikube_bin="$2"
 kubectl="$3"
-# Path to freshly-compiled `workd` binary.
-workd="$4"
+# Path to freshly-compiled `vimanad` binary.
+vimanad="$4"
 push_operator_image="$5"
 # Path to an executable that will install the Vimana APIs and operator in our cluster.
 deploy_operator="$6"
@@ -39,8 +39,8 @@ _minikube status > /dev/null 2> /dev/null || {
 
 # Hot-swapping is pretty simple actually.
 # Just copy the new binary into kicbase, then restart the daemon.
-docker cp --follow-link "$workd" minikube:/usr/bin/workd
-docker exec minikube systemctl restart workd
+docker cp --follow-link "$vimanad" minikube:'/usr/bin/vimanad'
+docker exec minikube systemctl restart vimanad
 
 # Push the latest operator image and re-deploy it.
 "$push_operator_image" --insecure || {

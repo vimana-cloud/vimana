@@ -32,7 +32,7 @@ from work.runtime.tests.api_pb2 import (
     StopPodSandboxRequest,
 )
 
-from work.runtime.tests.util import RUNTIME_HANDLER, WorkdTestCase, hexUuid
+from work.runtime.tests.util import RUNTIME_HANDLER, VimanadTestCase, hexUuid
 
 # The number of nanoseconds it takes for this test to time out.
 # Used for very rough upper / lower bounds when checking reasonableness of recent timestamps.
@@ -53,7 +53,7 @@ class Phase(Enum):
     StopPodSandbox = auto()
 
 
-class ListTest(WorkdTestCase):
+class ListTest(VimanadTestCase):
     @classmethod
     def setUpClass(cls):
         """Create a bunch of pods in various phases of the lifecycle and with various labels.

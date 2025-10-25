@@ -1,4 +1,4 @@
-# Injected, along with the `workd` binary, into a Kicbase image
+# Injected, along with the `vimanad` binary, into a Kicbase image
 # to enable Vimana in minikube.
 
 [Unit]
@@ -9,7 +9,7 @@ After=containerd.service
 [Service]
 Type=exec
 # The config file is populated by Minikube with insecure registries.
-ExecStart=workd --config=/etc/workd/config.json
+ExecStart=vimanad --config=/etc/vimana/config.json
 
 [Install]
 WantedBy=multi-user.target

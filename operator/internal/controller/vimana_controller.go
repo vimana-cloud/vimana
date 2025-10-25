@@ -33,7 +33,7 @@ const (
 
 var (
 	// expectedRuntimeClass is the expected state
-	// of the globally shared RuntimeClass that identifies the `workd` runtime handler.
+	// of the globally shared RuntimeClass that identifies the Vimana runtime handler.
 	expectedRuntimeClass = &nodev1.RuntimeClass{
 		ObjectMeta: metav1.ObjectMeta{
 			// RuntimeClass is cluster-scoped (no namespace).

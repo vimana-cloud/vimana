@@ -49,8 +49,8 @@ from work.runtime.tests.api_pb2_grpc import (
     add_RuntimeServiceServicer_to_server,
 )
 
-# Path to the `workd` binary in the runfiles.
-_workdPath = 'work/runtime/workd'
+# Path to the `vimanad` binary in the runfiles.
+_vimanadPath = 'work/runtime/vimanad'
 # Path to the `host-local` IPAM emulator.
 _ipamPath = 'work/runtime/tests/ipam'
 # Path to the `vimana-push` binary which uploads Wasm containers to the registry.
@@ -75,18 +75,18 @@ exec {quote(_ipamPath)} {quote(_ipamDatabase.name)}
 _ipamWrapper.close()
 chmod(_ipamWrapper.name, S_IEXEC | S_IREAD)
 
-# The name of the Vimana Work runtime.
-RUNTIME_NAME = 'workd'
+# The name of the Vimana runtime.
+RUNTIME_NAME = 'vimana'
 # The name of the runtime handler for Vimana pods.
-RUNTIME_HANDLER = 'workd-handler'
+RUNTIME_HANDLER = 'vimana-handler'
 
 
-class WorkdTestCase(TestCase):
+class VimanadTestCase(TestCase):
     @classmethod
     def setUpClass(cls):
         # A single, long-running runtime instance is available to all tests.
-        # Otherwise, any test that requires isolation can simply spin up it's own `WorkdTester`.
-        cls.tester = WorkdTester().__enter__()
+        # Otherwise, any test that requires isolation can simply spin up it's own `VimanadTester`.
+        cls.tester = VimanadTester().__enter__()
         # Set up convenient aliases for fields in `tester`.
         cls.runtimeService = cls.tester.runtimeService
         cls.imageService = cls.tester.imageService
@@ -104,7 +104,7 @@ class WorkdTestCase(TestCase):
         self.verifyFsUsage = partial(self.tester.verifyFsUsage, self)
 
     def tearDown(self):
-        self.tester.printWorkdLogs(self)
+        self.tester.printVimanadLogs(self)
         # Ensure that we used precisely as many mocked calls as we thought we would,
         # and won't leave any silly behavior behind for another test.
         try:
@@ -117,20 +117,20 @@ class WorkdTestCase(TestCase):
             raise
 
 
-class WorkdTester:
+class VimanadTester:
     """Manager for the system under test.
 
-    Fires up a real `workd` server hooked up to dependencies:
+    Fires up a real `vimanad` server hooked up to dependencies:
     - A fake container image registry
       that should act like the [reference implementation](https://hub.docker.com/_/registry).
     - A mock downstream runtime that can be configured to behave in specific ways.
     - An emulator for the host-local IPAM plugin.
 
-    Also provides clients to communicate with the `workd` server.
+    Also provides clients to communicate with the `vimanad` server.
     """
 
     def __init__(self):
-        # Fire up an image registry, downstream runtime, and workd instance and wire them up.
+        # Fire up image registry, downstream runtime, and `vimanad` instances and wire them up.
         self._imageRegistry, self._imageRegistryPort = startImageRegistry()
         try:
             # Start a mock downstream runtime (normally, this would be containerd).
@@ -142,13 +142,13 @@ class WorkdTester:
             ) = startDownstreamRuntime()
             try:
                 # Wait for both the image registry and downstream runtime to become connectable
-                # before starting workd.
+                # before starting `vimanad`.
                 _waitFor(
                     lambda: exists(downstreamSocket)
                     and not _isPortAvailable(self._imageRegistryPort),
                 )
                 self._imageStore = TemporaryDirectory()
-                self._workd, self._workdSocket = startWorkd(
+                self._vimanad, self._vimanadSocket = startVimanad(
                     downstreamSocket,
                     self._imageRegistryPort,
                     self._imageStore.name,
@@ -157,25 +157,25 @@ class WorkdTester:
                 try:
                     # We need a separate thread just to collect the logs:
                     # https://stackoverflow.com/a/4896288/5712883.
-                    self._workdLogQueue = Queue()
+                    self._vimanadLogQueue = Queue()
                     Thread(
                         target=_collectLogs,
-                        args=(self._workd.stdout, self._workdLogQueue),
+                        args=(self._vimanad.stdout, self._vimanadLogQueue),
                         daemon=True,  # Shut down the thread if the parent process exits.
                     ).start()
                     try:
-                        # Wait for workd to become connectable before opening client channels.
-                        _waitFor(lambda: exists(self._workdSocket))
+                        # Wait for `vimanad` to become connectable before opening client channels.
+                        _waitFor(lambda: exists(self._vimanadSocket))
                         self._runtimeChannel = self._channel()
                         self._imageChannel = self._channel()
                         self.runtimeService = RuntimeServiceStub(self._runtimeChannel)
                         self.imageService = ImageServiceStub(self._imageChannel)
                     except:
-                        self._workdLogQueue.shutdown()
+                        self._vimanadLogQueue.shutdown()
                         raise
                 except:
-                    self._workd.terminate()
-                    self._workd.wait(_timeout.seconds)
+                    self._vimanad.terminate()
+                    self._vimanad.wait(_timeout.seconds)
                     raise
             except:
                 self._downstreamRuntime.stop(_timeout.seconds)
@@ -187,7 +187,7 @@ class WorkdTester:
     def _channel(self):
         # Set authority: https://github.com/grpc/grpc/issues/34305.
         return grpc.insecure_channel(
-            f'unix://{self._workdSocket}',
+            f'unix://{self._vimanadSocket}',
             options=[('grpc.default_authority', 'localhost')],
         )
 
@@ -200,8 +200,8 @@ class WorkdTester:
             self._imageChannel.close()
         finally:
             try:
-                self._workd.terminate()
-                self._workd.wait(_timeout.seconds)
+                self._vimanad.terminate()
+                self._vimanad.wait(_timeout.seconds)
             finally:
                 try:
                     self._imageRegistry.server_close()
@@ -209,7 +209,7 @@ class WorkdTester:
                     try:
                         self._downstreamRuntime.stop(_timeout.seconds)
                     finally:
-                        self._workdLogQueue.shutdown()
+                        self._vimanadLogQueue.shutdown()
 
     def pushImage(
         self, domain: str, server: str, version: str, module: str, metadata: str
@@ -301,9 +301,9 @@ class WorkdTester:
 
         return (usedBytes, inodesUsed)
 
-    def workdLogs(self) -> list[str]:
+    def vimanadLogs(self) -> list[str]:
         """
-        Return the list of available log lines that have been written by `workd`
+        Return the list of available log lines that have been written by `vimanad`
         since last invocation.
         """
         # `sleep(0)` yields the GIL
@@ -312,21 +312,21 @@ class WorkdTester:
         logs = []
         while True:
             try:
-                logs.append(self._workdLogQueue.get(block=False))
+                logs.append(self._vimanadLogQueue.get(block=False))
             except (Empty, ShutDown):
                 return logs
 
-    def printWorkdLogs(self, testCase: TestCase):
-        """Print collected workd logs to standard error, if there are any."""
-        logs = self.workdLogs()
+    def printVimanadLogs(self, testCase: TestCase):
+        """Print collected `vimanad` logs to standard error, if there are any."""
+        logs = self.vimanadLogs()
         if len(logs) > 0:
             testName = testCase.id().split('.')[-1]
-            header = f'\nWorkd logs for {testName}:\n'
+            header = f'\nVimanad logs for {testName}:\n'
             message = '> '.join(chain((header,), logs))
             print(message, file=stderr)
 
 
-def startWorkd(
+def startVimanad(
     downstreamRuntimeSocket: str,
     imageRegistryPort: int,
     imageStorePath: str,
@@ -341,7 +341,7 @@ def startWorkd(
     networkInterface = 'lo'  # Loopback device.
     podIps = _uniquePidBasedCidr()
     command = [
-        _workdPath,
+        _vimanadPath,
         f'--incoming={socket}',
         f'--downstream={downstreamRuntimeSocket}',
         f'--image-store={imageStorePath}',
@@ -817,7 +817,7 @@ def startDownstreamRuntime() -> tuple[
     """
     runtimeService = MockRuntimeService()
     imageService = MockImageService()
-    # On startup, workd will list the downstream pods / containers
+    # On startup, `vimanad` will list the downstream pods / containers
     # to populate its internal set of pre-existing downstream IDs.
     runtimeService.returnNext('ListPodSandbox', ListPodSandboxResponse())
     runtimeService.returnNext('ListContainers', ListContainersResponse())

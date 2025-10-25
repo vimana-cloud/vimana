@@ -1,5 +1,5 @@
 # (Re)start the local minikube cluster
-# with a freshly-built `workd` runtime installed.
+# with freshly-built `vimanad` runtime and API operator installed.
 # This can take a minute or two,
 # so it may be faster to hotswap instead.
 
@@ -14,12 +14,12 @@ helm="$2"
 minikube_wrapper="$3"
 minikube_bin="$4"
 # Path to a binary that, when run,
-# builds and pushes the latest `workd`-enhanced Kicbase image
+# builds and pushes the latest `vimanad`-enhanced Kicbase image
 # to the registry where minikube will look for it.
 push_kicbase_image="$5"
 push_operator_image="$6"
 # Full name (including registry) of the Kicbase image.
-# Probably `localhost:5000/kicbase-workd:latest`.
+# Probably `localhost:5000/kicbase-vimanad:latest`.
 kicbase_repo="$7"
 # Probably `host.minikube.internal:5000`.
 cluster_registry="$8"
@@ -58,14 +58,14 @@ docker image rm --force "$kicbase_repo" 2> /dev/null || true
 }
 
 # Start minikube with:
-# - Custom base image enabling the Workd runtime.
+# - Custom base image enabling the Vimana runtime.
 # - The ability to load containers from the host machine without TLS.
 # - The runtime class of the pod specified on container image pull requests:
 #   https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 # - Embedding certificate data in the generated kubeconfig so it's self-contained.
 _minikube start \
   --base-image="$kicbase_repo" \
-  --container-runtime=workd \
+  --container-runtime=vimana \
   --insecure-registry="$cluster_registry" \
   --feature-gates=RuntimeClassInImageCriApi=true \
   --embed-certs \

@@ -7,21 +7,21 @@ sh_binary(
     name = "make-image",
     srcs = ["image-make.sh"],
     args = [
-        "$(location :workd-x86_64-linux)",
-        "$(location :workd.prod.service)",
+        "$(location :vimanad-x86_64-linux)",
+        "$(location :vimanad.prod.service)",
         "$(location :containerd-config.toml)",
     ],
     data = [
         ":containerd-config.toml",
-        ":workd.prod.service",
-        ":workd-x86_64-linux",
+        ":vimanad.prod.service",
+        ":vimanad-x86_64-linux",
     ],
     deps = ["//dev:bash-util"],
 )
 
-# Cross-compile a statically-linked `workd` Linux binary suitable for a container or a VM.
+# Cross-compile a statically-linked `vimanad` Linux binary suitable for a container or a VM.
 platform_binary(
-    name = "workd-x86_64-linux",
+    name = "vimanad-x86_64-linux",
     platform = "//dev:x86_64-linux-musl",
     target = "//work/runtime",
     visibility = ["//dev/minikube:__pkg__"],

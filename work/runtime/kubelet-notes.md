@@ -26,28 +26,28 @@ Starting and stopping a container.
 ```mermaid
 sequenceDiagram
     participant kubelet as kubelet
-    participant workd as Work Runtime
+    participant vimanad as Vimana Runtime
     participant registry as Image Registry
 
-    kubelet ->> workd: RunPodSandbox
-    workd ->> registry: Pull
+    kubelet ->> vimanad: RunPodSandbox
+    vimanad ->> registry: Pull
     activate registry
-    workd -->> kubelet: Ok
-    kubelet ->> workd: CreateContainer
-    workd -->> kubelet: Ok
-    kubelet ->> workd: StartContainer
-    workd ->> registry: Load
-    registry -->> workd: Ok
+    vimanad -->> kubelet: Ok
+    kubelet ->> vimanad: CreateContainer
+    vimanad -->> kubelet: Ok
+    kubelet ->> vimanad: StartContainer
+    vimanad ->> registry: Load
+    registry -->> vimanad: Ok
     deactivate registry
-    workd -->> kubelet: Ok
-    Note left of workd: Container is running …
+    vimanad -->> kubelet: Ok
+    Note left of vimanad: Container is running …
 
-    kubelet ->> workd: StopContainer
-    workd -->> kubelet: Ok
-    kubelet ->> workd: RemoveContainer
-    workd -->> kubelet: Ok
-    kubelet ->> workd: StopPodSandbox
-    workd -->> kubelet: Ok
-    kubelet ->> workd: RemovePodSandbox
-    workd -->> kubelet: Ok
+    kubelet ->> vimanad: StopContainer
+    vimanad -->> kubelet: Ok
+    kubelet ->> vimanad: RemoveContainer
+    vimanad -->> kubelet: Ok
+    kubelet ->> vimanad: StopPodSandbox
+    vimanad -->> kubelet: Ok
+    kubelet ->> vimanad: RemovePodSandbox
+    vimanad -->> kubelet: Ok
 ```

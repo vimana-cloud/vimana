@@ -5,7 +5,7 @@
 //!
 //! - UDP 443 (HTTPS/3)
 //!   fields requests from Ingress to all hosted services.
-//! - Unix `/run/vimana/workd.sock`
+//! - Unix `/run/vimana/vimanad.sock`
 //!   handles orchestration requests from Kubelet.
 #![feature(portable_simd)]
 
@@ -54,17 +54,17 @@ use cri::runtime::{ProxyingRuntimeService, CONTAINER_RUNTIME_NAME, CONTAINER_RUN
 use ipam::Ipam;
 use state::WorkRuntime;
 
-/// Default value for [`WorkdConfig::incoming`].
-const DEFAULT_INCOMING: &str = "/run/vimana/workd.sock";
-/// Default value for [`WorkdConfig::downstream`].
+/// Default value for [`VimanadConfig::incoming`].
+const DEFAULT_INCOMING: &str = "/run/vimana/vimanad.sock";
+/// Default value for [`VimanadConfig::downstream`].
 const DEFAULT_DOWNSTREAM: &str = "/run/containerd/containerd.sock";
-/// Default value for [`WorkdConfig::image_store`].
+/// Default value for [`VimanadConfig::image_store`].
 const DEFAULT_IMAGE_STORE: &str = "/var/lib/vimana/images";
-/// Default value for [`WorkdConfig::ipam_plugin`].
+/// Default value for [`VimanadConfig::ipam_plugin`].
 const DEFAULT_IPAM_PLUGIN: &str = "/opt/cni/bin/host-local";
-/// Default value for [`WorkdConfig::network_interface`].
+/// Default value for [`VimanadConfig::network_interface`].
 const DEFAULT_NETWORK_INTERFACE: &str = "eth0";
-/// Default value for [`WorkdConfig::pod_ips`].
+/// Default value for [`VimanadConfig::pod_ips`].
 const DEFAULT_POD_IPS: &str = "10.1.0.0/16";
 
 /// Vimana work node runtime.
@@ -74,7 +74,7 @@ const DEFAULT_POD_IPS: &str = "10.1.0.0/16";
 #[derive(Parser, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 #[command(name = CONTAINER_RUNTIME_NAME, version = CONTAINER_RUNTIME_VERSION, verbatim_doc_comment)]
-struct WorkdConfig {
+struct VimanadConfig {
     /// Path to the config file
     #[arg(long, value_name = "PATH")]
     config: Option<String>,
@@ -116,8 +116,8 @@ struct WorkdConfig {
 async fn main() -> StdResult<(), Box<dyn StdError>> {
     // Read configuration from the command-line first,
     // falling back on the JSON configuration file for unset fields.
-    let args = WorkdConfig::parse();
-    let config = args.config.map_or(WorkdConfig::default(), |config_path| {
+    let args = VimanadConfig::parse();
+    let config = args.config.map_or(VimanadConfig::default(), |config_path| {
         from_reader(BufReader::new(
             File::open(&config_path)
                 .expect(&format!("Error opening config file '{}'", config_path)),

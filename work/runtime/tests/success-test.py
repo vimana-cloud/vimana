@@ -35,12 +35,12 @@ from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
 from work.runtime.tests.util import (
     RUNTIME_HANDLER,
     RUNTIME_NAME,
-    WorkdTestCase,
+    VimanadTestCase,
     ipHostName,
 )
 
 
-class SuccessTest(WorkdTestCase):
+class SuccessTest(VimanadTestCase):
     def test_Version(self):
         request = VersionRequest()
 

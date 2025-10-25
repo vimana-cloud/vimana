@@ -10,14 +10,14 @@ local_registry = "localhost:5000"
 # as it would appear from inside the cluster.
 cluster_registry = "host.minikube.internal:5000"
 
-kicbase_image_name = "kicbase-workd"
+kicbase_image_name = "kicbase-vimanad"
 
 kicbase_tag = "latest"
 
 kicbase_local_repo = local_registry + "/" + kicbase_image_name + ":" + kicbase_tag
 
 # Start a Vimana-enabled minikube cluster locally
-# with the latest build of `workd` from source.
+# with the latest builds of the runtime and operator from source.
 # If Minikube is already running, shut it down first.
 sh_binary(
     name = "restart",
@@ -63,12 +63,12 @@ sh_binary(
         "$(location @rules_k8s//:minikube)",
         "$(location @rules_k8s//:minikube-bin)",
         "$(location @rules_k8s//:kubectl)",
-        "$(location //cluster/node:workd-x86_64-linux)",
+        "$(location //cluster/node:vimanad-x86_64-linux)",
         "$(location //operator:image-push-local)",
         "$(location //operator:deploy)",
     ],
     data = [
-        "//cluster/node:workd-x86_64-linux",
+        "//cluster/node:vimanad-x86_64-linux",
         "//dev:bash-util",
         "//operator:deploy",
         "//operator:image-push-local",
@@ -82,8 +82,8 @@ sh_binary(
 oci_image(
     name = "kicbase-image",
     base = "@kicbase",
-    # Layer `workd` on top of it to enable Vimana on Minikube.
-    tars = [":kicbase-workd-tar"],
+    # Layer `vimanad` on top of it to enable Vimana on Minikube.
+    tars = [":kicbase-vimanad-tar"],
 )
 
 oci_push(
@@ -100,20 +100,20 @@ oci_load(
 )
 
 pkg_tar(
-    name = "kicbase-workd-tar",
+    name = "kicbase-vimanad-tar",
     srcs = [
-        # Workd SystemD unit file.
-        ":workd.kicbase.service",
-        # Workd binary built for the container.
-        "//cluster/node:workd-x86_64-linux",
+        # Vimanad SystemD unit file.
+        ":vimanad.kicbase.service",
+        # Vimanad binary built for the container.
+        "//cluster/node:vimanad-x86_64-linux",
         # We need a more modern version of `crictl` than the one that ships with Kicbase by default.
         "@rules_k8s//:crictl-x86_64-linux",
         # Standard `host-local` IPAM CNI plugin.
         "@rules_k8s//:host-local-x86_64-linux",
     ],
     remap_paths = {
-        "/workd.kicbase.service": "/etc/systemd/system/workd.service",
-        "/workd-x86_64-linux": "/usr/bin/workd",
+        "/vimanad.kicbase.service": "/etc/systemd/system/vimanad.service",
+        "/vimanad-x86_64-linux": "/usr/bin/vimanad",
         # Override these things that should already be on the image,
         # because we want specific versions.
         # Bazel downloader adds the `.exe` suffix no matter what the platform is.

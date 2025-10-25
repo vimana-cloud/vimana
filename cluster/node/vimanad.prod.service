@@ -7,12 +7,12 @@ After=containerd.service
 Type=exec
 # Workaround for https://github.com/containerd/containerd/issues/8468.
 # `containerd` becomes "ready" before the CRI plugin is loaded,
-# causing `workd` to try to connect too early and fail.
+# causing `vimanad` to try to connect too early and fail.
 # This was patched in containerd v1.6.22,
 # but ATTOW the latest version in the Debian repos is 1.6.20.
 # As a temporary workaround, wait up to 60 seconds for the socket to become available.
 ExecStartPre=/usr/bin/bash -ceu 'for i in {1..60}; do [[ -S /run/containerd/containerd.sock ]] && exit 0 || true; sleep 1s; done; echo >&2 "containerd socket did not appear"; exit 1'
-ExecStart=workd
+ExecStart=vimanad
 
 [Install]
 WantedBy=multi-user.target

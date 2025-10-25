@@ -71,7 +71,7 @@ trap delete-image-config EXIT
 
 # https://specs.opencontainers.org/image-spec/config/#properties
 # These are the minimum required properties, and they're all ignored.
-echo -n '{"architecture":"wasm","os":"workd","rootfs":{"type":"layers","diff_ids":[]}}' \
+echo -n '{"architecture":"wasm","os":"vimana","rootfs":{"type":"layers","diff_ids":[]}}' \
   > "$image_config"
 image_config_digest="$(push-blob "$image_config")" || exit $?
 

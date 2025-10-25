@@ -124,7 +124,7 @@ var _ = Describe("Component Controller", func() {
 								TerminationMessagePolicy: "File",
 							},
 						},
-						RuntimeClassName: ptr.To("workd-runtime"),
+						RuntimeClassName: ptr.To("vimana-runtime"),
 						// The following are defaults set by K8s.
 						// TODO: Make sure these make sense.
 						RestartPolicy:                 "Always",

@@ -2,7 +2,7 @@ load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
 
-# The Workd runtime implements the K8s CRI.
+# The Vimana runtime implements the K8s CRI.
 rust_binary(
     name = "runtime",
     srcs = [
@@ -16,7 +16,7 @@ rust_binary(
         "pods.rs",
         "state.rs",
     ],
-    binary_name = "workd",
+    binary_name = "vimanad",
     visibility = ["//visibility:public"],
     deps = [
         ":cri-api-prost",

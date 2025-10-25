@@ -82,7 +82,7 @@ def _create(name: str, profile: Dict[str, object], *args):
             '--networking=kube-router',
             '--kubernetes-feature-gates=+RuntimeClassInImageCriApi',
             '--set=spec.containerd.skipInstall=true',
-            '--set=spec.containerd.address=/run/vimana/workd.sock',
+            '--set=spec.containerd.address=/run/vimana/vimanad.sock',
             # '--topology=private',
             # '--bastion',
             *args,
