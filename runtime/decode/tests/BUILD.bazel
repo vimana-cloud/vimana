@@ -4,9 +4,9 @@ rust_test(
     name = "success-test",
     srcs = ["success-test.rs"],
     deps = [
-        "//work/runtime:metadata-prost",
-        "//work/runtime:names",
-        "//work/runtime/decode",
+        "//runtime:metadata-prost",
+        "//runtime:names",
+        "//runtime/decode",
         "@crates//:bytes",
         "@crates//:tonic",
         "@crates//:wasmtime",

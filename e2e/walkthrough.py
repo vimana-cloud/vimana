@@ -4,8 +4,8 @@ from os import environ
 from unittest import TestCase, main
 
 import grpc
-from work.runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
-from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
+from runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
+from runtime.tests.components.adder_pb2_grpc import AdderServiceStub
 
 # https://github.com/grpc/grpc/blob/v1.76.0/doc/environment_variables.md
 environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'e2e/walkthrough-certificates.root.cert'

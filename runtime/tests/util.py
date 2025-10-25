@@ -31,8 +31,7 @@ from unittest import TestCase
 from uuid import uuid4
 
 import grpc
-
-from work.runtime.tests.api_pb2 import (
+from runtime.tests.api_pb2 import (
     ImageFsInfoRequest,
     ImageSpec,
     ListContainersResponse,
@@ -40,7 +39,7 @@ from work.runtime.tests.api_pb2 import (
     PodSandboxConfig,
     PullImageRequest,
 )
-from work.runtime.tests.api_pb2_grpc import (
+from runtime.tests.api_pb2_grpc import (
     ImageServiceServicer,
     ImageServiceStub,
     RuntimeServiceServicer,
@@ -50,9 +49,9 @@ from work.runtime.tests.api_pb2_grpc import (
 )
 
 # Path to the `vimanad` binary in the runfiles.
-_vimanadPath = 'work/runtime/vimanad'
+_vimanadPath = 'runtime/vimanad'
 # Path to the `host-local` IPAM emulator.
-_ipamPath = 'work/runtime/tests/ipam'
+_ipamPath = 'runtime/tests/ipam'
 # Path to the `vimana-push` binary which uploads Wasm containers to the registry.
 _pushImagePath = 'cluster/bootstrap/push-image'
 

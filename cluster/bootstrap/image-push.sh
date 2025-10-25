@@ -5,7 +5,7 @@
 # to an OCI container registry.
 # TODO: Switch to the standard Wasm OCI artifact layout:
 #       https://tag-runtime.cncf.io/wgs/wasm/deliverables/wasm-oci-artifact/
-#       both here and in work/runtime/containers.rs
+#       both here and in runtime/containers.rs
 #       Should probably port this to Python at the same time.
 
 set -e

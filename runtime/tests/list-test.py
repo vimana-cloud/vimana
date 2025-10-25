@@ -6,7 +6,7 @@ from os import getenv
 from time import time_ns
 from unittest import main
 
-from work.runtime.tests.api_pb2 import (
+from runtime.tests.api_pb2 import (
     Container,
     ContainerConfig,
     ContainerFilter,
@@ -32,7 +32,7 @@ from work.runtime.tests.api_pb2 import (
     StopPodSandboxRequest,
 )
 
-from work.runtime.tests.util import RUNTIME_HANDLER, VimanadTestCase, hexUuid
+from runtime.tests.util import RUNTIME_HANDLER, VimanadTestCase, hexUuid
 
 # The number of nanoseconds it takes for this test to time out.
 # Used for very rough upper / lower bounds when checking reasonableness of recent timestamps.
@@ -73,8 +73,8 @@ class ListTest(VimanadTestCase):
         ) = cls.setupImage(
             server='adder-server',
             version='1.2.3',
-            module='work/runtime/tests/components/adder-c.component.wasm',
-            metadata='work/runtime/tests/components/adder.binpb',
+            module='runtime/tests/components/adder-c.component.wasm',
+            metadata='runtime/tests/components/adder.binpb',
         )
         (
             cls.barDomain,
@@ -86,8 +86,8 @@ class ListTest(VimanadTestCase):
         ) = cls.setupImage(
             server='another-adder-server',
             version='0.0.0',
-            module='work/runtime/tests/components/adder-c.component.wasm',
-            metadata='work/runtime/tests/components/adder.binpb',
+            module='runtime/tests/components/adder-c.component.wasm',
+            metadata='runtime/tests/components/adder.binpb',
         )
 
         # Set up a pod / container in every possible state for the 'foo' labels.

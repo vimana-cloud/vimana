@@ -4,7 +4,7 @@ from ipaddress import ip_address
 from unittest import main
 
 from grpc import RpcError, StatusCode, insecure_channel
-from work.runtime.tests.api_pb2 import (
+from runtime.tests.api_pb2 import (
     ContainerConfig,
     ContainerMetadata,
     ContainerResources,
@@ -29,10 +29,10 @@ from work.runtime.tests.api_pb2 import (
     StopPodSandboxRequest,
     VersionRequest,
 )
-from work.runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
-from work.runtime.tests.components.adder_pb2_grpc import AdderServiceStub
+from runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
+from runtime.tests.components.adder_pb2_grpc import AdderServiceStub
 
-from work.runtime.tests.util import (
+from runtime.tests.util import (
     RUNTIME_HANDLER,
     RUNTIME_NAME,
     VimanadTestCase,
@@ -94,8 +94,8 @@ class SuccessTest(VimanadTestCase):
         domain, _, _, _, _, firstImageSpec = self.setupImage(
             server='just-some-image',
             version='1.2.3',
-            module='work/runtime/tests/components/adder-c.component.wasm',
-            metadata='work/runtime/tests/components/adder.binpb',
+            module='runtime/tests/components/adder-c.component.wasm',
+            metadata='runtime/tests/components/adder.binpb',
         )
 
         singleUsedBytes, singleInodesUsed = self.verifyFsUsage()
@@ -106,8 +106,8 @@ class SuccessTest(VimanadTestCase):
         _, _, _, _, _, secondImageSpec = self.setupImage(
             server='just-some-image',
             version='4.5.6',
-            module='work/runtime/tests/components/adder-c.component.wasm',
-            metadata='work/runtime/tests/components/adder.binpb',
+            module='runtime/tests/components/adder-c.component.wasm',
+            metadata='runtime/tests/components/adder.binpb',
             domain=domain,
         )
 
@@ -136,8 +136,8 @@ class SuccessTest(VimanadTestCase):
         domain, server, version, componentName, labels, imageSpec = self.setupImage(
             server='servur',
             version='1.2.3-fureal',
-            module='work/runtime/tests/components/adder-c.component.wasm',
-            metadata='work/runtime/tests/components/adder.binpb',
+            module='runtime/tests/components/adder-c.component.wasm',
+            metadata='runtime/tests/components/adder.binpb',
         )
 
         response = self.runtimeService.RunPodSandbox(
@@ -233,8 +233,8 @@ class SuccessTest(VimanadTestCase):
         domain, server, version, componentName, labels, imageSpec = self.setupImage(
             server='some-server',
             version='1.2.3',
-            module='work/runtime/tests/components/adder-c.component.wasm',
-            metadata='work/runtime/tests/components/adder.binpb',
+            module='runtime/tests/components/adder-c.component.wasm',
+            metadata='runtime/tests/components/adder.binpb',
         )
         # Set different labels on the pod vs. the container
         # so we can verify that the correct set is returned.

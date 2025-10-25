@@ -8,7 +8,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # The tests under `//work/runtime/tests` use Bazel's `requires-fakeroot` tag,
+    # The tests under `//runtime/tests` use Bazel's `requires-fakeroot` tag,
     # which enables them to manage IP addresses on the loopback network device.
     # That tag is only available for `linux-sandbox`:
     # https://bazel.build/reference/be/common-definitions#common-attributes.

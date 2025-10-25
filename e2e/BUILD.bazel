@@ -5,9 +5,9 @@ load("//cluster/bootstrap:bootstrap.bzl", "self_signed_tls", "vimana_image_push"
 
 vimana_image_push(
     name = "adder-push-local",
-    component = "//work/runtime/tests/components:adder-c",
+    component = "//runtime/tests/components:adder-c",
     domain_id = "00000000000000000000000000000001",
-    metadata = "//work/runtime/tests/components:adder-metadata",
+    metadata = "//runtime/tests/components:adder-metadata",
     registry = "http://{}:5000".format(localhost),
     server_id = "the-adder-server",
     version = "1.0.0",
@@ -25,7 +25,6 @@ exports_files(["walkthrough-bootstrap.yaml"])
 
 k8s_cluster_test(
     name = "walkthrough-test",
-    cleanup = False,
     objects = [
         ":walkthrough-bootstrap.yaml",
         ":walkthrough-certificates",
@@ -49,7 +48,7 @@ py_binary(
         ":walkthrough-certificates",
     ],
     deps = [
-        "//work/runtime/tests/components:adder-py-grpc",
-        "//work/runtime/tests/components:adder-py-pb2",
+        "//runtime/tests/components:adder-py-grpc",
+        "//runtime/tests/components:adder-py-pb2",
     ],
 )

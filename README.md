@@ -50,7 +50,7 @@ Use the built-in [`bazel-docker`] script
 as a drop-in replacement for `bazel`, *e.g.*
 
 ```bash
-bazel-docker test //work/runtime/tests/...
+bazel-docker test //runtime/tests/...
 ```
 
 > [!NOTE]
@@ -64,9 +64,9 @@ bazel-docker test //work/runtime/tests/...
 > subsequent invocations of `bazel-docker` should only incur modest lag (perhaps a second)
 > before output files are available.
 
-[work runtime]: work/runtime
+[work runtime]: runtime/
 [`rtnetlink`]: https://en.wikipedia.org/wiki/Netlink
-[work runtime tests]: work/runtime/tests
+[work runtime tests]: runtime/tests/
 [`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
 [`bazel-docker`]: .bin/bazel-docker
 [tools]: #tools

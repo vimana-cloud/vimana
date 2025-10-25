@@ -10,7 +10,7 @@ rust_binary(
     binary_name = "protoc-gen-vimana",
     visibility = ["//cli/protoc/tests:__pkg__"],
     deps = [
-        "//work/runtime:metadata-prost",
+        "//runtime:metadata-prost",
         "@crates//:anyhow",
         "@crates//:heck",
         "@crates//:prost",

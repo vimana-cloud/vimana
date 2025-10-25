@@ -8,8 +8,8 @@ py_test(
     name = "success-test",
     srcs = ["success-test.py"],
     data = [
-        "//work/runtime/tests/components:adder-c",
-        "//work/runtime/tests/components:adder-metadata",
+        "//runtime/tests/components:adder-c",
+        "//runtime/tests/components:adder-metadata",
     ],
     # Verbosely log wasmtime errors.
     env = {"WASMTIME_BACKTRACE_DETAILS": "1"},
@@ -21,8 +21,8 @@ py_test(
     deps = [
         ":cri-api-py-pb2",
         ":util",
-        "//work/runtime/tests/components:adder-py-grpc",
-        "//work/runtime/tests/components:adder-py-pb2",
+        "//runtime/tests/components:adder-py-grpc",
+        "//runtime/tests/components:adder-py-pb2",
     ],
 )
 
@@ -30,8 +30,8 @@ py_test(
     name = "list-test",
     srcs = ["list-test.py"],
     data = [
-        "//work/runtime/tests/components:adder-c",
-        "//work/runtime/tests/components:adder-metadata",
+        "//runtime/tests/components:adder-c",
+        "//runtime/tests/components:adder-metadata",
     ],
     tags = [
         # https://github.com/bazelbuild/bazel/discussions/25543
@@ -50,7 +50,7 @@ py_library(
     data = [
         ":ipam",
         "//cluster/bootstrap:push-image",
-        "//work/runtime",
+        "//runtime",
     ],
     deps = [
         ":cri-api-py-grpc",

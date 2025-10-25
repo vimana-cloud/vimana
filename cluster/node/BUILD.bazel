@@ -23,6 +23,6 @@ sh_binary(
 platform_binary(
     name = "vimanad-x86_64-linux",
     platform = "//dev:x86_64-linux-musl",
-    target = "//work/runtime",
+    target = "//runtime",
     visibility = ["//dev/minikube:__pkg__"],
 )

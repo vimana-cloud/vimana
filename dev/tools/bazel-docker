@@ -85,7 +85,7 @@ function start-bazel {
   # - Persist the container indefinitely with the appropriate bind-mounts
   #   so we can later run commands on it.
   # - Enable the `NET_ADMIN` capability
-  #   so that the tests under `//work/runtime/tests`,
+  #   so that the tests under `//runtime/tests`,
   #   which manage IP addresses on the network device,
   #   can function.
   # - Enable the `SYS_ADMIN` capability and disable secure computing mode
@@ -176,7 +176,7 @@ then
 fi
 
 # Run as root within the container
-# so that the tests under `//work/runtime/tests`,
+# so that the tests under `//runtime/tests`,
 # which manage IP addresses on the network device,
 # can function.
 exec docker exec \
