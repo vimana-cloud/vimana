@@ -6,7 +6,6 @@ py_binary(
     name = "create",
     srcs = ["create.py"],
     data = [
-        "//gateway:cluster.yaml",
         "@rules_k8s//:helm",
         "@rules_k8s//:kops",
         "@rules_k8s//:kubectl",
