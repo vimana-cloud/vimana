@@ -21,7 +21,7 @@ var _ = Describe("Vimana Controller", func() {
 	Context("When reconciling a resource", func() {
 		const namespace = "default"
 		const resourceName = "test-resource"
-		const gatewayName = "test-resource.gateway"
+		const gatewayName = "test-resource-gateway"
 		vimanaRegions := []string{"/us-east", "aws/us-east"}
 		const domainId = "0123456789abcdef0123456789abcdef"
 		domainAliases := []string{"example.com", "foo.bar.whatsittoyouz.net"}
@@ -178,7 +178,7 @@ var _ = Describe("Vimana Controller", func() {
 					GatewayClassName: "envoy-gateway",
 					Listeners: []gwapi.Listener{
 						{
-							Name:     "l-5f5f7340abee4e7850fe8911987d123864a38030c401f246f1f0051035aa51c0",
+							Name:     "l-2faea48d4e045fe446ced7b27c43b8b700df1dc879a010aa2eef1b1b",
 							Hostname: (*gwapi.Hostname)(ptr.To(domainId + ".app.vimana.host")),
 							Port:     443,
 							Protocol: "HTTPS",
@@ -188,7 +188,7 @@ var _ = Describe("Vimana Controller", func() {
 									{
 										Group:     (*gwapi.Group)(ptr.To("")),
 										Kind:      (*gwapi.Kind)(ptr.To("Secret")),
-										Name:      "c-5f5f7340abee4e7850fe8911987d123864a38030c401f246f1f0051035aa51c0",
+										Name:      "c-2faea48d4e045fe446ced7b27c43b8b700df1dc879a010aa2eef1b1b",
 										Namespace: (*gwapi.Namespace)(ptr.To(namespace)),
 									},
 								},
@@ -208,7 +208,7 @@ var _ = Describe("Vimana Controller", func() {
 							},
 						},
 						{
-							Name:     "l-a379a6f6eeafb9a55e378c118034e2751e682fab9f2d30ab13d2125586ce1947",
+							Name:     "l-79a39cdf648170c4d55ca8e36fc9084353b9114a879f07d08bceaf47",
 							Hostname: (*gwapi.Hostname)(ptr.To("example.com")),
 							Port:     443,
 							Protocol: "HTTPS",
@@ -218,7 +218,7 @@ var _ = Describe("Vimana Controller", func() {
 									{
 										Group:     (*gwapi.Group)(ptr.To("")),
 										Kind:      (*gwapi.Kind)(ptr.To("Secret")),
-										Name:      "c-a379a6f6eeafb9a55e378c118034e2751e682fab9f2d30ab13d2125586ce1947",
+										Name:      "c-79a39cdf648170c4d55ca8e36fc9084353b9114a879f07d08bceaf47",
 										Namespace: (*gwapi.Namespace)(ptr.To(namespace)),
 									},
 								},
@@ -238,7 +238,7 @@ var _ = Describe("Vimana Controller", func() {
 							},
 						},
 						{
-							Name:     "l-56f044729e8f511482e831dfb2d87b8b2e8affb7464b319b3e6c8237d19c7b2d",
+							Name:     "l-92ab40422e6b25e262ad453164d1cf7641a70c43e4f0f73b9da4547d",
 							Hostname: (*gwapi.Hostname)(ptr.To("foo.bar.whatsittoyouz.net")),
 							Port:     443,
 							Protocol: "HTTPS",
@@ -248,7 +248,7 @@ var _ = Describe("Vimana Controller", func() {
 									{
 										Group:     (*gwapi.Group)(ptr.To("")),
 										Kind:      (*gwapi.Kind)(ptr.To("Secret")),
-										Name:      "c-56f044729e8f511482e831dfb2d87b8b2e8affb7464b319b3e6c8237d19c7b2d",
+										Name:      "c-92ab40422e6b25e262ad453164d1cf7641a70c43e4f0f73b9da4547d",
 										Namespace: (*gwapi.Namespace)(ptr.To(namespace)),
 									},
 								},

@@ -128,7 +128,7 @@ var _ = Describe("Domain Controller", func() {
 
 			// Verify parent reference
 			Expect(grpcRoute.Spec.ParentRefs).To(HaveLen(1))
-			Expect(grpcRoute.Spec.ParentRefs[0].Name).To(Equal(gwapi.ObjectName("the-vimana.gateway")))
+			Expect(grpcRoute.Spec.ParentRefs[0].Name).To(Equal(gwapi.ObjectName("the-vimana-gateway")))
 		})
 
 		It("should successfully reconcile with servers and create routing rules", func() {
@@ -216,7 +216,7 @@ var _ = Describe("Domain Controller", func() {
 							Group:       (*gwapi.Group)(ptr.To("gateway.networking.k8s.io")),
 							Kind:        (*gwapi.Kind)(ptr.To("Gateway")),
 							Namespace:   nil,
-							Name:        "the-vimana.gateway",
+							Name:        "the-vimana-gateway",
 							SectionName: nil,
 							Port:        nil,
 						},
