@@ -1,22 +1,24 @@
 """ Build the K8s node image for use in a production Vimana cluster. """
 
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_python//python:defs.bzl", "py_binary")
 load("//dev:platform-binary.bzl", "platform_binary")
 
-sh_binary(
+py_binary(
     name = "make-image",
-    srcs = ["image-make.sh"],
-    args = [
-        "$(location :vimanad-x86_64-linux)",
-        "$(location :vimanad.prod.service)",
-        "$(location :containerd-config.toml)",
-    ],
+    srcs = ["image-make.py"],
     data = [
         ":containerd-config.toml",
         ":vimanad.prod.service",
         ":vimanad-x86_64-linux",
     ],
-    deps = ["//dev:bash-util"],
+    main = "image-make.py",
+    deps = [
+        "//cluster/profiles:load",
+        "@pypi//fabric",
+        "@pypi//google_cloud_compute",
+        "@pypi//google_cloud_os_login",
+        "@pypi//rich",
+    ],
 )
 
 # Cross-compile a statically-linked `vimanad` Linux binary suitable for a container or a VM.
