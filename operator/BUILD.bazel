@@ -2,7 +2,7 @@ load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_k8s//:resource.bzl", "kubectl_apply", "kubectl_delete")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
-load("//dev:sh-in-place.bzl", "sh_in_place")
+load("//dev/rules:sh-in-place.bzl", "sh_in_place")
 
 alias(
     name = "operator",

@@ -12,7 +12,7 @@
 # - Path to the `npm` executable.
 
 set -e
-source 'dev/bash-util.sh'
+source 'dev/lib/util.sh'
 assert-bazel-run
 
 npm="$(realpath $1)" # Get the absolute path so it works after changing directory.

@@ -13,7 +13,7 @@ def sh_in_place(name, command, data = None):
 
     Includes a bit of cleverness to handle Make variables like `$(location ...)`
     inside the command.
-    Assumes that all Make variables are file paths (passes them to `realpath`).
+    Assumes that all Make variables take a file path argument (passes them to `realpath`).
     """
 
     data = data or []
@@ -66,13 +66,12 @@ def sh_in_place(name, command, data = None):
     # but there may be 2 more if there was a malformed Make variable.
     command_segments.extend(non_variables[len(variables):])
 
-    # The lines of the generated script.
-    # Should look something like this:
+    # The lines of the generated script should look something like this:
     #     set -e
     #     __data_0="$(realpath "${1}")"
     #     __data_1="$(realpath "${2}")"
-    #     cd "$BUILD_WORKING_DIRECTORY"/<caller>
-    #     <command>
+    #     cd "$BUILD_WORKING_DIRECTORY"/<caller package>
+    #     <command with substitutions>
     content = [
         "set -e",
     ] + [

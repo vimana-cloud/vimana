@@ -1,7 +1,7 @@
 """ Build the K8s node image for use in a production Vimana cluster. """
 
 load("@rules_python//python:defs.bzl", "py_binary")
-load("//dev:platform-binary.bzl", "platform_binary")
+load("//dev/rules:platform-binary.bzl", "platform_binary")
 
 py_binary(
     name = "make-image",

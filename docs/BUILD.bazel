@@ -5,5 +5,5 @@ sh_binary(
     srcs = ["dev.sh"],
     args = ["$(location @nodejs//:npm)"],
     data = ["@nodejs//:npm"],
-    deps = ["//dev:bash-util"],
+    deps = ["//dev/lib:util-bash"],
 )

@@ -48,7 +48,7 @@ sh_binary(
         "KUBECONFIG",
         "HOME",
     ],
-    deps = ["//dev:bash-util"],
+    deps = ["//dev/lib:util-bash"],
 )
 
 # If there's a running minikube cluster started by `:restart`,
@@ -69,7 +69,7 @@ sh_binary(
     ],
     data = [
         "//cluster/node:vimanad-x86_64-linux",
-        "//dev:bash-util",
+        "//dev/lib:util-bash",
         "//operator:deploy",
         "//operator:image-push-local",
         "@rules_k8s//:kubectl",

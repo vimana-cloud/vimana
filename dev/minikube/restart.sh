@@ -4,7 +4,7 @@
 # so it may be faster to hotswap instead.
 
 set -e
-source 'dev/bash-util.sh'
+source 'dev/lib/util.sh'
 assert-bazel-run
 
 # Standard K8s tool binaries:

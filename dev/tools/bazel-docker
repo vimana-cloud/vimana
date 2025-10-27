@@ -10,7 +10,7 @@ repository_root="$(git rev-parse --show-toplevel)"
 
 # Source Bash utilities relative to the root
 # in case the user is currently working in a subdirectory.
-source "${repository_root}/dev/bash-util.sh"
+source "${repository_root}/dev/lib/util.sh"
 
 # Print the static name of the container for the current repository root to stdout.
 # Use a separate container for each repository root in case there are multiple Git worktrees.

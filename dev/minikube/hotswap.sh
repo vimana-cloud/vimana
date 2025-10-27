@@ -9,7 +9,7 @@
 # It's best to only run this script if there are no running Vimana containers!
 
 set -e
-source 'dev/bash-util.sh'
+source 'dev/lib/util.sh'
 assert-bazel-run
 
 # Minikube is run through a wrapper (see `_minikube`).

@@ -11,13 +11,13 @@
 #     buildable rule in the same package that directly depends on the file.
 
 set -e
-source 'dev/bash-util.sh'
+source 'dev/lib/util.sh'
 
 action="$1"  # Either 'build' or 'test'.
 path="$2"    # Source file path relative to the workspace directory.
 shift 2
 
-# Set `BAZEL=./.bin/bazel-docker` to run builds and tests in a container.
+# Set `BAZEL=$(which bazel-docker)` to run builds and tests in a container.
 bazel="${BAZEL:-bazel}"
 
 case "$action" in

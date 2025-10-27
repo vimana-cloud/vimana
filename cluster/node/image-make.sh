@@ -1,7 +1,7 @@
 # Create a node image for a Vimana cluster.
 
 set -e
-source 'dev/bash-util.sh'
+source 'dev/lib/util.sh'
 assert-bazel-run
 
 vimanad_binary_path="$1"

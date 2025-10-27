@@ -3,7 +3,7 @@
 # respectively.
 
 set -e
-source 'dev/bash-util.sh'
+source 'dev/lib/util.sh'
 assert-bazel-run
 
 buildozer="$(realpath $1)" # Get the absolute path so it works after changing directory.
