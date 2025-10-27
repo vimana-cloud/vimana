@@ -70,7 +70,10 @@ kubectl_delete(
 kubectl_apply(
     name = "deploy",
     srcs = [":deploy-resources"],
-    visibility = ["//dev/minikube:__pkg__"],
+    visibility = [
+        "//cluster:__pkg__",
+        "//dev/minikube:__pkg__",
+    ],
 )
 
 # Equivalent to `make undeploy` in a normal Operator SDK project.

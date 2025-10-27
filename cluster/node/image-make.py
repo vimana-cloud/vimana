@@ -7,7 +7,6 @@ from os import getenv
 from os.path import basename
 from os.path import join as joinPath
 from subprocess import DEVNULL, PIPE, run
-from time import sleep
 from typing import Any, Optional
 
 from fabric import Connection
@@ -35,7 +34,7 @@ from paramiko import RSAKey
 from paramiko.ssh_exception import NoValidConnectionsError
 from requests import get
 
-from dev.lib.util import codedMessage, console, step
+from dev.lib.util import codeMessage, console, step, waitFor
 
 # Path to the `vimanad` binary.
 VIMANAD_PATH = joinPath('cluster', 'node', 'vimanad-x86_64-linux')
@@ -44,7 +43,9 @@ VIMANAD_SERVICE_PATH = joinPath('cluster', 'node', 'vimanad.prod.service')
 # Path to containerd configuration file.
 CONTAINERD_CONFIG_PATH = joinPath('cluster', 'node', 'containerd-config.toml')
 # Timeout for any long-running operation, in seconds.
-TIMEOUT = 300
+OPERATION_TIMEOUT = 300
+# Timeout for any VM instances to become available over SSH, in seconds.
+SSH_TIMEOUT = 60
 
 
 def main(gcpProject: Optional[str]):
@@ -148,12 +149,7 @@ def gcp(version: str, clean: bool, project: str):
                     )
                 )
 
-        sshTimeout = 60
-        sshStart = datetime.now()
-        with step(
-            f'Giving [bold]{instanceName}[/bold] up to [bold]{sshTimeout}[/bold] seconds'
-            ' to become SSH-available'
-        ):
+        with step('Setting up OS login for SSH access'):
             # Get the public IP address of the newly-created instance.
             instance = instances.get(
                 project=project, zone=instanceZone, instance=instanceName
@@ -164,7 +160,7 @@ def gcp(version: str, clean: bool, project: str):
             email = gcpAdcEmail()
 
             rsaKey = RSAKey.generate(bits=2048)
-            expiry = datetime.now() + timedelta(seconds=sshTimeout)
+            expiry = datetime.now() + timedelta(seconds=SSH_TIMEOUT)
 
             osLogin = OsLoginServiceClient()
             response = osLogin.import_ssh_public_key(
@@ -176,22 +172,25 @@ def gcp(version: str, clean: bool, project: str):
             )
             username = response.login_profile.posix_accounts[0].username
 
-            ssh = Connection(
-                host=instanceIp, user=username, connect_kwargs={'pkey': rsaKey}
-            )
+        # Lazy: the connection is not actually opened until `Connection.open`.
+        ssh = Connection(
+            host=instanceIp, user=username, connect_kwargs={'pkey': rsaKey}
+        )
 
-            # Wait for the instance to become SSH-available.
-            while True:
-                try:
-                    ssh.open()
-                    break
-                except NoValidConnectionsError:
-                    if (datetime.now() - sshStart).total_seconds() > sshTimeout:
-                        raise RuntimeError(
-                            'Timed out waiting for dummy instance to become available'
-                        )
-                    sleep(1)
-                    continue
+        def sshAvailable():
+            try:
+                ssh.open()
+                return True
+            except NoValidConnectionsError:
+                return False
+
+        waitFor(
+            sshAvailable,
+            'SSH to become available',
+            timeout=timedelta(seconds=SSH_TIMEOUT),
+            interval=timedelta(seconds=1),
+            minimum=timedelta(seconds=5),
+        )
 
         with step(f'Uploading artifacts to [bold]{instanceName}[/bold]'):
             # These are all uploaded in the user's home directory by default.
@@ -295,16 +294,16 @@ def pollGcpOperation(operation: ExtendedOperation) -> Any:
     If there are warnings, print them to stderr in yellow.
     """
     # https://docs.cloud.google.com/compute/docs/samples/compute-operation-extended-wait
-    result = operation.result(timeout=TIMEOUT)
+    result = operation.result(timeout=OPERATION_TIMEOUT)
 
     if operation.error_code:
         raise operation.exception() or RuntimeError(
-            codedMessage(operation.error_code, operation.error_message)
+            codeMessage(operation.error_code, operation.error_message)
         )
 
     if operation.warnings:
         for warning in operation.warnings:
-            console.print(codedMessage(warning.code, warning.message), style='yellow')
+            console.print(codeMessage(warning.code, warning.message), style='yellow')
 
     return result
 

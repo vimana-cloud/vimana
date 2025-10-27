@@ -4,12 +4,11 @@ from argparse import ArgumentParser
 from datetime import datetime
 from os import getenv
 from os.path import join as joinPath
-from subprocess import DEVNULL, PIPE, Popen
 
-from rich.console import Console
 from rich.prompt import Confirm
 
 from cluster.profiles.load import load as loadProfile
+from dev.lib.util import console, runWithStderr, step
 
 # Path to the `kops` binary.
 # `RUNFILES_DIR` is set when invoked via `bazel build`.
@@ -17,18 +16,17 @@ from cluster.profiles.load import load as loadProfile
 RUNFILES_DIR = getenv('RUNFILES_DIR', '..')
 KOPS_PATH = joinPath(RUNFILES_DIR, 'rules_k8s+', 'kops.exe')
 
-console = Console(stderr=True, highlight=False, soft_wrap=True)
-
 
 def main(name: str):
     profile = loadProfile(name)
+
     if not Confirm.ask(f'Destroy [bold]{name}[/bold]?'):
         exit(1)
+
     start = datetime.now()
 
-    console.print('Destroying cluster with [bold]kops[/bold]')
-    if (
-        _command(
+    with step('Destroying cluster using [bold]kops[/bold]'):
+        runWithStderr(
             KOPS_PATH,
             'delete',
             'cluster',
@@ -36,21 +34,11 @@ def main(name: str):
             f'--state={profile["state-store"]}',
             '--yes',
         )
-        != 0
-    ):
-        raise RuntimeError(f"Failed to delete cluster '{name}'")
 
     elapsed = datetime.now() - start
     console.print(
-        f'[bold]{name}[/bold] successfully destroyed after {elapsed.total_seconds()} seconds 💀',
+        f'[bold]{name}[/bold] successfully destroyed after [bold]{elapsed}[/bold] 💀',
     )
-
-
-def _command(*args) -> int:
-    process = Popen(args, stderr=PIPE, stdout=DEVNULL, text=True)
-    for line in process.stderr:
-        console.print(line.rstrip(), style='yellow')
-    return process.wait()
 
 
 if __name__ == '__main__':

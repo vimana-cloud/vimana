@@ -6,12 +6,13 @@ py_binary(
     name = "create",
     srcs = ["create.py"],
     data = [
+        "//operator:deploy",
         "@rules_k8s//:helm",
         "@rules_k8s//:kops",
-        "@rules_k8s//:kubectl",
     ],
     deps = [
         "//cluster/profiles:load",
+        "//dev/lib:util-python",
         "@pypi//google_cloud_compute",
         "@pypi//kubernetes",
         "@pypi//rich",
@@ -24,6 +25,7 @@ py_binary(
     data = ["@rules_k8s//:kops"],
     deps = [
         "//cluster/profiles:load",
+        "//dev/lib:util-python",
         "@pypi//rich",
     ],
 )
