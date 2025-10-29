@@ -5,6 +5,7 @@
 	"recommendations": [
 		"bazelbuild.vscode-bazel",
 		"charliermarsh.ruff",
+		"golang.go",
 		"ms-python.python",
 		"rust-lang.rust-analyzer"
 	],
