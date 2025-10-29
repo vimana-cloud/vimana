@@ -1,16 +1,6 @@
-load("@rules_python//python:py_binary.bzl", "py_binary")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 exports_files(["image-push.sh"])
-
-py_binary(
-    name = "bootstrap",
-    srcs = ["bootstrap.py"],
-    data = [
-        "@openssl",
-        "@rules_k8s//:tls-generate",
-    ],
-)
 
 sh_binary(
     name = "push-image",

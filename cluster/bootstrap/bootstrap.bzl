@@ -1,53 +1,5 @@
 load("@bazel_skylib//lib:shell.bzl", "shell")
 load("@rules_k8s//:resource.bzl", "K8sResources")
-load(":private.bzl", "vimana_bootstrap")
-
-def bootstrap(name, domains, registry, cluster_registry = None):
-    """
-    Statically build, push and deploy Vimana cluster resources.
-    Used to bootstrap a cluster with the API and any other pre-existing services.
-
-    Defines an executable `vimana_image_push` rule for each component
-    to push its module and metadata to the image registry based at `registry`.
-    Also defines a single buildable rule for the K8s resources of the cluster.
-
-    Parameters:
-        name (str): Name for the build rule for the K8s resources.
-        domains ({str: domain}):
-            Map from canonical domain IDs (e.g. `0123456789abcdef0123456789abcdef`)
-            to lists of objects returned by the `domain` macro.
-        registry (str): Container image registry URL root, e.g. `http://localhost:5000`.
-        cluster_registry (str): Registry URL to use from within the cluster;
-                                default is to use the same value as `registry`.
-    """
-
-    # One executable push action per component.
-    image_push_actions = []
-    for domain_id, domain in domains.items():
-        for service_name, service in domain.services.items():
-            for component_version, component in service.components.items():
-                # Bazel rule names cannot contain a colon,
-                # so use dashes instead of the canonical component name.
-                image_push_action_name = \
-                    "{}.{}-{}-{}".format(name, domain_id, service_name, component_version)
-                vimana_image_push(
-                    name = image_push_action_name,
-                    component = component.module,
-                    metadata = component.metadata,
-                    domain_id = domain_id,
-                    server_id = service_name,
-                    version = component_version,
-                    registry = registry,
-                )
-                image_push_actions.append(":" + image_push_action_name)
-
-    # One overall build rule for the cluster's K8s resources.
-    vimana_bootstrap(
-        name = name,
-        domains = json.encode(domains),
-        setup = image_push_actions,
-        cluster_registry = cluster_registry or registry,
-    )
 
 def _vimana_image_push_impl(ctx):
     runner = ctx.actions.declare_file(ctx.label.name)
