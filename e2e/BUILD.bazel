@@ -14,20 +14,20 @@ vimana_image_push(
 )
 
 self_signed_tls(
-    name = "walkthrough-certificates",
+    name = "mvp-certificates",
     domains = [
         "00000000000000000000000000000001.app.vimana.host",
         "api.vimana.host",
     ],
 )
 
-exports_files(["walkthrough-bootstrap.yaml"])
+exports_files(["mvp.yaml"])
 
 k8s_cluster_test(
-    name = "walkthrough-test",
+    name = "mvp-test",
     objects = [
-        ":walkthrough-bootstrap.yaml",
-        ":walkthrough-certificates",
+        ":mvp.yaml",
+        ":mvp-certificates",
     ],
     services = {
         "the-vimana-gateway": [
@@ -38,14 +38,14 @@ k8s_cluster_test(
         ":adder-push-local",
     ],
     tags = ["external"],  # Never cache test results.
-    test = ":walkthrough",
+    test = ":mvp",
 )
 
 py_binary(
-    name = "walkthrough",
-    srcs = ["walkthrough.py"],
+    name = "mvp",
+    srcs = ["mvp.py"],
     data = [
-        ":walkthrough-certificates",
+        ":mvp-certificates",
     ],
     deps = [
         "//runtime/tests/components:adder-py-grpc",

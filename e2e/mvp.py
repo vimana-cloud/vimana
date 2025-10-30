@@ -8,7 +8,7 @@ from runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsRespon
 from runtime.tests.components.adder_pb2_grpc import AdderServiceStub
 
 # https://github.com/grpc/grpc/blob/v1.76.0/doc/environment_variables.md
-environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'e2e/walkthrough-certificates.root.cert'
+environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'e2e/mvp-certificates.root.cert'
 
 
 class Walkthough(TestCase):
