@@ -19,8 +19,6 @@ Links:
 
 ## Container Lifecycles
 
-<!-- TODO: These traffic patterns are still conjecture. Confirm with e2e tests. -->
-
 Starting and stopping a container.
 
 ```mermaid
