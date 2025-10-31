@@ -1,11 +1,17 @@
+load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 exports_files(["image-push.sh"])
 
-sh_binary(
+py_binary(
     name = "push-image",
-    srcs = ["image-push.sh"],
+    srcs = ["image-push.py"],
+    main = "image-push.py",
     visibility = ["//visibility:public"],
+    deps = [
+        "//dev/lib:util-python",
+        "@pypi//requests",
+    ],
 )
 
 sh_binary(
