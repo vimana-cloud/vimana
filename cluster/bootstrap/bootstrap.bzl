@@ -1,12 +1,17 @@
 load("@bazel_skylib//lib:shell.bzl", "shell")
 load("@rules_k8s//:resource.bzl", "K8sResources")
 
+VIMANA_IMAGE_PUSH_SCRIPT_TEMPLATE = (
+    "#!/usr/bin/env bash\n" +
+    "{} --registry={} --domain={} --server={} --version={} --component={} --metadata={}\n"
+)
+
 def _vimana_image_push_impl(ctx):
     runner = ctx.actions.declare_file(ctx.label.name)
     ctx.actions.write(
         output = runner,
-        content = "#!/usr/bin/env bash\n{} {} {} {} {} {} {}".format(
-            shell.quote(ctx.file._image_push_bin.short_path),
+        content = VIMANA_IMAGE_PUSH_SCRIPT_TEMPLATE.format(
+            shell.quote(ctx.executable._push_image_bin.short_path),
             shell.quote(ctx.attr.registry),
             shell.quote(ctx.attr.domain_id),
             shell.quote(ctx.attr.server_id),
@@ -17,7 +22,9 @@ def _vimana_image_push_impl(ctx):
         is_executable = True,
     )
     runfiles = ctx.runfiles(
-        files = [ctx.file._image_push_bin, ctx.file.component, ctx.file.metadata],
+        files = [ctx.file.component, ctx.file.metadata],
+    ).merge(
+        ctx.attr._push_image_bin[DefaultInfo].default_runfiles,
     )
     return [DefaultInfo(executable = runner, runfiles = runfiles)]
 
@@ -49,11 +56,10 @@ vimana_image_push = rule(
         "registry": attr.string(
             doc = "Image registry root, e.g. `http://localhost:5000`.",
         ),
-        "_image_push_bin": attr.label(
-            default = ":image-push.sh",
+        "_push_image_bin": attr.label(
+            default = ":push-image",
             executable = True,
             cfg = "exec",
-            allow_single_file = True,
         ),
     },
 )

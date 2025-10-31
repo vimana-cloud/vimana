@@ -5,7 +5,10 @@ to an OCI container registry.
 """
 
 from argparse import ArgumentParser
+from datetime import UTC, datetime
 from hashlib import sha256
+from json import dumps
+from typing import Dict
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from requests import post, put
@@ -25,35 +28,53 @@ def main(
     componentDigest = pushBlob(registry, domain, server, component)
     metadataDigest = pushBlob(registry, domain, server, metadata)
 
-    # Create and push the image config blob.
+    # Create and push the image config blob,
+    # adhering as closely to the Wasm OCI artifact spec as we can.
+    # https://tag-runtime.cncf.io/wgs/wasm/deliverables/wasm-oci-artifact/#configmediatype-applicationvndwasmconfigv0json
     # https://specs.opencontainers.org/image-spec/config/#properties
-    # These are the minimum required properties, and they're all ignored.
-    imageConfig = b'{"architecture":"wasm","os":"vimana","rootfs":{"type":"layers","diff_ids":[]}}'
+    imageConfig = serializeJson(
+        {
+            'created': datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            'architecture': 'wasm',
+            # This setting for `os` indicates non-compliance with the Wasm OCI spec,
+            # because the Protobuf-encoded metadata layer is obviously not a Wasm component.
+            # Perhaps we can instead package it as a "runtime configuration" or "static files".
+            # https://tag-runtime.cncf.io/wgs/wasm/deliverables/wasm-oci-artifact/#faq
+            'os': 'vimana',
+            'layerDigests': [componentDigest, metadataDigest],
+            # TODO: Parse the compiled component for import / export information.
+            'component': {},
+        }
+    )
     imageConfigDigest = pushBlob(registry, domain, server, imageConfig)
 
     # Build the manifest.
+    # https://tag-runtime.cncf.io/wgs/wasm/deliverables/wasm-oci-artifact/#manifest-format
     # https://specs.opencontainers.org/image-spec/manifest/#image-manifest
-    manifest = {
-        'schemaVersion': 2,
-        # https://specs.opencontainers.org/image-spec/descriptor/
-        'config': {
-            'mediaType': 'application/vnd.oci.image.config.v1+json',
-            'size': len(imageConfig),
-            'digest': imageConfigDigest,
-        },
-        'layers': [
-            {
-                'mediaType': 'application/wasm',
-                'size': str(len(component)),
-                'digest': componentDigest,
+    manifest = serializeJson(
+        {
+            'schemaVersion': 2,
+            'mediaType': 'application/vnd.oci.image.manifest.v1+json',
+            # https://specs.opencontainers.org/image-spec/descriptor/
+            'config': {
+                'mediaType': 'application/vnd.wasm.config.v0+json',
+                'size': len(imageConfig),
+                'digest': imageConfigDigest,
             },
-            {
-                'mediaType': 'application/protobuf',
-                'size': str(len(metadata)),
-                'digest': metadataDigest,
-            },
-        ],
-    }
+            'layers': [
+                {
+                    'mediaType': 'application/wasm',
+                    'size': len(component),
+                    'digest': componentDigest,
+                },
+                {
+                    'mediaType': 'application/protobuf',
+                    'size': len(metadata),
+                    'digest': metadataDigest,
+                },
+            ],
+        }
+    )
 
     # Push the manifest.
     # https://specs.opencontainers.org/distribution-spec/#pushing-manifests
@@ -131,6 +152,11 @@ def pushBlob(registry: str, domain: str, server: str, content: bytes) -> str:
         raise RuntimeError(codeMessage(response.status_code, response.text))
 
     return digest
+
+
+def serializeJson(json: Dict[str, any]) -> bytes:
+    """Helper method to serialize a JSON object as compact, binary data."""
+    return dumps(json, separators=(',', ':')).encode()
 
 
 if __name__ == '__main__':
