@@ -44,21 +44,6 @@ jobs:
             "https://github.com/bazelbuild/bazelisk/releases/download/${LATEST_BAZELISK}/bazelisk-amd64.deb"
           dpkg --install bazelisk-amd64.deb
 
-          # Import GitHub's SSH pubkey securely using the API, for use by Git.
-          mkdir --parents "${HOME}/.ssh"
-          echo "github.com $(
-            curl --silent --show-error https://api.github.com/meta \
-              | jq --raw-output 'first(.ssh_keys[] | select(startswith("ssh-rsa")))'
-          )" >> "${HOME}/.ssh/known_hosts"
-          git config --global core.sshCommand "ssh -o UserKnownHostsFile=${HOME}/.ssh/known_hosts"
-
-          # Import deploy key(s) necessary to download modules from private repo(s) during the build,
-          # and export the SSH agent environment variables to be picked up by subsequent steps.
-          eval "$(ssh-agent -s)"
-          <<< '${{ secrets.RULES_K8S_DEPLOY_KEY }}' ssh-add -
-          echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}" >> "$GITHUB_ENV"
-          echo "SSH_AGENT_PID=${SSH_AGENT_PID}" >> "$GITHUB_ENV"
-
           # Store the current date as an output parameter
           # so it can be used as part of the cache key.
           echo "date-today=$(date +'%F')" >> "$GITHUB_OUTPUT"

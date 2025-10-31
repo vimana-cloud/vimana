@@ -31,7 +31,7 @@ bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
     commit = "99c467262ec97c1ab0039449af5c30a0113775bc",
-    remote = "git@github.com:vimana-cloud/rules_k8s.git",
+    remote = "https://github.com/vimana-cloud/rules_k8s.git",
 )
 
 environment = use_extension("//dev/rules:environment.bzl", "environment")
