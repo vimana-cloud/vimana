@@ -26,7 +26,7 @@ from sys import stderr
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from threading import Thread
 from time import sleep
-from typing import Any, TextIO
+from typing import Any, Optional, TextIO
 from unittest import TestCase
 from uuid import uuid4
 
@@ -49,30 +49,31 @@ from runtime.tests.api_pb2_grpc import (
 )
 
 # Path to the `vimanad` binary in the runfiles.
-_vimanadPath = 'runtime/vimanad'
+VIMANAD_PATH = 'runtime/vimanad'
 # Path to the `host-local` IPAM emulator.
-_ipamPath = 'runtime/tests/ipam'
-# Path to the `vimana-push` binary which uploads Wasm containers to the registry.
-_pushImagePath = 'cluster/bootstrap/push-image'
+IPAM_PATH = 'runtime/tests/ipam'
+# Path to the `push-image` binary
+# which uploads Vimana containers to the registry.
+PUSH_IMAGE_PATH = 'cluster/bootstrap/push-image'
 
 # Generally wait up to 5 seconds for things to happen asynchronously.
-_timeout = timedelta(seconds=5)
+TIMEOUT = timedelta(seconds=5)
 
 # Create a temporary IPAM database file
-# and "wrap" the IPAM executable with a temporary script
+# and "wrap" the IPAM emulator executable with a temporary script
 # that passes the database path as an argument.
 # This allows tests running in parallel to have independent IPAM systems.
 #
 # There should be precisely one IPAM system per Bazel test target
 # because the network namespace is partitioned by Bazel,
 # hence using global variables to manage the temporary file lifecycle.
-_ipamDatabase = NamedTemporaryFile()
-_ipamWrapper = NamedTemporaryFile(mode='w', delete_on_close=False)
-_ipamWrapper.write(f"""#!/usr/bin/env bash
-exec {quote(_ipamPath)} {quote(_ipamDatabase.name)}
+IPAM_DATABASE = NamedTemporaryFile()
+IPAM_WRAPPER = NamedTemporaryFile(mode='w', delete_on_close=False)
+IPAM_WRAPPER.write(f"""#!/usr/bin/env bash
+exec {quote(IPAM_PATH)} {quote(IPAM_DATABASE.name)}
 """)
-_ipamWrapper.close()
-chmod(_ipamWrapper.name, S_IEXEC | S_IREAD)
+IPAM_WRAPPER.close()
+chmod(IPAM_WRAPPER.name, S_IEXEC | S_IREAD)
 
 # The name of the Vimana runtime.
 RUNTIME_NAME = 'vimana'
@@ -151,7 +152,7 @@ class VimanadTester:
                     downstreamSocket,
                     self._imageRegistryPort,
                     self._imageStore.name,
-                    _ipamWrapper.name,
+                    IPAM_WRAPPER.name,
                 )
                 try:
                     # We need a separate thread just to collect the logs:
@@ -174,10 +175,10 @@ class VimanadTester:
                         raise
                 except:
                     self._vimanad.terminate()
-                    self._vimanad.wait(_timeout.seconds)
+                    self._vimanad.wait(TIMEOUT.total_seconds())
                     raise
             except:
-                self._downstreamRuntime.stop(_timeout.seconds)
+                self._downstreamRuntime.stop(TIMEOUT.total_seconds())
                 raise
         except:
             self._imageRegistry.server_close()
@@ -200,13 +201,13 @@ class VimanadTester:
         finally:
             try:
                 self._vimanad.terminate()
-                self._vimanad.wait(_timeout.seconds)
+                self._vimanad.wait(TIMEOUT.total_seconds())
             finally:
                 try:
                     self._imageRegistry.server_close()
                 finally:
                     try:
-                        self._downstreamRuntime.stop(_timeout.seconds)
+                        self._downstreamRuntime.stop(TIMEOUT.total_seconds())
                     finally:
                         self._vimanadLogQueue.shutdown()
 
@@ -223,15 +224,15 @@ class VimanadTester:
             metadata:  Path to serialized gRPC service metadata file.
         """
         command = [
-            _pushImagePath,
-            f'http://localhost:{self._imageRegistryPort}',
-            domain,
-            server,
-            version,
-            module,
-            metadata,
+            PUSH_IMAGE_PATH,
+            f'--registry=http://localhost:{self._imageRegistryPort}',
+            f'--domain={domain}',
+            f'--server={server}',
+            f'--version={version}',
+            f'--component={module}',
+            f'--metadata={metadata}',
         ]
-        status = Popen(command).wait(_timeout.seconds)
+        status = Popen(command).wait(TIMEOUT.total_seconds())
         if status != 0:
             raise RuntimeError(f'Failed to push image (status={status}).')
 
@@ -340,7 +341,7 @@ def startVimanad(
     networkInterface = 'lo'  # Loopback device.
     podIps = _uniquePidBasedCidr()
     command = [
-        _vimanadPath,
+        VIMANAD_PATH,
         f'--incoming={socket}',
         f'--downstream={downstreamRuntimeSocket}',
         f'--image-store={imageStorePath}',
@@ -434,7 +435,7 @@ def _collectLogs(stdout: TextIO, queue: Queue):
 def _waitFor(predicate: Callable[[], bool]):
     start = datetime.now()
     while not predicate():
-        if datetime.now() - start > _timeout:
+        if datetime.now() - start > TIMEOUT:
             raise RuntimeError('Timed out polling for condition')
         sleep(1 / 32)  # ~30ms
 
@@ -458,7 +459,7 @@ def _tmpName() -> str:
 # Also leverage the knowledge that fake registry upload IDs are simply 36-character UUIDs.
 _postBlobPath = compileRegex(r'^/v2/(.+)/blobs/uploads/$')
 _putBlobPath = compileRegex(
-    r'^/v2/(.+)/blobs/uploads/([-0-9a-f]{36})\?digest=sha256:([0-9a-f]{64})$'
+    r'^/v2/(.+)/blobs/uploads/([-0-9a-f]{36})\?digest=sha256%3A([0-9a-f]{64})$'
 )
 _getBlobPath = compileRegex(r'^/v2/(.+)/blobs/sha256:([0-9a-f]{64})$')
 _manifestPath = compileRegex(r'^/v2/(.+)/manifests/([^/]+)$')
@@ -466,7 +467,7 @@ _manifestPath = compileRegex(r'^/v2/(.+)/manifests/([^/]+)$')
 # MIME types:
 OCTET_STREAM_MIME_TYPE = 'application/octet-stream'
 IMAGE_MANIFEST_MIME_TYPE = 'application/vnd.oci.image.manifest.v1+json'
-IMAGE_CONFIG_MIME_TYPE = 'application/vnd.oci.image.config.v1+json'
+IMAGE_CONFIG_MIME_TYPE = 'application/vnd.wasm.config.v0+json'
 WASM_MIME_TYPE = 'application/wasm'
 PROTOBUF_MIME_TYPE = 'application/protobuf'
 
@@ -537,6 +538,7 @@ class FakeImageRegistryHandler(BaseHTTPRequestHandler):
             manifest = parseJson(manifestBytes)
             manifestConditions = [
                 manifest['schemaVersion'] == 2,
+                manifest['mediaType'] == IMAGE_MANIFEST_MIME_TYPE,
                 self._validateDescriptor(
                     name, manifest['config'], IMAGE_CONFIG_MIME_TYPE
                 ),
@@ -601,6 +603,13 @@ class FakeImageRegistryHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK.value)
         self.end_headers()
         self.wfile.write(blobOrManifest)
+
+    def send_error(self, code: int, message: Optional[str] = None):
+        return super().send_error(
+            code,
+            message,
+            explain=f"This is a fake registry implemented by '{__name__}' — it may be broken!",
+        )
 
     def log_message(self, format, *args):
         pass  # Don't clutter up standard error.
