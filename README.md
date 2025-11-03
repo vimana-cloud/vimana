@@ -118,14 +118,14 @@ Edit the following fields:
 Once the profile is configured, use it to create your cluster:
 
 ```bash
-bazel run //cluster:create -- "my-cluster.net" # or whatever you named it
+bazel run //cluster:create -- 'my-cluster.net' # or whatever you named it
 ```
 
 You can interact with the new cluster using `kubectl`.
 Once you're done with it:
 
 ```bash
-bazel run //cluster:destroy -- my-cluster.net
+bazel run //cluster:destroy -- 'my-cluster.net'
 ```
 
 [application default credentials]: https://cloud.google.com/docs/authentication/application-default-credentials
@@ -155,7 +155,7 @@ The following tool aliases are provided:
 - `wasm-tools`
 
 [`direnv`]: https://direnv.net/
-[tool aliases]: .bin/
+[tool aliases]: dev/tools/
 
 ### Bazel Container
 
@@ -196,7 +196,7 @@ bazel-docker test //runtime/tests/...
 [`rtnetlink`]: https://en.wikipedia.org/wiki/Netlink
 [runtime tests]: runtime/tests/
 [`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
-[`bazel-docker`]: .bin/bazel-docker
+[`bazel-docker`]: dev/tools/bazel-docker
 [tools]: #tools
 
 ### More Commands
