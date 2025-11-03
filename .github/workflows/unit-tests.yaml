@@ -37,9 +37,13 @@ jobs:
 
       - name: Build everything
         run: |
+          # Store the credentials necessary to write to the remote build cache
+          # in a file that can be used for both building and testing.
+          printf '%s' "$REMOTE_BUILDS_CREDENTIALS" > '.remote-build-credentials.json'
+
           bazel build \
             --remote_cache='https://storage.googleapis.com/vimana-remote-builds-public' \
-            --google_credentials=<(printf '%s' "$REMOTE_BUILDS_CREDENTIALS") \
+            --google_credentials='.remote-build-credentials.json' \
             -- //...
 
       - name: Run tests
@@ -53,7 +57,7 @@ jobs:
           bazel test \
             --cache_test_results=no \
             --remote_cache='https://storage.googleapis.com/vimana-remote-builds-public' \
-            --google_credentials=<(printf '%s' "$REMOTE_BUILDS_CREDENTIALS") \
+            --google_credentials='.remote-build-credentials.json' \
             -- //... -//e2e/...
 
       - name: Upload test logs
