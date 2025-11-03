@@ -75,9 +75,10 @@ jobs:
         env:
           REMOTE_BUILDS_CREDENTIALS: ${{ secrets.REMOTE_BUILDS_CREDENTIALS }}
         run: |
-          bazel build //... \
+          bazel build \
             --remote_cache='https://storage.googleapis.com/vimana-remote-builds-public' \
-            --google_credentials=<(printf '%s' "$REMOTE_BUILDS_CREDENTIALS")
+            --google_credentials=<(printf '%s' "$REMOTE_BUILDS_CREDENTIALS") \
+            -- //...
 
       - name: Save Bazel cache
         uses: actions/cache/save@v4
@@ -88,13 +89,19 @@ jobs:
 
       - name: Run tests
         id: run-tests
+        env:
+          REMOTE_BUILDS_CREDENTIALS: ${{ secrets.REMOTE_BUILDS_CREDENTIALS }}
         run: |
           # Store the absolute path to the Bazel testlogs as an output parameter
           # so it can be uploaded as an artifact in case of failure.
           echo "bazel-testlogs=$(bazel info bazel-testlogs)" >> "$GITHUB_OUTPUT"
 
           # Run all tests except for the ones located under `e2e/`.
-          bazel test --cache_test_results=no //... -- -//e2e/...
+          bazel test \
+            --cache_test_results=no \
+            --remote_cache='https://storage.googleapis.com/vimana-remote-builds-public' \
+            --google_credentials=<(printf '%s' "$REMOTE_BUILDS_CREDENTIALS") \
+            -- //... -//e2e/...
 
       - name: Upload test logs
         if: ${{ failure() }}
