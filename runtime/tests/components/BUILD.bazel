@@ -13,7 +13,7 @@ package(
 wit_package(
     name = "adder-wit",
     srcs = ["adder.wit"],
-    deps = ["//wit:grpc"],
+    deps = ["//compiler/wit:grpc"],
 )
 
 c_component(

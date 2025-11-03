@@ -14,7 +14,7 @@ py_library(
     name = "util",
     srcs = ["util.py"],
     data = [
-        "//cli/protoc",
+        "//compiler",
         "@protobuf//:protoc",
     ],
 )
