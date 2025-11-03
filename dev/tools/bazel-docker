@@ -180,6 +180,7 @@ fi
 # which manage IP addresses on the network device,
 # can function.
 exec docker exec \
+  --interactive \
   --user=0 \
   --env=USER=0 \
   --workdir="$working_directory" \
