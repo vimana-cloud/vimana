@@ -21,76 +21,29 @@ jobs:
     # That means the tests will not run with root privileges
     # and will be unable to manage IP addresses.
     #
-    # Work around this by running in a container with explicit `NET_ADMIN` privileges.
-    # Processes will run as root within the Debian container.
+    # Work around this by running in the container as root, with explicit `NET_ADMIN` privileges.
     container:
-      image: debian:stable-slim
-      options: --cap-add=NET_ADMIN
+      image: gcr.io/bazel-public/bazel:latest
+      env:
+        REMOTE_BUILDS_CREDENTIALS: ${{ secrets.REMOTE_BUILDS_CREDENTIALS }}
+      options: --user=0 --cap-add=NET_ADMIN
     # Running inside a container uses the Bourne shell be default. Use Bash instead.
     defaults:
       run:
         shell: bash
     steps:
-      - name: Set up environment
-        id: set-up-environment
-        run: |
-          # Install basic dependencies.
-          apt-get update
-          apt-get install --yes curl jq openssh-client git gcc g++ python3
-          
-          # Install the latest release of Bazelisk from GitHub.
-          LATEST_BAZELISK="$(
-            curl --silent --show-error https://api.github.com/repos/bazelbuild/bazelisk/releases/latest \
-              | jq --raw-output '.tag_name'
-          )"
-          curl --silent --show-error --location --remote-name \
-            "https://github.com/bazelbuild/bazelisk/releases/download/${LATEST_BAZELISK}/bazelisk-amd64.deb"
-          dpkg --install bazelisk-amd64.deb
-
-          # Store the current date as an output parameter
-          # so it can be used as part of the cache key.
-          echo "date-today=$(date +'%F')" >> "$GITHUB_OUTPUT"
-
       - name: Check out repository
-        uses: actions/checkout@v4
-
-      # In addition to using a remote Bazel cache,
-      # also try to save and restore the local build cache using GitHub's native cache for Actions.
-      # This helps because C++ builds in Bazel (necessary to build `protoc` from source)
-      # are inherently non-hermetic: https://github.com/bazelbuild/bazel/issues/7702,
-      # so caching the local builds separately can speed those up.
-      # Meanwhile, the use of the remote cache makes the local cache smaller and easier to work with.
-      # https://github.com/actions/cache/blob/v4.2.3/examples.md#---bazel
-      - name: Restore Bazel cache
-        id: restore-bazel-cache
-        uses: actions/cache/restore@v4
-        with:
-          key: bazel-cache-${{ steps.set-up-environment.outputs.date-today }}
-          path: |
-            ~/.cache/bazel
-          restore-keys: |
-            bazel-cache-
+        uses: actions/checkout@v5
 
       - name: Build everything
-        env:
-          REMOTE_BUILDS_CREDENTIALS: ${{ secrets.REMOTE_BUILDS_CREDENTIALS }}
         run: |
           bazel build \
             --remote_cache='https://storage.googleapis.com/vimana-remote-builds-public' \
             --google_credentials=<(printf '%s' "$REMOTE_BUILDS_CREDENTIALS") \
             -- //...
 
-      - name: Save Bazel cache
-        uses: actions/cache/save@v4
-        with:
-          key: ${{ steps.restore-bazel-cache.outputs.cache-primary-key }}
-          path: |
-            ~/.cache/bazel
-
       - name: Run tests
         id: run-tests
-        env:
-          REMOTE_BUILDS_CREDENTIALS: ${{ secrets.REMOTE_BUILDS_CREDENTIALS }}
         run: |
           # Store the absolute path to the Bazel testlogs as an output parameter
           # so it can be uploaded as an artifact in case of failure.
