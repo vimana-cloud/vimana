@@ -11,9 +11,7 @@ from json import dumps
 from typing import Dict
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from requests import post, put
-
-from dev.lib.util import codeMessage, console
+from dev.lib.util import console, requestOrDie
 
 
 def main(
@@ -76,13 +74,12 @@ def main(
     # Push the manifest.
     # https://specs.opencontainers.org/distribution-spec/#pushing-manifests
     tagUrl = f'{registry}/v2/{domain}/{server}/manifests/{version}'
-    response = put(
+    requestOrDie(
+        'PUT',
         tagUrl,
         headers={'Content-Type': 'application/vnd.oci.image.manifest.v1+json'},
         data=serializeJson(manifest),
     )
-    if not response.ok:
-        raise RuntimeError(codeMessage(response.status_code, response.text))
 
     console.print(
         f'Pushed [blue]{domain}[/blue]:[yellow]{server}[/yellow]@[magenta]{version}[/magenta]'
@@ -107,11 +104,11 @@ def pushBlob(registry: str, domain: str, server: str, content: bytes) -> str:
 
     # Follow redirects, fail on non-200-range status code,
     # and extract the value of the `Location` header.
-    response = post(postUrl, allow_redirects=True)
-    if not response.ok:
-        raise RuntimeError(codeMessage(response.status_code, response.text))
-
-    putLocation = response.headers.get('Location')
+    putLocation = requestOrDie(
+        'POST',
+        postUrl,
+        allow_redirects=True,
+    ).headers.get('Location')
     if not putLocation:
         raise RuntimeError(f"Response missing 'Location' header for '{postUrl}'")
 
@@ -137,7 +134,8 @@ def pushBlob(registry: str, domain: str, server: str, content: bytes) -> str:
         )
     )
 
-    response = put(
+    requestOrDie(
+        'PUT',
         putUrl,
         headers={
             'Content-Type': 'application/octet-stream',
@@ -145,8 +143,6 @@ def pushBlob(registry: str, domain: str, server: str, content: bytes) -> str:
         },
         data=content,
     )
-    if not response.ok:
-        raise RuntimeError(codeMessage(response.status_code, response.text))
 
     return digest
 

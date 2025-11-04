@@ -4,10 +4,12 @@ A library of useful, general values and functions for Python scripts.
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from subprocess import DEVNULL, PIPE, Popen
+from shlex import quote
+from subprocess import DEVNULL, PIPE, CompletedProcess, Popen, run
 from time import sleep
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
+from requests import Response, request
 from rich.console import Console
 
 console = Console(stderr=True, highlight=False, soft_wrap=True)
@@ -66,7 +68,7 @@ def waitFor(
     console.print(f'Ready after {int((now - start).total_seconds())} seconds')
 
 
-def runWithStderr(*args) -> int:
+def runWithStderr(*command) -> int:
     """
     Run the command defined by the specified arguments.
 
@@ -74,7 +76,7 @@ def runWithStderr(*args) -> int:
     Any output written to stderr is displayed in yellow.
     If the command exits with a non-zero status, an exception is raised.
     """
-    process = Popen(args, stderr=PIPE, stdout=DEVNULL, text=True)
+    process = Popen(command, stderr=PIPE, stdout=DEVNULL, text=True)
 
     for line in process.stderr:
         console.print(line.rstrip(), style='yellow')
@@ -82,6 +84,39 @@ def runWithStderr(*args) -> int:
     status = process.wait()
     if status != 0:
         raise RuntimeError(codeMessage(status, 'Command failed'))
+
+
+def runOrDie(
+    command: List[str], *args, stdout=PIPE, stderr=PIPE, text=True, **kwargs
+) -> CompletedProcess:
+    """
+    Drop-in replacement for `subprocess.run`
+    that raises with a helpful message if the status code is non-zero.
+    """
+    kwargs['stdout'] = stdout
+    kwargs['stderr'] = stderr
+    kwargs['text'] = text
+    result = run(command, *args, **kwargs)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f'Error running {" ".join(quote(token) for token in command)}:\n'
+            + codeMessage(result.returncode, result.stderr)
+        )
+    return result
+
+
+def requestOrDie(method: str, url: str, *args, **kwargs) -> Response:
+    """
+    Drop-in replacement for `requests.request`
+    that raises with a helpful message if the response status is non-successful.
+    """
+    response = request(method, url, *args, **kwargs)
+    if not response.ok:
+        raise RuntimeError(
+            f"Error requesting '{url}' with {method}:\n"
+            + codeMessage(response.status_code, response.text)
+        )
+    return response
 
 
 def codeMessage(code: int | str, message: str) -> str:

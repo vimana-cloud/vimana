@@ -6,10 +6,7 @@ py_binary(
     srcs = ["image-push.py"],
     main = "image-push.py",
     visibility = ["//visibility:public"],
-    deps = [
-        "//dev/lib:util-python",
-        "@pypi//requests",
-    ],
+    deps = ["//dev/lib:util-python"],
 )
 
 sh_binary(

@@ -11,5 +11,8 @@ sh_library(
 py_library(
     name = "util-python",
     srcs = ["util.py"],
-    deps = ["@pypi//rich"],
+    deps = [
+        "@pypi//requests",
+        "@pypi//rich",
+    ],
 )

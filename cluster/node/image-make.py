@@ -34,7 +34,7 @@ from paramiko import RSAKey
 from paramiko.ssh_exception import NoValidConnectionsError
 from requests import get
 
-from dev.lib.util import codeMessage, console, step, waitFor
+from dev.lib.util import codeMessage, console, runOrDie, step, waitFor
 
 # Path to the `vimanad` binary.
 VIMANAD_PATH = joinPath('cluster', 'node', 'vimanad-x86_64-linux')
@@ -72,12 +72,7 @@ def imageVersion() -> tuple[str, bool]:
     if result.returncode == 0:
         # During clean builds,
         # the version of the image is the short form of the current commit hash.
-        result = run(
-            ['git', '-C', repoDirectory, 'rev-parse', '--short', 'HEAD'],
-            stdout=PIPE,
-            stderr=DEVNULL,
-            text=True,
-        )
+        result = runOrDie(['git', '-C', repoDirectory, 'rev-parse', '--short', 'HEAD'])
         return (result.stdout.strip(), True)
     else:
         # During dirty builds,

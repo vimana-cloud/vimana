@@ -1,5 +1,5 @@
 load("@buildtools//:rules.bzl", "buildifier")
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_python//python:defs.bzl", "py_binary")
 
 # Format all Bazel files.
 buildifier(
@@ -11,13 +11,19 @@ buildifier(
     mode = "fix",
 )
 
-# Update Bzlmod and Rust dependencies in `MODULE.bazel`:
-sh_binary(
-    name = "update-dependencies",
-    srcs = ["update-dependencies.sh"],
-    args = ["$(location @buildtools//:buildozer)"],
-    data = ["@buildtools//:buildozer"],
-    deps = ["//dev/lib:util-bash"],
+py_binary(
+    name = "upgrade-dependencies",
+    srcs = ["dependencies-upgrade.py"],
+    data = [
+        "@buildtools//:buildozer",
+        "@rules_go//go",
+    ],
+    main = "dependencies-upgrade.py",
+    deps = [
+        "//dev/lib:util-python",
+        "@pypi//packaging",
+        "@pypi//tomlkit",
+    ],
 )
 
 # Bazel resources to cross-compile source code against musl libc

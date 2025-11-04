@@ -4,6 +4,8 @@ google-cloud-os-login==2.18.0
 grpcio==1.73.1
 jsonschema==4.25.0
 kubernetes==33.1.0
+packaging==25.0
 PyYAML==6.0.2
 requests==2.32.5
 rich==14.0.0
+tomlkit==0.13.3
