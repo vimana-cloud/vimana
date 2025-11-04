@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # The CI environment provides access to the `REMOTE_BUILDS_CREDENTIALS` secret.
+    # The CI environment provides access to the `REMOTE_BUILD_CREDENTIALS` secret.
     environment: CI
     # The tests under `//runtime/tests` use Bazel's `requires-fakeroot` tag,
     # which enables them to manage IP addresses on the loopback network device.
@@ -25,8 +25,8 @@ jobs:
     container:
       image: gcr.io/bazel-public/bazel:latest
       env:
-        REMOTE_BUILDS_CREDENTIALS: ${{ secrets.REMOTE_BUILDS_CREDENTIALS }}
-      options: --user=0 --cap-add=NET_ADMIN
+        REMOTE_BUILD_CREDENTIALS: ${{ secrets.REMOTE_BUILD_CREDENTIALS }}
+      options: --user=0 --env=USER=0 --cap-add=NET_ADMIN
     # Running inside a container uses the Bourne shell be default. Use Bash instead.
     defaults:
       run:
@@ -39,7 +39,7 @@ jobs:
         run: |
           # Store the credentials necessary to write to the remote build cache
           # in a file that can be used for both building and testing.
-          printf '%s' "$REMOTE_BUILDS_CREDENTIALS" > '.remote-build-credentials.json'
+          printf '%s' "$REMOTE_BUILD_CREDENTIALS" > '.remote-build-credentials.json'
 
           bazel build \
             --remote_cache='https://storage.googleapis.com/vimana-remote-builds-public' \
