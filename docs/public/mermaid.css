@@ -103,6 +103,61 @@
   --mermaid-font-family: "trebuchet ms", verdana, arial, sans-serif;
 }
 
+.mermaid .cluster-label,
+.mermaid .nodeLabel,
+.mermaid .edgeLabel {
+  color: #131300;
+}
+
+.mermaid .edgeLabel .label rect {
+  fill: #ececff;
+  /* TODO: opacity: 0.5; */
+}
+
+.mermaid .node rect,
+.mermaid .node circle,
+.mermaid .node ellipse,
+.mermaid .node polygon,
+.mermaid .node path {
+  fill: #ececff;
+  stroke: #9370db;
+  stroke-width: 1px;
+}
+
+.mermaid .divider {
+  stroke: #9370db;
+}
+
+.mermaid #compositionStart,
+.mermaid #compositionEnd,
+.mermaid .composition,
+.mermaid #dependencyStart,
+.mermaid #dependencyEnd,
+.mermaid .dependency {
+  fill: #333333 !important;
+  stroke: #333333 !important;
+  stroke-width: 1;
+}
+
+.mermaid #extensionStart,
+.mermaid #extensionEnd,
+.mermaid .extension,
+.mermaid #aggregationStart,
+.mermaid #aggregationEnd,
+.mermaid .aggregation {
+  fill: transparent !important;
+  stroke: #333333 !important;
+  stroke-width: 1;
+}
+
+.mermaid #lollipopStart,
+.mermaid #lollipopEnd,
+.mermaid .lollipop {
+  fill: #ececff !important;
+  stroke: #333333 !important;
+  stroke-width: 1;
+}
+
 /* sequenceDiagram */
 
 .mermaid .actor {
@@ -227,160 +282,264 @@
   stroke-width: 2px;
 }
 
+/* classDiagram */
+
+.mermaid g.classGroup text {
+  fill: #9370db;
+  stroke: none;
+  font-family: "trebuchet ms", verdana, arial, sans-serif;
+  font-size: 10px;
+}
+
+.mermaid g.classGroup text .title {
+  font-weight: bolder;
+}
+
+.mermaid .label text {
+  fill: #131300;
+}
+
+.mermaid .labelBkg {
+  background: #ececff;
+}
+
+.mermaid .edgeLabel .label span {
+  background: #ececff;
+}
+
+.mermaid .classTitle {
+  font-weight: bolder;
+}
+
+.mermaid g.clickable {
+  cursor: pointer;
+}
+
+.mermaid g.classGroup rect {
+  fill: #ececff;
+  stroke: #9370db;
+}
+
+.mermaid g.classGroup line {
+  stroke: #9370db;
+  stroke-width: 1;
+}
+
+.mermaid .classLabel .box {
+  stroke: none;
+  stroke-width: 0;
+  fill: #ececff;
+  opacity: 0.5;
+}
+
+.mermaid .classLabel .label {
+  fill: #9370db;
+  font-size: 10px;
+}
+
+.mermaid .relation {
+  stroke: #333333;
+  stroke-width: 1;
+  fill: none;
+}
+
+.mermaid .dashed-line {
+  stroke-dasharray: 3;
+}
+
+.mermaid .dotted-line {
+  stroke-dasharray: 1 2;
+}
+
+.mermaid .edgeTerminals {
+  font-size: 11px;
+  line-height: initial;
+}
+
+.mermaid .classTitleText {
+  text-anchor: middle;
+  font-size: 18px;
+  fill: #333;
+}
+
+.mermaid .label-icon {
+  display: inline-block;
+  height: 1em;
+  overflow: visible;
+  vertical-align: -0.125em;
+}
+
+.mermaid .node .label-icon path {
+  fill: currentColor;
+  stroke: revert;
+  stroke-width: revert;
+}
+
 /* stateDiagram */
 
 .mermaid defs #statediagram-barbEnd {
   fill: #333333;
   stroke: #333333;
 }
+
 .mermaid g.stateGroup text {
   fill: #9370db;
   stroke: none;
   font-size: 10px;
 }
+
 .mermaid g.stateGroup text {
   fill: #333;
   stroke: none;
   font-size: 10px;
 }
+
 .mermaid g.stateGroup .state-title {
   font-weight: bolder;
   fill: #131300;
 }
+
 .mermaid g.stateGroup rect {
   fill: #ececff;
   stroke: #9370db;
 }
+
 .mermaid g.stateGroup line {
   stroke: #333333;
   stroke-width: 1;
 }
+
 .mermaid .transition {
   stroke: #333333;
   stroke-width: 1;
   fill: none;
 }
+
 .mermaid .stateGroup .composit {
   fill: white;
   border-bottom: 1px;
 }
+
 .mermaid .stateGroup .alt-composit {
   fill: #e0e0e0;
   border-bottom: 1px;
 }
+
 .mermaid .state-note {
   stroke: #aaaa33;
   fill: #fff5ad;
 }
+
 .mermaid .state-note text {
   fill: black;
   stroke: none;
   font-size: 10px;
 }
+
 .mermaid .stateLabel .box {
   stroke: none;
   stroke-width: 0;
   fill: #ececff;
   opacity: 0.5;
 }
-.mermaid .edgeLabel .label rect {
-  fill: #ececff;
-  opacity: 0.5;
-}
+
 .mermaid .edgeLabel {
   background-color: rgba(232, 232, 232, 0.8);
   text-align: center;
 }
+
 .mermaid .edgeLabel p {
   background-color: rgba(232, 232, 232, 0.8);
 }
+
 .mermaid .edgeLabel rect {
   opacity: 0.5;
   background-color: rgba(232, 232, 232, 0.8);
   fill: rgba(232, 232, 232, 0.8);
 }
+
 .mermaid .edgeLabel .label text {
   fill: #333;
 }
+
 .mermaid .label div .edgeLabel {
   color: #333;
 }
+
 .mermaid .stateLabel text {
   fill: #131300;
   font-size: 10px;
   font-weight: bold;
 }
+
 .mermaid .node circle.state-start {
   fill: #333333;
   stroke: #333333;
 }
+
 .mermaid .node .fork-join {
   fill: #333333;
   stroke: #333333;
 }
+
 .mermaid .node circle.state-end {
   fill: #9370db;
   stroke: white;
   stroke-width: 1.5;
 }
+
 .mermaid .end-state-inner {
   fill: white;
   stroke-width: 1.5;
 }
-.mermaid .node rect {
-  fill: #ececff;
-  stroke: #9370db;
-  stroke-width: 1px;
-}
-.mermaid .node polygon {
-  fill: #ececff;
-  stroke: #9370db;
-  stroke-width: 1px;
-}
+
 .mermaid #statediagram-barbEnd {
   fill: #333333;
 }
+
 .mermaid .statediagram-cluster rect {
   fill: #ececff;
   stroke: #9370db;
   stroke-width: 1px;
 }
-.mermaid .cluster-label,
-.mermaid .nodeLabel {
-  color: #131300;
-}
+
 .mermaid .statediagram-cluster rect.outer {
   rx: 5px;
   ry: 5px;
 }
-.mermaid .statediagram-state .divider {
-  stroke: #9370db;
-}
+
 .mermaid .statediagram-state .title-state {
   rx: 5px;
   ry: 5px;
 }
+
 .mermaid .statediagram-cluster.statediagram-cluster .inner {
   fill: white;
 }
+
 .mermaid .statediagram-cluster.statediagram-cluster-alt .inner {
   fill: #f0f0f0;
 }
+
 .mermaid .statediagram-cluster .inner {
   rx: 0;
   ry: 0;
 }
+
 .mermaid .statediagram-state rect.basic {
   rx: 5px;
   ry: 5px;
 }
+
 .mermaid .statediagram-state rect.divider {
   stroke-dasharray: 10, 10;
   fill: #f0f0f0;
 }
+
 .mermaid .note-edge {
   stroke-dasharray: 5;
 }
+
 .mermaid .statediagram-note rect {
   fill: #fff5ad;
   stroke: #aaaa33;
@@ -388,21 +547,19 @@
   rx: 0;
   ry: 0;
 }
+
 .mermaid .statediagram-note text {
   fill: black;
 }
+
 .mermaid .statediagram-note .nodeLabel {
   color: black;
 }
+
 .mermaid .statediagram .edgeLabel {
   color: red;
 }
-.mermaid #dependencyStart,
-.mermaid #dependencyEnd {
-  fill: #333333;
-  stroke: #333333;
-  stroke-width: 1;
-}
+
 .mermaid .statediagramTitleText {
   text-anchor: middle;
   font-size: 18px;
@@ -435,6 +592,55 @@
 
 .dark .mermaid .marker.cross {
   stroke: lightgrey;
+}
+
+.dark .mermaid .cluster-label,
+.dark .mermaid .nodeLabel,
+.dark .mermaid .edgeLabel {
+  color: #e0dfdf;
+}
+
+.dark .mermaid .edgeLabel .label rect {
+  fill: #1f2020;
+}
+
+.dark .mermaid .node rect,
+.dark .mermaid .node circle,
+.dark .mermaid .node ellipse,
+.dark .mermaid .node polygon,
+.dark .mermaid .node path {
+  fill: #1f2020;
+  stroke: #ccc;
+}
+
+.dark .mermaid .divider {
+  stroke: #ccc;
+}
+
+.dark .mermaid #compositionStart,
+.dark .mermaid #compositionEnd,
+.dark .mermaid .composition,
+.dark .mermaid #dependencyStart,
+.dark .mermaid #dependencyEnd,
+.dark .mermaid .dependency {
+  fill: lightgrey !important;
+  stroke: lightgrey !important;
+}
+
+.dark .mermaid #extensionStart,
+.dark .mermaid #extensionEnd,
+.dark .mermaid .extension,
+.dark .mermaid #aggregationStart,
+.dark .mermaid #aggregationEnd,
+.dark .mermaid .aggregation {
+  stroke: lightgrey !important;
+}
+
+.dark .mermaid #lollipopStart,
+.dark .mermaid #lollipopEnd,
+.dark .mermaid .lollipop {
+  fill: #1f2020 !important;
+  stroke: lightgrey !important;
 }
 
 /* sequenceDiagram */
@@ -542,122 +748,180 @@
   fill: #1f2020;
 }
 
+/* classDiagram */
+
+.dark .mermaid g.classGroup text {
+  fill: #ccc;
+}
+
+.dark .mermaid .label text {
+  fill: #e0dfdf;
+}
+
+.dark .mermaid .labelBkg {
+  background: #1f2020;
+}
+
+.dark .mermaid .edgeLabel .label span {
+  background: #1f2020;
+}
+
+.dark .mermaid g.classGroup rect {
+  fill: #1f2020;
+  stroke: #ccc;
+}
+
+.dark .mermaid g.classGroup line {
+  stroke: #ccc;
+}
+
+.dark .mermaid .classLabel .box {
+  fill: #1f2020;
+}
+
+.dark .mermaid .classLabel .label {
+  fill: #ccc;
+}
+
+.dark .mermaid .relation {
+  stroke: lightgrey;
+}
+
+.dark .mermaid .classTitleText {
+  fill: #ccc;
+}
+
 /* stateDiagram */
 
 .dark .mermaid defs #statediagram-barbEnd {
   fill: lightgrey;
   stroke: lightgrey;
 }
+
 .dark .mermaid g.stateGroup text {
   fill: #ccc;
 }
+
 .dark .mermaid g.stateGroup text {
   fill: #ccc;
 }
+
 .dark .mermaid g.stateGroup .state-title {
   fill: #e0dfdf;
 }
+
 .dark .mermaid g.stateGroup rect {
   fill: #1f2020;
   stroke: #ccc;
 }
+
 .dark .mermaid g.stateGroup line {
   stroke: lightgrey;
 }
+
 .dark .mermaid .transition {
   stroke: lightgrey;
 }
+
 .dark .mermaid .stateGroup .composit {
   fill: #333;
 }
+
 .dark .mermaid .stateGroup .alt-composit {
   fill: #e0e0e0;
 }
+
 .dark .mermaid .state-note {
   stroke: hsl(180, 0%, 18.3529411765%);
   fill: hsl(180, 1.5873015873%, 28.3529411765%);
 }
+
 .dark .mermaid .state-note text {
   fill: rgb(183.8476190475, 181.5523809523, 181.5523809523);
 }
+
 .dark .mermaid .stateLabel .box {
   fill: #1f2020;
 }
-.dark .mermaid .edgeLabel .label rect {
-  fill: #1f2020;
-}
+
 .dark .mermaid .edgeLabel {
   background-color: hsl(0, 0%, 34.4117647059%);
 }
+
 .dark .mermaid .edgeLabel p {
   background-color: hsl(0, 0%, 34.4117647059%);
 }
+
 .dark .mermaid .edgeLabel rect {
   background-color: hsl(0, 0%, 34.4117647059%);
   fill: hsl(0, 0%, 34.4117647059%);
 }
+
 .dark .mermaid .edgeLabel .label text {
   fill: #ccc;
 }
+
 .dark .mermaid .label div .edgeLabel {
   color: #ccc;
 }
+
 .dark .mermaid .stateLabel text {
   fill: #e0dfdf;
 }
+
 .dark .mermaid .node circle.state-start {
   fill: #f4f4f4;
   stroke: #f4f4f4;
 }
+
 .dark .mermaid .node .fork-join {
   fill: #f4f4f4;
   stroke: #f4f4f4;
 }
+
 .dark .mermaid .node circle.state-end {
   fill: #cccccc;
   stroke: #333;
 }
+
 .dark .mermaid .end-state-inner {
   fill: #333;
 }
-.dark .mermaid .node rect {
-  fill: #1f2020;
-  stroke: #ccc;
-}
-.dark .mermaid .node polygon {
-  fill: #1f2020;
-  stroke: #ccc;
-}
+
 .dark .mermaid #statediagram-barbEnd {
   fill: lightgrey;
 }
+
 .dark .mermaid .statediagram-cluster rect {
   fill: #1f2020;
   stroke: #ccc;
 }
-.dark .mermaid .cluster-label,
-.dark .mermaid .nodeLabel {
-  color: #e0dfdf;
-}
+
 .dark .mermaid .statediagram-state .divider {
   stroke: #ccc;
 }
+
 .dark .mermaid .statediagram-cluster.statediagram-cluster .inner {
   fill: #333;
 }
+
 .dark .mermaid .statediagram-cluster.statediagram-cluster-alt .inner {
   fill: #555;
 }
+
 .dark .mermaid .statediagram-state rect.divider {
   fill: #555;
 }
+
 .dark .mermaid .statediagram-note rect {
   fill: hsl(180, 1.5873015873%, 28.3529411765%);
   stroke: hsl(180, 0%, 18.3529411765%);
 }
+
 .dark .mermaid .statediagram-note text {
   fill: rgb(183.8476190475, 181.5523809523, 181.5523809523);
 }
+
 .dark .mermaid .statediagram-note .nodeLabel {
   color: rgb(183.8476190475, 181.5523809523, 181.5523809523);
 }
