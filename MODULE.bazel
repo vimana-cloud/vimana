@@ -182,7 +182,7 @@ go_deps.module_override(
 
 # Gazelle also struggles with this one, due to a conflict with the `cel-spec` Bzlmod dependency,
 # which is pulled in transitively via `grpc`.
-# https://github.com/bazel-contrib/bazel-gazelle/issues/2210
+# https://github.com/google/cel-go/issues/1184
 go_deps.gazelle_override(
     build_file_generation = "off",
     path = "cel.dev/expr",
