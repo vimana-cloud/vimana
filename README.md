@@ -48,11 +48,9 @@ bazel run //dev/minikube:restart
 Once the cluster is up, you'll need a tunnel to communicate with it.
 This command should probably be running in the background
 the whole time the cluster is running.
-Vimana provides a convenient [tool](#tools) called `sudo-persist`
-so you don't have to worry about the `sudo` authorization expiring.
 
 ```bash
-sudo-persist minikube tunnel
+minikube tunnel
 ```
 
 For a minimal example using the running Vimana cluster,
@@ -198,36 +196,6 @@ bazel-docker test //runtime/tests/...
 [`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
 [`bazel-docker`]: dev/tools/bazel-docker
 [tools]: #tools
-
-### More Commands
-
-Run a local documentation server.
-This renders all the Markdown files in the repo using [VitePress].
-It also renders the [Mermaid] diagrams embedded in the Markdown.
-
-```bash
-bazel run //docs:dev
-```
-
-Check for updates to any Bazel or Rust dependency in `MODULE.bazel`,
-and apply them in-place:
-
-```bash
-bazel run //dev:update-dependencies
-```
-
-Hot-reload the latest local build of the runtime and operator
-into an already-running minikube cluster.
-This can significantly improve iteration speed when testing locally,
-but be mindful of the note at the [top of the script].
-
-```bash
-bazel run //dev/minikube:hotswap
-```
-
-[VitePress]: https://vitepress.dev/
-[Mermaid]: https://mermaid.js.org/
-[top of the script]: dev/minikube/hotswap.sh
 
 ### VSCode
 

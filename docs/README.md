@@ -1,13 +1,11 @@
-# Documentation
+# How to Write Docs
 
-## Internal
+Run a local documentation server.
+All markdown files in the repo will be rendered.
 
-The mono-repo hosts internal documentation at [`docs.corp.vimana.co`](https://TODO).
-You can preview it locally by running `bazel run //docs:dev`.
-
-### How to Write Docs
-
-All markdown files are included in the documentation browser.
+```bash
+bazel run //docs:dev
+```
 
 Files named `README.md` get special treatment.
 They serve as the directory index and should:
