@@ -21,12 +21,6 @@ type ServerSpec struct {
 	// List of fully-qualified gRPC service names served by this server.
 	Services []string `json:"services,omitempty"`
 
-	// Whether gRPC reflection is enabled for all the services on this server.
-	// If this is enabled,
-	// then neither `grpc.reflection.v1.ServerReflection` nor `grpc.reflection.v1alpha1.ServerReflection`
-	// may be specified under `Services`.
-	Reflection bool `json:"reflection,omitempty"`
-
 	// Authentication configuration for the server.
 	Auth *ServerAuth `json:"auth,omitempty"`
 

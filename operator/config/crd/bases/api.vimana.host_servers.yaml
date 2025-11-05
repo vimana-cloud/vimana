@@ -62,13 +62,6 @@ spec:
                   User-provided ID of the server.
                   Must be unique for the domain.
                 type: string
-              reflection:
-                description: |-
-                  Whether gRPC reflection is enabled for all the services on this server.
-                  If this is enabled,
-                  then neither `grpc.reflection.v1.ServerReflection` nor `grpc.reflection.v1alpha1.ServerReflection`
-                  may be specified under `Services`.
-                type: boolean
               services:
                 description: List of fully-qualified gRPC service names served by
                   this server.
