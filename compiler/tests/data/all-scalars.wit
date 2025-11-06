@@ -1,29 +1,14 @@
-package foo:bar;
+package foo:bar:server;
 
-// TODO: foobar -> foo:bar
-// https://github.com/bytecodealliance/wit-bindgen/issues/1224
-package foobar:services {
-
-    // use vimana:grpc/imports.{context};
-
-    interface %all-scalars-service {
-        use foobar:types/types.{%all-scalars-type};
-
-        //%do-something: func(context: context, request: %all-scalars-type) -> %all-scalars-type;
-        %do-something: func(request: %all-scalars-type) -> %all-scalars-type;
-    }
+world guest {
+  use foo:bar:server/types.{ all-scalars-type };
+  include wasi:cli/imports@0.2.0;
+  include vimana:grpc/imports@0.0.0;
+  export all-scalars-service: interface {
+    do-something: func(request: all-scalars-type) -> all-scalars-type;
+  }
 }
 
-// TODO: foobar -> foo:bar
-// https://github.com/bytecodealliance/wit-bindgen/issues/1224
-package foobar:types {
-    interface types {
-        record %all-scalars-type {
-            %bytes-implicit: list<u8>,
-        }
-    }
-}
-
-world server {
-    export foobar:services/%all-scalars-service;
+interface types {
+  record all-scalars-type {  }
 }

@@ -4,9 +4,9 @@ from os.path import join as joinPath
 from typing import Callable
 from unittest import TestCase, main
 
-from cli.protoc.tests.util import protoc
+from compiler.tests.util import protoc
 
-DATA_PATH = joinPath('cli', 'protoc', 'tests', 'data')
+DATA_PATH = joinPath('compiler', 'tests', 'data')
 
 
 # The test class is populated dynamically
@@ -15,10 +15,10 @@ class ProtocPluginTest(TestCase):
     pass
 
 
-def generateCase(rootName: str) -> Callable[[TestCase], None]:
+def generateTestCase(rootName: str) -> Callable[[TestCase], None]:
     """Generate a test case based on a group of test data files that share a root name."""
 
-    def case(self):
+    def testCase(self):
         protoFile = joinPath(DATA_PATH, f'{rootName}.proto')
         witFile = joinPath(DATA_PATH, f'{rootName}.wit')
         self.assertTrue(exists(protoFile), f"File '{protoFile}' is missing")
@@ -26,17 +26,18 @@ def generateCase(rootName: str) -> Callable[[TestCase], None]:
 
         result = protoc(protoFile)
 
+        # Display unmatching outputs in their entirety; not just the lines that differ.
         self.maxDiff = None
         with open(witFile, 'r') as expectedWit:
             self.assertEqual(result.wit, expectedWit.read())
 
-    return case
+    return testCase
 
 
 # Each test case is defined by a group of files in the data directory
 # which all share a filename root but differ in their extension.
 for rootName in set(splitext(path)[0] for path in listdir(DATA_PATH)):
-    setattr(ProtocPluginTest, f'test_{rootName}', generateCase(rootName))
+    setattr(ProtocPluginTest, f'test_{rootName}', generateTestCase(rootName))
 
 
 if __name__ == '__main__':

@@ -1,15 +1,20 @@
+mod compile;
+mod metadata;
 mod wit;
 
 use std::io::{stdin, stdout, Read, Write};
 
-use anyhow::{Error, Result};
+use anyhow::Result;
 use prost::Message;
-use prost_types::compiler::code_generator_response::{Feature, File};
+use prost_types::compiler::code_generator_response::Feature;
 use prost_types::compiler::{CodeGeneratorRequest, CodeGeneratorResponse};
-use prost_types::{DescriptorProto, FileDescriptorProto};
 
-use wit::compile;
+use compile::compile;
 
+/// Version of the Vimana API to import.
+pub(crate) const VIMANA_API_VERSION: &str = "0.0.0";
+/// Version of the WASI API to import.
+pub(crate) const WASI_API_VERSION: &str = "0.2.0";
 /// Bitwise union of supported features.
 /// https://github.com/protocolbuffers/protobuf/blob/v31.1/src/google/protobuf/compiler/code_generator.h#L96
 const SUPPORTED_FEATURES: u64 = Feature::Proto3Optional as u64;
@@ -38,7 +43,7 @@ fn main() -> Result<()> {
         supported_features: Some(SUPPORTED_FEATURES),
     };
     match compile(request) {
-        Ok(file) => response.file.push(file),
+        Ok(files) => response.file.extend(files),
         Err(error) => response.error = Some(error.to_string()),
     }
 

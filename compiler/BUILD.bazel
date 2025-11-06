@@ -5,6 +5,7 @@ rust_binary(
     srcs = [
         "compile.rs",
         "main.rs",
+        "metadata.rs",
         "wit.rs",
     ],
     binary_name = "protoc-gen-vimana",

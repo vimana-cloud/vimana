@@ -4,6 +4,7 @@ load("@rules_rust//rust:defs.bzl", "rust_library_group")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_toolchain")
 
 # gazelle:prefix vimana.host
+# gazelle:exclude compiler
 # gazelle:exclude runtime
 gazelle(name = "gazelle")
 

@@ -5,7 +5,7 @@ from subprocess import Popen
 from tempfile import TemporaryDirectory
 
 PROTOC_PATH = joinPath('..', 'protobuf+', 'protoc')
-PLUGIN_PATH = joinPath('cli', 'protoc', 'protoc-gen-vimana')
+PLUGIN_PATH = joinPath('compiler', 'protoc-gen-vimana')
 
 
 @dataclass(kw_only=True)

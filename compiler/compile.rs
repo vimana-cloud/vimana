@@ -1,18 +1,16 @@
 //! The compilation step involves consolidating TODO
 
+use std::cell::OnceCell;
 use std::collections::HashMap;
+use anyhow::{anyhow, bail, Result};
+use prost_types::compiler::code_generator_response::File;
+use prost_types::compiler::CodeGeneratorRequest;
+use prost_types::FileDescriptorProto;
+use semver::Version;
 
-use anyhow::{anyhow, bail, Error, Result};
-use prost_types::compiler::{CodeGeneratorRequest, CodeGeneratorResponse};
-use prost_types::field_descriptor_proto::{Label, Type};
-use prost_types::{DescriptorProto, FieldDescriptorProto, FileDescriptorProto};
-
-use metadata_proto::work::runtime::field::{Coding, CompoundCoding, ScalarCoding};
+use crate::metadata::MetadataFile;
+use crate::wit::WitFile;
 use metadata_proto::work::runtime::Field;
-
-const PACKED_OFFSET: i32 = 1;
-const EXPLICIT_OFFSET: i32 = 2;
-const EXPANDED_OFFSET: i32 = 3;
 
 #[derive(Copy, Clone)]
 enum ProtoSyntax {
@@ -21,7 +19,7 @@ enum ProtoSyntax {
     Editions,
 }
 
-pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<()>> {
+pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
     // Mapping from all filenames to file descriptors.
     let mut file_descriptors: HashMap<String, &FileDescriptorProto> = HashMap::new();
     // Mapping from all fully-qualified message type names to resolved message types.
@@ -45,282 +43,76 @@ pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<()>> {
                 .name
                 .clone()
                 .ok_or_else(|| anyhow!("Message in '{file_name}' lacks a name"))?;
-            let subfields =
-                compile_message(&message_name, message_type, syntax, &compiled_messages)?;
-            compiled_messages.insert(
-                message_name,
-                Field {
-                    number: 0,               // Ignored.
-                    name: String::default(), // Ignored.
-                    subfields,
-                    // Coding ignored for top-level messages.
-                    coding: None,
-                },
-            );
+            //let subfields =
+            //    compile_message(&message_name, message_type, syntax, &compiled_messages)?;
+            //compiled_messages.insert(
+            //    message_name,
+            //    Field {
+            //        number: 0,               // Ignored.
+            //        name: String::default(), // Ignored.
+            //        subfields,
+            //        // Coding ignored for top-level messages.
+            //        coding: None,
+            //    },
+            //);
         }
 
         file_descriptors.insert(file_name, proto_file);
     }
 
+    // Main package, in Protobuf syntax.
+    // All proto files within `file_to_generate` must be part of the same package.
+    let package_name: OnceCell<String> = OnceCell::new();
+    // Version of the main package.
+    let mut package_version: OnceCell<Version> = OnceCell::new();
+
+    let mut wit_file: WitFile = WitFile::default();
+    let mut metadata_file: MetadataFile = MetadataFile::default();
+
     // One implementation config is generated per service.
-    //for file_to_generate in &request.file_to_generate {
-    //    let file_descriptor = file_descriptors.get(file_to_generate).unwrap();
-    //    let package_name = file_descriptor.package.as_ref().unwrap();
+    for file_to_generate in &request.file_to_generate {
+        let file_descriptor = file_descriptors.get(file_to_generate).ok_or_else(|| {
+            anyhow!("Malformed request contains unknown file '{file_to_generate}")
+        })?;
 
-    //    for service_descriptor in &file_descriptor.service {
-    //        let service_name = service_descriptor
-    //            .name
-    //            .clone()
-    //            .ok_or(Error::leaf("Service has empty name"))?;
-    //        let mut streaming: bool = false;
-
-    //        for method_descriptor in &service_descriptor.method {
-    //            let request_type = method_descriptor.input_type.as_ref().unwrap();
-    //            let response_type = method_descriptor.output_type.as_ref().unwrap();
-
-    //            let client_streaming = method_descriptor.client_streaming.unwrap_or(false);
-    //            let server_streaming = method_descriptor.server_streaming.unwrap_or(false);
-    //            if client_streaming || server_streaming {
-    //                streaming = true;
-    //            }
-
-    //            match method_descriptor.options.as_ref() {
-    //                Some(options) => {
-    //                    for option in &options.uninterpreted_option {
-    //                        // TODO
-    //                    }
-    //                }
-    //                None => (),
-    //            }
-
-    //            if streaming && service.http_routes.len() > 0 {
-    //                return Err(error(
-    //                    "Service cannot include both streaming RPCs and JSON transcoding",
-    //                ));
-    //            }
-
-    //            service.type_imports.push(String::from(response_type));
-    //            insert_types_recursively(&mut descriptors, request_type, package)?;
-    //            insert_types_recursively(&mut descriptors, response_type, package)?;
-    //        }
-    //        package.services.push(service);
-    //    }
-    //}
-
-    Ok(Vec::new())
-}
-
-fn compile_message(
-    message_name: &String,
-    descriptor: &DescriptorProto,
-    syntax: ProtoSyntax,
-    compiled_messages: &HashMap<String, Field>,
-) -> Result<Vec<Field>> {
-    // A request / response message is represented by a single `Field`
-    // with only the subfields populated.
-    let mut subfields: Vec<Field> = Vec::new();
-
-    // One-ofs do not correspond 1-to-1 with Protobuf fields,
-    // so they have to be compiled separately.
-    let mut oneofs: Vec<Field> =
-        Result::from_iter(descriptor.oneof_decl.iter().map(|oneof_descriptor| {
-            Ok::<Field, Error>(Field {
-                number: 0, // ignored
-                name: oneof_descriptor
-                    .name
-                    .clone()
-                    .ok_or_else(|| anyhow!("Oneof in '{message_name}' lacks a name"))?,
-                subfields: Vec::new(), // Populated later.
-                coding: Some(Coding::CompoundCoding(CompoundCoding::Oneof as i32)),
-            })
-        }))?;
-
-    for proto_field in descriptor.field.iter() {
-        let field_name = proto_field
-            .name
+        // Check that the file's package name is consistent with all the other source files.
+        let file_package_name = file_descriptor
+            .package
             .as_ref()
-            .ok_or_else(|| anyhow!("Field in '{message_name}' lacks a name"))?;
-        let number = proto_field
-            .number
-            .ok_or_else(|| anyhow!("Field '{field_name}' in '{message_name}' lacks a number"))?
-            .try_into()
-            .map_err(|_| {
-                anyhow!("Field '{field_name}' in '{message_name}' has a negative field number")
-            })?;
+            .ok_or_else(|| anyhow!("Proto file '{file_to_generate}' lacks a package"))?;
+        let package_name_value = package_name.get_or_init(|| file_package_name.clone());
+        if file_package_name != package_name_value {
+            bail!("Conflicting packages: '{package_name_value:?}' and '{file_package_name:?}'")
+        }
 
-        if let Some(oneof_index) = proto_field.oneof_index {
-            // One-of members are not considered "direct" subfields.
-            let oneof_index: usize = oneof_index.try_into().map_err(|_| {
-                anyhow!("Field '{field_name}' in '{message_name}' has an invalid one-of index")
-            })?;
-            let oneof: &mut Field = oneofs.get_mut(oneof_index).ok_or_else(|| {
-                anyhow!("Field '{field_name}' in '{message_name}' has an unknown one-of index")
-            })?;
-            oneof.subfields.push(compile_field(
-                number,
-                field_name,
-                proto_field,
-                message_name,
-                syntax,
-                compiled_messages,
-            )?);
-        } else {
-            subfields.push(compile_field(
-                number,
-                field_name,
-                proto_field,
-                message_name,
-                syntax,
-                compiled_messages,
-            )?);
+        // Compile all the services in this file.
+        for service_descriptor in &file_descriptor.service {
+            let service_name = service_descriptor
+                .name
+                .as_ref()
+                .ok_or_else(|| anyhow!("Service in '{file_to_generate}' lacks a name"))?;
+
+            wit_file.compile_service(service_name, service_descriptor)?;
+        }
+
+        // Compile all the types in this file.
+        for message_descriptor in &file_descriptor.message_type {
+            let message_name = message_descriptor
+                .name
+                .as_ref()
+                .ok_or_else(|| anyhow!("Message in '{file_to_generate}' lacks a name"))?;
+
+            wit_file.compile_message(message_name, message_descriptor)?;
         }
     }
 
-    subfields.append(&mut oneofs);
-    Ok(subfields)
-}
+    let package_name = package_name
+        .get()
+        .ok_or_else(|| anyhow!("No package specified"))?;
+    let package_version = package_version.take();
 
-fn compile_field(
-    number: u32,
-    field_name: &String,
-    field: &FieldDescriptorProto,
-    message_name: &String,
-    syntax: ProtoSyntax,
-    compiled_messages: &HashMap<String, Field>,
-) -> Result<Field> {
-    let field_type = Type::try_from(
-        field
-            .r#type
-            .ok_or_else(|| anyhow!("Field '{field_name}' in '{message_name}' lacks a type"))?,
-    )?;
-    // Simplify coding conversion
-    // by taking advantage of the recurring pattern with the coding enums:
-    //   TODO
-    let (compound, mut coding) = match field_type {
-        Type::Double => (false, ScalarCoding::DoubleImplicit as i32),
-        Type::Float => (false, ScalarCoding::FloatImplicit as i32),
-        Type::Int64 => (false, ScalarCoding::Int64Implicit as i32),
-        Type::Uint64 => (false, ScalarCoding::Uint64Implicit as i32),
-        Type::Int32 => (false, ScalarCoding::Int32Implicit as i32),
-        Type::Fixed64 => (false, ScalarCoding::Fixed64Implicit as i32),
-        Type::Fixed32 => (false, ScalarCoding::Fixed32Implicit as i32),
-        Type::Bool => (false, ScalarCoding::BoolImplicit as i32),
-        Type::String => (false, ScalarCoding::StringUtf8Implicit as i32),
-        Type::Group => {
-            bail!("Field '{field_name}' in '{message_name}' is a group (which is unsupported)")
-        }
-        Type::Message => (true, CompoundCoding::Message as i32),
-        Type::Bytes => (false, ScalarCoding::BytesImplicit as i32),
-        Type::Uint32 => (false, ScalarCoding::Uint32Implicit as i32),
-        Type::Enum => (true, CompoundCoding::EnumImplicit as i32),
-        Type::Sfixed32 => (false, ScalarCoding::Sfixed32Implicit as i32),
-        Type::Sfixed64 => (false, ScalarCoding::Sfixed64Implicit as i32),
-        Type::Sint32 => (false, ScalarCoding::Sint32Implicit as i32),
-        Type::Sint64 => (false, ScalarCoding::Sint64Implicit as i32),
-    };
-    match syntax {
-        ProtoSyntax::Proto2 => {
-            if let Some(label) = field.label {
-                match Label::try_from(label)? {
-                    Label::Optional => {
-                        // Messages are unaffected by `optional`.
-                        // (they always use explicit presence tracking).
-                        if coding != CompoundCoding::Message as i32 {
-                            // Any other field marked `optional`
-                            // would use explicit, rather than implicit, tracking.
-                            coding += EXPLICIT_OFFSET;
-                        }
-                    }
-                    Label::Required => bail!(
-                        "Field '{field_name}' in '{message_name}' is required (which not yet unsupported)"
-                    ),
-                    Label::Repeated => {
-                        // All repeated fields in proto2 are always expanded.
-                        coding += EXPANDED_OFFSET;
-                    }
-                }
-            }
-        }
-        ProtoSyntax::Proto3 => {
-            if let Some(label) = field.label {
-                match Label::try_from(label)? {
-                    Label::Optional => {
-                        // Messages are unaffected by `optional`.
-                        // (they always use explicit presence tracking).
-                        if coding != CompoundCoding::Message as i32 {
-                            // Any other field marked `optional`
-                            // would use explicit, rather than implicit, tracking.
-                            coding += EXPLICIT_OFFSET;
-                        }
-                    }
-                    Label::Required => bail!(
-                        "Field '{field_name}' in '{message_name}' is required (invalid in proto3)"
-                    ),
-                    Label::Repeated => {
-                        if coding == CompoundCoding::Message as i32 {
-                            // Repeated messages are always expanded.
-                            coding += EXPANDED_OFFSET;
-                        } else {
-                            // Repeated non-message fields in proto3 are always packed.
-                            coding += PACKED_OFFSET;
-                        }
-                    }
-                }
-            }
-        }
-        ProtoSyntax::Editions => todo!(),
-    };
-
-    Ok(Field {
-        number,
-        name: proto_name_to_wit_name(field_name),
-        subfields: match field_type {
-            // All scalar types have no subfields.
-            Type::Double
-            | Type::Float
-            | Type::Int64
-            | Type::Uint64
-            | Type::Int32
-            | Type::Fixed64
-            | Type::Fixed32
-            | Type::Bool
-            | Type::String
-            | Type::Bytes
-            | Type::Uint32
-            | Type::Sfixed32
-            | Type::Sfixed64
-            | Type::Sint32
-            | Type::Sint64 => Vec::default(),
-            // TODO: Support recursive nesting.
-            Type::Message | Type::Enum => {
-                let type_name = field.type_name.as_ref().ok_or_else(|| {
-                    anyhow!("Field '{field_name}' in '{message_name}' lacks a type name")
-                })?;
-                compiled_messages
-                    .get(type_name)
-                    .ok_or_else(|| {
-                        // This should be impossible
-                        // because `protoc` guarantees that messages are described in TODO order.
-                        anyhow!("Field '{field_name}' in '{message_name}' references unknown type '{type_name}'")
-                    })?
-                    .subfields
-                    .clone()
-            }
-            Type::Group => {
-                bail!("Field '{field_name}' in '{message_name}' is a group (which is unsupported)")
-            }
-        },
-        coding: Some(if compound {
-            Coding::CompoundCoding(coding)
-        } else {
-            Coding::ScalarCoding(coding)
-        }),
-    })
-}
-
-/// Convert a protobuf short name to a WIT short name.
-/// This mainly involves converting `snake_case` to `kebab-case`.
-fn proto_name_to_wit_name(proto_name: &String) -> String {
-    // TODO: Think about edge cases.
-    proto_name.replace("_", "-")
+    Ok(vec![
+        wit_file.generate(package_name, &package_version)?,
+        metadata_file.generate(package_name, &package_version)?,
+    ])
 }
