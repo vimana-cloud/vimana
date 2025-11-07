@@ -1,7 +1,6 @@
 load("@bazel_skylib//rules/directory:directory.bzl", "directory")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
 
-# TODO: Implement the compiler and fix this test.
 py_test(
     name = "success-test",
     srcs = ["success-test.py"],

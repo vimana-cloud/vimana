@@ -19,14 +19,6 @@ pub(crate) const WASI_API_VERSION: &str = "0.2.0";
 /// https://github.com/protocolbuffers/protobuf/blob/v31.1/src/google/protobuf/compiler/code_generator.h#L96
 const SUPPORTED_FEATURES: u64 = Feature::Proto3Optional as u64;
 
-fn emit(_wit: Vec<()>) -> Result<CodeGeneratorResponse> {
-    Ok(CodeGeneratorResponse {
-        file: vec![],
-        error: None,
-        supported_features: Some(SUPPORTED_FEATURES),
-    })
-}
-
 fn main() -> Result<()> {
     // Read and parse the entire input from stdin.
     // If an error occurs here, exit with a failure status.

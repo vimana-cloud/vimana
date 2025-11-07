@@ -1,0 +1,76 @@
+package foo:bar:server;
+
+world guest {
+  use foo:bar:server/types.{ all-scalars-type };
+  include wasi:cli/imports@0.2.0;
+  include vimana:grpc/imports@0.0.0;
+  export all-scalars-service: interface {
+    do-something: func(request: all-scalars-type) -> all-scalars-type;
+  }
+}
+
+interface foo:bar:server/types {
+  record all-scalars-type {
+    bytes-implicit: list<u8>,
+    bytes-explicit: option<list<u8>>,
+    bytes-expanded: list<list<u8>>,
+    string-utf8-implicit: string,
+    string-utf8-explicit: option<string>,
+    string-utf8-expanded: list<string>,
+    string-permissive-implicit: string,
+    string-permissive-explicit: option<string>,
+    string-permissive-expanded: list<string>,
+    bool-implicit: bool,
+    bool-packed: list<bool>,
+    bool-explicit: option<bool>,
+    bool-expanded: list<bool>,
+    int32-implicit: s32,
+    int32-packed: list<s32>,
+    int32-explicit: option<s32>,
+    int32-expanded: list<s32>,
+    sint32-implicit: s32,
+    sint32-packed: list<s32>,
+    sint32-explicit: option<s32>,
+    sint32-expanded: list<s32>,
+    sfixed32-implicit: s32,
+    sfixed32-packed: list<s32>,
+    sfixed32-explicit: option<s32>,
+    sfixed32-expanded: list<s32>,
+    uint32-implicit: u32,
+    uint32-packed: list<u32>,
+    uint32-explicit: option<u32>,
+    uint32-expanded: list<u32>,
+    fixed32-implicit: u32,
+    fixed32-packed: list<u32>,
+    fixed32-explicit: option<u32>,
+    fixed32-expanded: list<u32>,
+    int64-implicit: s64,
+    int64-packed: list<s64>,
+    int64-explicit: option<s64>,
+    int64-expanded: list<s64>,
+    sint64-implicit: s64,
+    sint64-packed: list<s64>,
+    sint64-explicit: option<s64>,
+    sint64-expanded: list<s64>,
+    sfixed64-implicit: s64,
+    sfixed64-packed: list<s64>,
+    sfixed64-explicit: option<s64>,
+    sfixed64-expanded: list<s64>,
+    uint64-implicit: u64,
+    uint64-packed: list<u64>,
+    uint64-explicit: option<u64>,
+    uint64-expanded: list<u64>,
+    fixed64-implicit: u64,
+    fixed64-packed: list<u64>,
+    fixed64-explicit: option<u64>,
+    fixed64-expanded: list<u64>,
+    float-implicit: f32,
+    float-packed: list<f32>,
+    float-explicit: option<f32>,
+    float-expanded: list<f32>,
+    double-implicit: f64,
+    double-packed: list<f64>,
+    double-explicit: option<f64>,
+    double-expanded: list<f64>,
+  }
+}

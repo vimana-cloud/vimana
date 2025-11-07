@@ -1,12 +1,12 @@
 //! The compilation step involves consolidating TODO
 
-use std::cell::OnceCell;
-use std::collections::HashMap;
 use anyhow::{anyhow, bail, Result};
 use prost_types::compiler::code_generator_response::File;
 use prost_types::compiler::CodeGeneratorRequest;
-use prost_types::FileDescriptorProto;
+use prost_types::{DescriptorProto, FileDescriptorProto};
 use semver::Version;
+use std::cell::OnceCell;
+use std::collections::HashMap;
 
 use crate::metadata::MetadataFile;
 use crate::wit::WitFile;
@@ -21,9 +21,9 @@ enum ProtoSyntax {
 
 pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
     // Mapping from all filenames to file descriptors.
-    let mut file_descriptors: HashMap<String, &FileDescriptorProto> = HashMap::new();
-    // Mapping from all fully-qualified message type names to resolved message types.
-    let mut compiled_messages: HashMap<String, Field> = HashMap::new();
+    let mut all_file_descriptors: HashMap<String, &FileDescriptorProto> = HashMap::new();
+    // Mapping from all fully-qualified message type names (Protobuf syntax) to message descriptors.
+    let mut all_messages: HashMap<String, &DescriptorProto> = HashMap::new();
 
     for proto_file in &request.proto_file {
         let file_name = proto_file
@@ -43,27 +43,16 @@ pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
                 .name
                 .clone()
                 .ok_or_else(|| anyhow!("Message in '{file_name}' lacks a name"))?;
-            //let subfields =
-            //    compile_message(&message_name, message_type, syntax, &compiled_messages)?;
-            //compiled_messages.insert(
-            //    message_name,
-            //    Field {
-            //        number: 0,               // Ignored.
-            //        name: String::default(), // Ignored.
-            //        subfields,
-            //        // Coding ignored for top-level messages.
-            //        coding: None,
-            //    },
-            //);
+
+            all_messages.insert(message_name, message_type);
         }
 
-        file_descriptors.insert(file_name, proto_file);
+        all_file_descriptors.insert(file_name, proto_file);
     }
 
-    // Main package, in Protobuf syntax.
+    // Main package name (in Protobuf syntax) and version.
     // All proto files within `file_to_generate` must be part of the same package.
     let package_name: OnceCell<String> = OnceCell::new();
-    // Version of the main package.
     let mut package_version: OnceCell<Version> = OnceCell::new();
 
     let mut wit_file: WitFile = WitFile::default();
@@ -71,7 +60,7 @@ pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
 
     // One implementation config is generated per service.
     for file_to_generate in &request.file_to_generate {
-        let file_descriptor = file_descriptors.get(file_to_generate).ok_or_else(|| {
+        let file_descriptor = all_file_descriptors.get(file_to_generate).ok_or_else(|| {
             anyhow!("Malformed request contains unknown file '{file_to_generate}")
         })?;
 
@@ -102,7 +91,7 @@ pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
                 .as_ref()
                 .ok_or_else(|| anyhow!("Message in '{file_to_generate}' lacks a name"))?;
 
-            wit_file.compile_message(message_name, message_descriptor)?;
+            wit_file.compile_message(message_name, message_descriptor, &all_messages)?;
         }
     }
 
