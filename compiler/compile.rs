@@ -12,8 +12,8 @@ use crate::metadata::MetadataFile;
 use crate::wit::WitFile;
 use metadata_proto::work::runtime::Field;
 
-#[derive(Copy, Clone)]
-enum ProtoSyntax {
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub(crate) enum ProtoSyntax {
     Proto2,
     Proto3,
     Editions,
@@ -21,7 +21,7 @@ enum ProtoSyntax {
 
 pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
     // Mapping from all filenames to file descriptors.
-    let mut all_file_descriptors: HashMap<String, &FileDescriptorProto> = HashMap::new();
+    let mut all_files: HashMap<String, (&FileDescriptorProto, ProtoSyntax)> = HashMap::new();
     // Mapping from all fully-qualified message type names (Protobuf syntax) to message descriptors.
     let mut all_messages: HashMap<String, &DescriptorProto> = HashMap::new();
 
@@ -47,7 +47,7 @@ pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
             all_messages.insert(message_name, message_type);
         }
 
-        all_file_descriptors.insert(file_name, proto_file);
+        all_files.insert(file_name, (proto_file, syntax));
     }
 
     // Main package name (in Protobuf syntax) and version.
@@ -60,7 +60,7 @@ pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
 
     // One implementation config is generated per service.
     for file_to_generate in &request.file_to_generate {
-        let file_descriptor = all_file_descriptors.get(file_to_generate).ok_or_else(|| {
+        let (file_descriptor, syntax) = all_files.get(file_to_generate).ok_or_else(|| {
             anyhow!("Malformed request contains unknown file '{file_to_generate}")
         })?;
 
@@ -91,7 +91,12 @@ pub(crate) fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
                 .as_ref()
                 .ok_or_else(|| anyhow!("Message in '{file_to_generate}' lacks a name"))?;
 
-            wit_file.compile_message(message_name, message_descriptor, &all_messages)?;
+            wit_file.compile_message(
+                message_name,
+                message_descriptor,
+                syntax.clone(),
+                &all_messages,
+            )?;
         }
     }
 

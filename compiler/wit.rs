@@ -13,6 +13,7 @@ use wit_encoder::{
     World, WorldItem,
 };
 
+use crate::compile::ProtoSyntax;
 use crate::{VIMANA_API_VERSION, WASI_API_VERSION};
 
 /// Name of the generated WIT file in the output directory.
@@ -124,6 +125,7 @@ impl WitFile {
         &mut self,
         message_name: &str,
         message_descriptor: &DescriptorProto,
+        syntax: ProtoSyntax,
         all_messages: &HashMap<String, &DescriptorProto>,
     ) -> Result<()> {
         // TODO: Also insert depended-upon types recursively.
@@ -136,7 +138,7 @@ impl WitFile {
                 interface: type_name.interface,
                 type_def: WitTypeDef::new(
                     type_name.name,
-                    WitTypeDefKind::Record(convert_type_definition(message_descriptor)?),
+                    WitTypeDefKind::Record(convert_type_definition(message_descriptor, syntax)?),
                 ),
             },
         );
@@ -233,7 +235,7 @@ fn convert_type_name(proto_name: &str) -> FullyQualifiedTypeName {
     FullyQualifiedTypeName { interface, name }
 }
 
-fn convert_type_definition(proto_type: &DescriptorProto) -> Result<Record> {
+fn convert_type_definition(proto_type: &DescriptorProto, syntax: ProtoSyntax) -> Result<Record> {
     let mut wit_fields: Vec<Field> = Vec::with_capacity(proto_type.field.len());
     for proto_field in &proto_type.field {
         let mut wit_type = match proto_field.r#type() {
@@ -260,7 +262,7 @@ fn convert_type_definition(proto_type: &DescriptorProto) -> Result<Record> {
         };
         wit_type = match proto_field.label() {
             Label::Optional => {
-                if proto_field.proto3_optional() {
+                if syntax == ProtoSyntax::Proto2 || proto_field.proto3_optional() {
                     WitType::option(wit_type)
                 } else {
                     wit_type
