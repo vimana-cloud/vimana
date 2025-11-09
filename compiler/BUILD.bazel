@@ -3,7 +3,6 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 rust_binary(
     name = "compiler",
     srcs = [
-        "compile.rs",
         "main.rs",
         "metadata.rs",
         "wit.rs",

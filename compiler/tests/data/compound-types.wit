@@ -1,0 +1,40 @@
+package foo:bar-baz:quux:proto;
+
+world server {
+  use foo:bar-baz:quux:proto/types.{ inner-message, outer-message };
+  include wasi:cli/imports@0.2.0;
+  include vimana:grpc/imports@0.0.0;
+  export compound-types-service: interface {
+    do-a-thing: func(request: outer-message) -> inner-message;
+  }
+}
+
+interface types {
+  use foo:bar-baz:quux:proto/types.{ friend, inner-message };
+  use foo:bar-baz:quux:proto/inner-message/a-container/types.{ empty-message };
+  record inner-message {
+    another-layer: empty-message,
+  }
+  enum friend {
+    myself,
+    alyssa,
+    ben,
+    cy,
+    eva,
+    lem,
+    louis,
+  }
+  record outer-message {
+    inner: inner-message,
+    one: bool,
+    the-other: inner-message,
+    a-third: list<friend>,
+  }
+}
+
+package foo:bar-baz:quux:proto/inner-message/a-container {
+
+  interface types {
+    record empty-message {    }
+  }
+}

@@ -19,10 +19,10 @@ def generateTestCase(rootName: str) -> Callable[[TestCase], None]:
     """Generate a test case based on a group of test data files that share a root name."""
 
     def testCase(self):
-        protoFile = joinPath(DATA_PATH, f'{rootName}.proto')
         witFile = joinPath(DATA_PATH, f'{rootName}.wit')
-        self.assertTrue(exists(protoFile), f"File '{protoFile}' is missing")
         self.assertTrue(exists(witFile), f"File '{witFile}' is missing")
+        protoFile = joinPath(DATA_PATH, f'{rootName}.proto')
+        self.assertTrue(exists(protoFile), f"File '{protoFile}' is missing")
 
         result = protoc(protoFile)
 

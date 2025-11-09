@@ -1,7 +1,7 @@
-package foo:bar:server;
+package foo:bar:proto;
 
-world guest {
-  use foo:bar:server/types.{ all-scalars-type };
+world server {
+  use foo:bar:proto/types.{ all-scalars-type };
   include wasi:cli/imports@0.2.0;
   include vimana:grpc/imports@0.0.0;
   export all-scalars-service: interface {
@@ -9,7 +9,7 @@ world guest {
   }
 }
 
-interface foo:bar:server/types {
+interface types {
   record all-scalars-type {
     bytes-implicit: list<u8>,
     bytes-explicit: option<list<u8>>,

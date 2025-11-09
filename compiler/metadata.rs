@@ -2,7 +2,6 @@
 
 use anyhow::Result;
 use prost_types::compiler::code_generator_response::File;
-use semver::Version;
 
 /// Name of the generated metadata file in the output directory.
 const FILENAME: &str = "metadata.binpb";
@@ -15,11 +14,7 @@ const EXPANDED_OFFSET: i32 = 3;
 pub(crate) struct MetadataFile {}
 
 impl MetadataFile {
-    pub(crate) fn generate(
-        self,
-        package_name: &str,
-        package_version: &Option<Version>,
-    ) -> Result<File> {
+    pub(crate) fn generate(self) -> Result<File> {
         Ok(File {
             name: Some(String::from(FILENAME)),
             insertion_point: None,

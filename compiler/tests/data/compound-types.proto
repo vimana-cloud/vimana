@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package foo.bar_baz.quux;
+
+// A service with a single method that includes an example of every single
+// scalar Protobuf type.
+service CompoundTypesService {
+  // Entirely self-explanatory (right?).
+  rpc DoAThing(OuterMessage) returns (InnerMessage) {}
+}
+
+// The documentation
+// for the outer message.
+//
+// This one's complicated. Sort of.
+message OuterMessage {
+  // The documentation for the inner field.
+  InnerMessage inner = 1;
+
+  // You and me better spend some time wondering what to do!
+  oneof dilemma {
+    // The documentation for the first option.
+    bool one = 2;
+    // The documentation for the second option.
+    InnerMessage the_other = 3;
+  }
+
+  // I have a few.
+  repeated Friend a_third = 4;
+}
+
+// Like a Matryoshka.
+message InnerMessage {
+  // This one's the baby.
+  AContainer.EmptyMessage another_layer = 1;
+
+  // This message only exists to test message namespacing.
+  message AContainer {
+    // They don't call them "nesting dolls" for nothing.
+    message EmptyMessage {}
+  }
+}
+
+// All these friends are real.
+enum Friend {
+  // Gotta have that default friend.
+  MYSELF = 0;
+  // Alyssa P. Hacker
+  ALYSSA = 1;
+  // Ben Bitdiddle
+  BEN = 2;
+  // Cy D. Fect
+  CY = 3;
+  // Eva Lu Ator
+  EVA = 4;
+  // Lem E. Tweakit
+  LEM = 5;
+  // Louis Reasoner
+  LOUIS = 6;
+}
