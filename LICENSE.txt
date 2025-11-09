@@ -1,103 +1,54 @@
-# Business Source License 1.1
+Business Source License 1.1
 
-This same License is also available as [unformatted text](LICENSE.txt).
+Parameters
 
-<table>
-  <thead>
-    <tr>
-      <th colspan="2">Parameters</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>
-        <strong>Licensor</strong>
-      </td>
-      <td>
-        Vimana Cloud Services, Inc.
-      </td>
-    </tr>
-    <tr>
-      <td>
-        <strong>Licensed Work</strong>
-      </td>
-      <td>
-        <p>
-          The Licensed Work includes the Vimana runtime, operator, compiler,
-          and all other software and materials contained in the source code repository
-          in which any of these components are distributed.
-        </p>
-        <p>
-          Copyright © 2024-2025 Vimana Cloud Services, Inc.
-        </p>
-      </td>
-    </tr>
-    <tr>
-      <td>
-        <strong>Additional Use Grant</strong>
-      </td>
-      <td>
-        <p>
-          You may make production use of the Licensed Work,
-          provided Your use does not include offering the Licensed Work to third parties
-          on a hosted or embedded basis
-          in order to compete with the Licensor’s paid version(s) of the Licensed Work.
-          For the purposes of this license:
-        </p>
-        <p>
-          A “competitive offering” is a Product that is offered to third parties
-          on a paid basis, including through paid support arrangements,
-          that significantly overlaps with the capabilities
-          of the Licensor’s paid version(s) of the Licensed Work.
-          If Your Product is not a competitive offering
-          when You first make it generally available,
-          it will not become a competitive offering later
-          due to the Licensor releasing a new version of the Licensed Work
-          with additional capabilities.
-          In addition, Products that are not provided on a paid basis
-          are not competitive.
-        </p>
-        <p>
-          “Product” means software that is offered to end users
-          to manage in their own environments
-          or offered as a service on a hosted basis.
-        </p>
-        <p>
-          “Embedded” means including the source code or executable code
-          from the Licensed Work in a competitive offering.
-          “Embedded” also means packaging the competitive offering
-          in such a way that the Licensed Work must be accessed or downloaded
-          for the competitive offering to operate.
-        </p>
-        <p>
-          Hosting or using the Licensed Work(s)
-          for internal purposes within an organization
-          is not considered a competitive offering.
-          The Licensor considers your organization
-          to include all of your affiliates under common control.
-        </p>
-      </td>
-    </tr>
-    <tr>
-      <td>
-        <strong>Change Date</strong>
-      </td>
-      <td>
-        Four years from the date the Licensed Work is published
-      </td>
-    </tr>
-    <tr>
-      <td>
-        <strong>Change License</strong>
-      </td>
-      <td>
-        MIT No Attribution (MIT-0)
-      </td>
-    </tr>
-  </tbody>
-</table>
+Licensor:             Vimana Cloud Services, Inc.
 
-## Notice
+Licensed Work:        The Licensed Work includes the Vimana runtime, operator, compiler,
+                      and all other software and materials contained in the source code repository
+                      in which any of these components are distributed.
+
+                      Copyright © 2024-2025 Vimana Cloud Services, Inc.
+
+Additional Use Grant: You may make production use of the Licensed Work,
+                      provided Your use does not include offering the Licensed Work to third parties
+                      on a hosted or embedded basis
+                      in order to compete with the Licensor’s paid version(s) of the Licensed Work.
+                      For the purposes of this license:
+
+                      A “competitive offering” is a Product that is offered to third parties
+                      on a paid basis, including through paid support arrangements,
+                      that significantly overlaps with the capabilities
+                      of the Licensor’s paid version(s) of the Licensed Work.
+                      If Your Product is not a competitive offering
+                      when You first make it generally available,
+                      it will not become a competitive offering later
+                      due to the Licensor releasing a new version of the Licensed Work
+                      with additional capabilities.
+                      In addition, Products that are not provided on a paid basis
+                      are not competitive.
+
+                      “Product” means software that is offered to end users
+                      to manage in their own environments
+                      or offered as a service on a hosted basis.
+
+                      “Embedded” means including the source code or executable code
+                      from the Licensed Work in a competitive offering.
+                      “Embedded” also means packaging the competitive offering
+                      in such a way that the Licensed Work must be accessed or downloaded
+                      for the competitive offering to operate.
+
+                      Hosting or using the Licensed Work(s)
+                      for internal purposes within an organization
+                      is not considered a competitive offering.
+                      The Licensor considers your organization
+                      to include all of your affiliates under common control.
+
+Change Date:          Four years from the date the Licensed Work is published
+
+Change License:       MIT No Attribution (MIT-0)
+
+Notice
 
 The Business Source License (this document, or the “License”) is not an Open Source license.
 However, the Licensed Work will eventually be made available under an Open Source License,
@@ -106,9 +57,11 @@ as stated in this License.
 License text copyright © 2024 MariaDB plc, All Rights Reserved.
 “Business Source License” is a trademark of MariaDB plc.
 
-<hr />
+-----------------------------------------------------------------------------
 
-## Terms
+Business Source License 1.1
+
+Terms
 
 The Licensor hereby grants you the right to copy, modify, create derivative
 works, redistribute, and make non-production use of the Licensed Work. The
@@ -154,7 +107,7 @@ MariaDB hereby grants you permission to use this License’s text to license
 your works, and to refer to it using the trademark “Business Source License”,
 as long as you comply with the Covenants of Licensor below.
 
-## Covenants of Licensor
+Covenants of Licensor
 
 In consideration of the right to use this License’s text and the “Business
 Source License” name and trademark, Licensor covenants to MariaDB, and to all
