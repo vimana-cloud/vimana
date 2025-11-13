@@ -1,35 +1,67 @@
 from dataclasses import dataclass
 from os.path import abspath
 from os.path import join as joinPath
-from subprocess import Popen
+from subprocess import PIPE, run
 from tempfile import TemporaryDirectory
 
 PROTOC_PATH = joinPath('..', 'protobuf+', 'protoc')
 PLUGIN_PATH = joinPath('compiler', 'protoc-gen-vimana')
+METADATA_PROTO_PATH = joinPath('runtime', 'metadata.proto')
+
+WIT_FILENAME = 'server.wit'
+METADATA_FILENAME = 'metadata.binpb'
+METADATA_MESSAGE_NAME = 'vimana.runtime.Metadata'
 
 
 @dataclass(kw_only=True)
 class ProtocOutput:
+    # Verbatim contents of the WIT output file.
     wit: str
+    # Contents of the metadata output file converted to Protobuf text format.
+    metadata: str
 
 
 def protoc(*files, include=None) -> ProtocOutput:
     """
     Helper method to invoke `protoc` with the Vimana plugin.
+
+    Also converts the binary metadata output to text format,
+    so it can be more easily inspected and compared to an expected value
+    using the standard line-based diff tool.
     """
+    includeOptions = [f'--proto_path={path}' for path in (include or [])]
+
     with TemporaryDirectory() as output:
-        args = (
+        # Generate the actual results by invoking `protoc`.
+        run(
             [
                 PROTOC_PATH,
                 f'--plugin={abspath(PLUGIN_PATH)}',
                 f'--vimana_out={output}',
-            ]
-            + [f'--proto_path={path}' for path in (include or [])]
-            + list(files)
+                *includeOptions,
+                *files,
+            ],
+            check=True,
         )
-        if (status := Popen(args).wait()) != 0:
-            raise RuntimeError(f'Failed executing protoc (status={status})')
 
-        with open(joinPath(output, 'server.wit'), 'r') as witFile:
+        # Read the results from the output files.
+        with open(joinPath(output, WIT_FILENAME), 'r') as witFile:
             wit = witFile.read()
-        return ProtocOutput(wit=wit)
+        with open(joinPath(output, METADATA_FILENAME), 'rb') as metadataFile:
+            metadata = metadataFile.read()
+
+    # The metadata file is in binary format.
+    # For the purpose of this test, convert it to text format by invoking `protoc` again.
+    metadata = run(
+        [
+            PROTOC_PATH,
+            f'--decode={METADATA_MESSAGE_NAME}',
+            *includeOptions,
+            METADATA_PROTO_PATH,
+        ],
+        input=metadata,
+        stdout=PIPE,
+        check=True,
+    ).stdout.decode()
+
+    return ProtocOutput(wit=wit, metadata=metadata)

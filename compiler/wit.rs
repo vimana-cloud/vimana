@@ -1,4 +1,3 @@
-use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 
@@ -14,8 +13,8 @@ use wit_encoder::{
 };
 
 use crate::{
-    sorted_map_entries, sorted_set_values, DescriptorMap, ProtoSyntax, QualifiedTypeName,
-    TypeNameQualifier, VIMANA_API_VERSION, WASI_API_VERSION,
+    sorted_map_entries, sorted_set_values, DescriptorMap, ProtoPackage, ProtoSyntax,
+    QualifiedTypeName, TypeNameQualifier, VIMANA_API_VERSION, WASI_API_VERSION,
 };
 
 /// Name of the generated WIT file in the output directory.
@@ -36,7 +35,6 @@ const REQUEST_PARAMETER_NAME: &str = "request";
 
 /// An incrementally-built model of a Vimana server WIT file,
 /// generated from Protobuf service and type definitions.
-#[derive(Default)]
 pub(crate) struct WitFile<'a> {
     /// The world that defines the server component.
     server_world: ServerWorld<'a>,
@@ -45,16 +43,14 @@ pub(crate) struct WitFile<'a> {
     /// Set to keep track of all types compiled so far,
     /// so we don't compile the same type twice.
     types_compiled: HashSet<QualifiedTypeName<'a>>,
+    /// A map wherein descriptors for all messages and enums can be looked up
+    /// by fully-qualified name.
+    descriptors: &'a DescriptorMap<'a>,
 }
 
 /// The compiler always generates a single 'server' world for the component to implement.
 #[derive(Default)]
 struct ServerWorld<'a> {
-    /// WIT-style package namespace
-    /// (e.g. `some:package-namespace` for types in the Protobuf package `some.package_namespace`).
-    /// Does **not** include the package's name,
-    /// which is always simply the value of [`PACKAGE_NAME`].
-    package: OnceCell<Vec<&'a str>>,
     /// The set of interfaces exported by this world.
     /// Each interface corresponds to a Protobuf service.
     services: Vec<Interface>,
@@ -79,51 +75,18 @@ struct TypesInterface<'a> {
 }
 
 impl<'a> WitFile<'a> {
-    /// Set the package namespace for the server world.
-    /// If the namespace has already been set (by compiling a different file),
-    /// check that it's consistent with what was previously set.
-    ///
-    /// This function must be called at least once
-    /// before calling either [`compile_service`](Self::compile_service)
-    /// or [`compile_message`](Self::compile_message).
-    pub(crate) fn set_or_check_server_package(&self, package: &'a str) -> Result<Vec<&'a str>> {
-        let package: Vec<&'a str> = package.split('.').collect();
-        let existing_package = self.server_world.package.get_or_init(|| package.clone());
-        if &package != existing_package {
-            bail!("Conflicting packages: {existing_package:?} and {package:?}")
+    pub(crate) fn new(descriptors: &'a DescriptorMap<'a>) -> Self {
+        Self {
+            server_world: ServerWorld::default(),
+            types_interfaces: HashMap::new(),
+            types_compiled: HashSet::new(),
+            descriptors,
         }
-        Ok(package)
     }
-
-    fn server_package(&self) -> &Vec<&'a str> {
-        self.server_world.package.get().unwrap()
-    }
-
-    fn server_package_qualifier(&self) -> TypeNameQualifier<'a> {
-        TypeNameQualifier::top_level(self.server_package().clone())
-    }
-
-    fn server_package_name(&self) -> PackageName {
-        PackageName::new(
-            self.server_package()
-                .iter()
-                .map(|part| part.to_kebab_case())
-                .collect::<Vec<_>>()
-                .join(":"),
-            Ident::from(PACKAGE_NAME),
-            None,
-        )
-    }
-
-    //fn server_package_qualifier(&self) -> NameQualifier {
-    //    NameQualifier {
-    //        package_namespace: String::from(self.server_package_namespace()),
-    //        package_name: Ident::from(PACKAGE_NAME),
-    //    }
-    //}
 
     pub(crate) fn compile_service(
         &mut self,
+        server_package: &ProtoPackage<'a>,
         service_descriptor: &'a ServiceDescriptorProto,
     ) -> Result<()> {
         let mut service = Interface::new(service_descriptor.name().to_kebab_case());
@@ -149,11 +112,9 @@ impl<'a> WitFile<'a> {
             }
 
             let request_type =
-                QualifiedTypeName::from_path(method_descriptor.input_type(), self.server_package());
-            let response_type = QualifiedTypeName::from_path(
-                method_descriptor.output_type(),
-                self.server_package(),
-            );
+                QualifiedTypeName::from_path(method_descriptor.input_type(), server_package);
+            let response_type =
+                QualifiedTypeName::from_path(method_descriptor.output_type(), server_package);
 
             let mut function = StandaloneFunc::new(method_descriptor.name().to_kebab_case(), false);
             function.set_params((
@@ -175,31 +136,35 @@ impl<'a> WitFile<'a> {
 
     pub(crate) fn compile_message(
         &mut self,
+        server_package: &ProtoPackage<'a>,
         message_descriptor: &'a DescriptorProto,
         qualifier: &TypeNameQualifier<'a>,
         syntax: ProtoSyntax,
-        descriptors: &DescriptorMap<'a>,
     ) -> Result<()> {
         let type_name = qualifier.r#type(message_descriptor.name());
         if !self.types_compiled.contains(&type_name) {
             self.types_compiled.insert(type_name.clone());
 
-            let (type_definition, types_used) =
-                self.message_type_definition(message_descriptor, type_name.name, syntax)?;
+            let (type_definition, types_used) = message_type_definition(
+                server_package,
+                message_descriptor,
+                type_name.name,
+                syntax,
+            )?;
 
             for type_used in &types_used {
                 // Check if it's a message type first
                 if let Some((depended_descriptor, depended_syntax)) =
-                    descriptors.get_message(type_used)
+                    self.descriptors.get_message(type_used)
                 {
                     // Recursively compile message dependencies
                     self.compile_message(
+                        server_package,
                         depended_descriptor,
                         &type_used.qualifier,
                         depended_syntax,
-                        descriptors,
                     )?;
-                } else if let Some(enum_descriptor) = descriptors.get_enum(type_used) {
+                } else if let Some(enum_descriptor) = self.descriptors.get_enum(type_used) {
                     self.compile_enum(enum_descriptor, &type_used.qualifier);
                 } else {
                     bail!("Type not found: {type_used}");
@@ -221,7 +186,7 @@ impl<'a> WitFile<'a> {
         if !self.types_compiled.contains(&type_name) {
             self.types_compiled.insert(type_name.clone());
 
-            let type_definition = self.enum_type_definition(enum_descriptor, type_name.name);
+            let type_definition = enum_type_definition(enum_descriptor, type_name.name);
             self.upsert_type_definition(type_name.qualifier, type_definition, Vec::new());
         }
     }
@@ -249,11 +214,11 @@ impl<'a> WitFile<'a> {
         }
     }
 
-    pub(crate) fn generate(mut self) -> Result<File> {
+    pub(crate) fn generate(mut self, server_package: &ProtoPackage<'a>) -> Result<File> {
         let mut wit_contents = String::new();
 
-        let mut server_package = Package::new(self.server_package_name());
-        let server_package_qualifier = self.server_package_qualifier();
+        let server_package_qualifier = server_package.top_level_qualifier();
+        let mut server_package = Package::new(server_package.wit_package_name());
         server_package.world(self.server_world.into_world());
         if let Some(server_package_types_interface) =
             self.types_interfaces.remove(&server_package_qualifier)
@@ -280,81 +245,78 @@ impl<'a> WitFile<'a> {
             generated_code_info: None,
         })
     }
+}
 
-    fn message_type_definition(
-        &self,
-        descriptor: &'a DescriptorProto,
-        name: &'a str,
-        syntax: ProtoSyntax,
-    ) -> Result<(WitTypeDef, Vec<QualifiedTypeName<'a>>)> {
-        let mut wit_fields: Vec<Field> = Vec::with_capacity(descriptor.field.len());
-        let mut types_used: Vec<QualifiedTypeName> = Vec::new();
-        for proto_field in &descriptor.field {
-            let mut wit_type = match proto_field.r#type() {
-                ProtoType::Double => WitType::F64,
-                ProtoType::Float => WitType::F32,
-                ProtoType::Int64 => WitType::S64,
-                ProtoType::Uint64 => WitType::U64,
-                ProtoType::Int32 => WitType::S32,
-                ProtoType::Fixed64 => WitType::U64,
-                ProtoType::Fixed32 => WitType::U32,
-                ProtoType::Bool => WitType::Bool,
-                ProtoType::String => WitType::String,
-                ProtoType::Message | ProtoType::Enum => {
-                    let type_name = QualifiedTypeName::from_path(
-                        proto_field.type_name(),
-                        self.server_package(),
-                    );
-                    let wit_short_name = type_name.name.to_kebab_case();
-                    types_used.push(type_name);
-                    WitType::named(wit_short_name)
+fn message_type_definition<'a>(
+    server_package: &ProtoPackage<'a>,
+    descriptor: &'a DescriptorProto,
+    name: &'a str,
+    syntax: ProtoSyntax,
+) -> Result<(WitTypeDef, Vec<QualifiedTypeName<'a>>)> {
+    let mut wit_fields: Vec<Field> = Vec::with_capacity(descriptor.field.len());
+    let mut types_used: Vec<QualifiedTypeName> = Vec::new();
+    for field_descriptor in &descriptor.field {
+        let mut wit_type = match field_descriptor.r#type() {
+            ProtoType::Double => WitType::F64,
+            ProtoType::Float => WitType::F32,
+            ProtoType::Int64 => WitType::S64,
+            ProtoType::Uint64 => WitType::U64,
+            ProtoType::Int32 => WitType::S32,
+            ProtoType::Fixed64 => WitType::U64,
+            ProtoType::Fixed32 => WitType::U32,
+            ProtoType::Bool => WitType::Bool,
+            ProtoType::String => WitType::String,
+            ProtoType::Message | ProtoType::Enum => {
+                let type_name =
+                    QualifiedTypeName::from_path(field_descriptor.type_name(), server_package);
+                let wit_short_name = type_name.name.to_kebab_case();
+                types_used.push(type_name);
+                WitType::named(wit_short_name)
+            }
+            ProtoType::Bytes => WitType::list(WitType::U8),
+            ProtoType::Uint32 => WitType::U32,
+            ProtoType::Sfixed32 => WitType::S32,
+            ProtoType::Sfixed64 => WitType::S64,
+            ProtoType::Sint32 => WitType::S32,
+            ProtoType::Sint64 => WitType::S64,
+            ProtoType::Group => {
+                bail!("Protobuf groups are not supported; use nested messages instead")
+            }
+        };
+        wit_type = match field_descriptor.label() {
+            Label::Optional => {
+                if syntax == ProtoSyntax::Proto2 || field_descriptor.proto3_optional() {
+                    WitType::option(wit_type)
+                } else {
+                    wit_type
                 }
-                ProtoType::Bytes => WitType::list(WitType::U8),
-                ProtoType::Uint32 => WitType::U32,
-                ProtoType::Sfixed32 => WitType::S32,
-                ProtoType::Sfixed64 => WitType::S64,
-                ProtoType::Sint32 => WitType::S32,
-                ProtoType::Sint64 => WitType::S64,
-                ProtoType::Group => {
-                    bail!("Protobuf groups are not supported; use nested messages instead")
-                }
-            };
-            wit_type = match proto_field.label() {
-                Label::Optional => {
-                    if syntax == ProtoSyntax::Proto2 || proto_field.proto3_optional() {
-                        WitType::option(wit_type)
-                    } else {
-                        wit_type
-                    }
-                }
-                Label::Required => {
-                    // YAGNI (this is proto2-only syntax that's highly discouraged).
-                    bail!("Required fields are not supported");
-                }
-                Label::Repeated => WitType::list(wit_type),
-            };
-            wit_fields.push(Field::new(proto_field.name().to_kebab_case(), wit_type));
-        }
-        Ok((
-            WitTypeDef::new(
-                name.to_kebab_case(),
-                WitTypeDefKind::Record(Record::new(wit_fields)),
-            ),
-            types_used,
-        ))
+            }
+            Label::Required => {
+                // YAGNI (this is proto2-only syntax that's highly discouraged).
+                bail!("Required fields are not supported");
+            }
+            Label::Repeated => WitType::list(wit_type),
+        };
+        wit_fields.push(Field::new(
+            field_descriptor.name().to_kebab_case(),
+            wit_type,
+        ));
     }
+    Ok((
+        WitTypeDef::new(
+            name.to_kebab_case(),
+            WitTypeDefKind::Record(Record::new(wit_fields)),
+        ),
+        types_used,
+    ))
+}
 
-    fn enum_type_definition(
-        &self,
-        enum_descriptor: &'a EnumDescriptorProto,
-        name: &'a str,
-    ) -> WitTypeDef {
-        let mut wit_enum = Enum::empty();
-        for variant in &enum_descriptor.value {
-            wit_enum.case(variant.name().to_kebab_case());
-        }
-        WitTypeDef::new(name.to_kebab_case(), WitTypeDefKind::Enum(wit_enum))
+fn enum_type_definition<'a>(enum_descriptor: &'a EnumDescriptorProto, name: &'a str) -> WitTypeDef {
+    let mut wit_enum = Enum::empty();
+    for variant in &enum_descriptor.value {
+        wit_enum.case(variant.name().to_kebab_case());
     }
+    WitTypeDef::new(name.to_kebab_case(), WitTypeDefKind::Enum(wit_enum))
 }
 
 impl<'a> ServerWorld<'a> {
@@ -413,6 +375,7 @@ impl<'a> TypeNameQualifier<'a> {
 
     fn package_namespace(&self) -> String {
         self.package
+            .path
             .iter()
             .map(|part| part.to_kebab_case())
             .collect::<Vec<_>>()
@@ -426,5 +389,19 @@ impl<'a> TypeNameQualifier<'a> {
             package_name.push_str(outer_message.to_kebab_case().as_str());
         }
         package_name
+    }
+}
+
+impl<'a> ProtoPackage<'a> {
+    fn wit_package_name(&self) -> PackageName {
+        PackageName::new(
+            self.path
+                .iter()
+                .map(|part| part.to_kebab_case())
+                .collect::<Vec<_>>()
+                .join(":"),
+            Ident::from(PACKAGE_NAME),
+            None,
+        )
     }
 }

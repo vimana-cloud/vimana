@@ -1,0 +1,73 @@
+services {
+  key: "foo.bar_baz.quux.CompoundTypesService"
+  value {
+    methods {
+      key: "DoAThing"
+      value {
+        function: "do-a-thing"
+        response: 1
+      }
+    }
+  }
+}
+messages {
+  fields {
+    number: 1
+    name: "inner"
+    compound_coding: MESSAGE
+    message: 1
+  }
+  fields {
+    number: 2
+    name: "one"
+    scalar_coding: BOOL_IMPLICIT
+  }
+  fields {
+    number: 3
+    name: "the-other"
+    compound_coding: MESSAGE
+    message: 1
+  }
+  fields {
+    number: 4
+    name: "a-third"
+    compound_coding: ENUM_PACKED
+    variants {
+      name: "myself"
+    }
+    variants {
+      number: 1
+      name: "alyssa"
+    }
+    variants {
+      number: 2
+      name: "ben"
+    }
+    variants {
+      number: 3
+      name: "cy"
+    }
+    variants {
+      number: 4
+      name: "eva"
+    }
+    variants {
+      number: 5
+      name: "lem"
+    }
+    variants {
+      number: 6
+      name: "louis"
+    }
+  }
+}
+messages {
+  fields {
+    number: 1
+    name: "another-layer"
+    compound_coding: MESSAGE
+    message: 2
+  }
+}
+messages {
+}

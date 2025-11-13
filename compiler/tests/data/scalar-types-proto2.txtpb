@@ -1,0 +1,238 @@
+services {
+  key: "foo.bar.AllScalarsService"
+  value {
+    methods {
+      key: "DoSomething"
+      value {
+        function: "do-something"
+      }
+    }
+  }
+}
+messages {
+  fields {
+    number: 3
+    name: "bytes-explicit"
+    scalar_coding: BYTES_EXPLICIT
+  }
+  fields {
+    number: 4
+    name: "bytes-expanded"
+    scalar_coding: BYTES_EXPANDED
+  }
+  fields {
+    number: 7
+    name: "string-utf8-explicit"
+    scalar_coding: STRING_PERMISSIVE_EXPLICIT
+  }
+  fields {
+    number: 8
+    name: "string-utf8-expanded"
+    scalar_coding: STRING_PERMISSIVE_EXPANDED
+  }
+  fields {
+    number: 11
+    name: "string-permissive-explicit"
+    scalar_coding: STRING_PERMISSIVE_EXPLICIT
+  }
+  fields {
+    number: 12
+    name: "string-permissive-expanded"
+    scalar_coding: STRING_PERMISSIVE_EXPANDED
+  }
+  fields {
+    number: 14
+    name: "bool-packed"
+    scalar_coding: BOOL_PACKED
+  }
+  fields {
+    number: 15
+    name: "bool-explicit"
+    scalar_coding: BOOL_EXPLICIT
+  }
+  fields {
+    number: 16
+    name: "bool-expanded"
+    scalar_coding: BOOL_EXPANDED
+  }
+  fields {
+    number: 18
+    name: "int32-packed"
+    scalar_coding: INT32_PACKED
+  }
+  fields {
+    number: 19
+    name: "int32-explicit"
+    scalar_coding: INT32_EXPLICIT
+  }
+  fields {
+    number: 20
+    name: "int32-expanded"
+    scalar_coding: INT32_EXPANDED
+  }
+  fields {
+    number: 22
+    name: "sint32-packed"
+    scalar_coding: SINT32_PACKED
+  }
+  fields {
+    number: 23
+    name: "sint32-explicit"
+    scalar_coding: SINT32_EXPLICIT
+  }
+  fields {
+    number: 24
+    name: "sint32-expanded"
+    scalar_coding: SINT32_EXPANDED
+  }
+  fields {
+    number: 26
+    name: "sfixed32-packed"
+    scalar_coding: SFIXED32_PACKED
+  }
+  fields {
+    number: 27
+    name: "sfixed32-explicit"
+    scalar_coding: SFIXED32_EXPLICIT
+  }
+  fields {
+    number: 28
+    name: "sfixed32-expanded"
+    scalar_coding: SFIXED32_EXPANDED
+  }
+  fields {
+    number: 30
+    name: "uint32-packed"
+    scalar_coding: UINT32_PACKED
+  }
+  fields {
+    number: 31
+    name: "uint32-explicit"
+    scalar_coding: UINT32_EXPLICIT
+  }
+  fields {
+    number: 32
+    name: "uint32-expanded"
+    scalar_coding: UINT32_EXPANDED
+  }
+  fields {
+    number: 34
+    name: "fixed32-packed"
+    scalar_coding: FIXED32_PACKED
+  }
+  fields {
+    number: 35
+    name: "fixed32-explicit"
+    scalar_coding: FIXED32_EXPLICIT
+  }
+  fields {
+    number: 36
+    name: "fixed32-expanded"
+    scalar_coding: FIXED32_EXPANDED
+  }
+  fields {
+    number: 38
+    name: "int64-packed"
+    scalar_coding: INT64_PACKED
+  }
+  fields {
+    number: 39
+    name: "int64-explicit"
+    scalar_coding: INT64_EXPLICIT
+  }
+  fields {
+    number: 40
+    name: "int64-expanded"
+    scalar_coding: INT64_EXPANDED
+  }
+  fields {
+    number: 42
+    name: "sint64-packed"
+    scalar_coding: SINT64_PACKED
+  }
+  fields {
+    number: 43
+    name: "sint64-explicit"
+    scalar_coding: SINT64_EXPLICIT
+  }
+  fields {
+    number: 44
+    name: "sint64-expanded"
+    scalar_coding: SINT64_EXPANDED
+  }
+  fields {
+    number: 46
+    name: "sfixed64-packed"
+    scalar_coding: SFIXED64_PACKED
+  }
+  fields {
+    number: 47
+    name: "sfixed64-explicit"
+    scalar_coding: SFIXED64_EXPLICIT
+  }
+  fields {
+    number: 48
+    name: "sfixed64-expanded"
+    scalar_coding: SFIXED64_EXPANDED
+  }
+  fields {
+    number: 50
+    name: "uint64-packed"
+    scalar_coding: UINT64_PACKED
+  }
+  fields {
+    number: 51
+    name: "uint64-explicit"
+    scalar_coding: UINT64_EXPLICIT
+  }
+  fields {
+    number: 52
+    name: "uint64-expanded"
+    scalar_coding: UINT64_EXPANDED
+  }
+  fields {
+    number: 54
+    name: "fixed64-packed"
+    scalar_coding: FIXED64_PACKED
+  }
+  fields {
+    number: 55
+    name: "fixed64-explicit"
+    scalar_coding: FIXED64_EXPLICIT
+  }
+  fields {
+    number: 56
+    name: "fixed64-expanded"
+    scalar_coding: FIXED64_EXPANDED
+  }
+  fields {
+    number: 58
+    name: "float-packed"
+    scalar_coding: FLOAT_PACKED
+  }
+  fields {
+    number: 59
+    name: "float-explicit"
+    scalar_coding: FLOAT_EXPLICIT
+  }
+  fields {
+    number: 60
+    name: "float-expanded"
+    scalar_coding: FLOAT_EXPANDED
+  }
+  fields {
+    number: 62
+    name: "double-packed"
+    scalar_coding: DOUBLE_PACKED
+  }
+  fields {
+    number: 63
+    name: "double-explicit"
+    scalar_coding: DOUBLE_EXPLICIT
+  }
+  fields {
+    number: 64
+    name: "double-expanded"
+    scalar_coding: DOUBLE_EXPANDED
+  }
+}

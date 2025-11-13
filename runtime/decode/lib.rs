@@ -11,7 +11,7 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use metadata_proto::work::runtime::Field;
+use metadata_proto::vimana::runtime::Field;
 use prost::bytes::Buf;
 use prost::encoding::{decode_varint, encoded_len_varint, WireType};
 use tonic::codec::{DecodeBuf, Decoder as TonicDecoder};

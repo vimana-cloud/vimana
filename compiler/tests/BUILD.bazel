@@ -13,6 +13,7 @@ py_library(
     srcs = ["util.py"],
     data = [
         "//compiler",
+        "//runtime:metadata.proto",
         "@protobuf//:protoc",
     ],
 )

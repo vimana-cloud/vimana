@@ -20,16 +20,20 @@ def generateTestCase(rootName: str) -> Callable[[TestCase], None]:
 
     def testCase(self):
         witFile = joinPath(DATA_PATH, f'{rootName}.wit')
-        self.assertTrue(exists(witFile), f"File '{witFile}' is missing")
         protoFile = joinPath(DATA_PATH, f'{rootName}.proto')
-        self.assertTrue(exists(protoFile), f"File '{protoFile}' is missing")
+        metadataFile = joinPath(DATA_PATH, f'{rootName}.txtpb')
+        for path in [witFile, protoFile, metadataFile]:
+            self.assertTrue(exists(path), f"File '{path}' is missing")
 
         result = protoc(protoFile)
 
-        # Display unmatching outputs in their entirety; not just the lines that differ.
+        # Show diffs even if they're big.
         self.maxDiff = None
+
         with open(witFile, 'r') as expectedWit:
             self.assertEqual(result.wit, expectedWit.read())
+        with open(metadataFile, 'r') as expectedMetadata:
+            self.assertEqual(result.metadata, expectedMetadata.read())
 
     return testCase
 

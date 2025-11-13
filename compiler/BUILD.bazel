@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
 
 rust_binary(
     name = "compiler",
@@ -18,11 +18,4 @@ rust_binary(
         "@crates//:semver",
         "@crates//:wit-encoder",
     ],
-)
-
-rust_test(
-    name = "compiler-test",
-    crate = ":compiler",
-    data = ["@rules_wasm//:wasm-tools"],
-    env = {"WASMTOOLS": "$(rootpath @rules_wasm//:wasm-tools)"},
 )

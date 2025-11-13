@@ -15,8 +15,8 @@ use crate::{
     MESSAGE_NON_RECORD, NON_EXPLICIT_ONEOF_VARIANT, OVERFLOW_32BIT, REPEATED_NON_LIST,
     WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
 };
-use metadata_proto::work::runtime::field::{Coding, CompoundCoding, ScalarCoding};
-use metadata_proto::work::runtime::Field;
+use metadata_proto::vimana::runtime::field::{Coding, CompoundCoding, ScalarCoding};
+use metadata_proto::vimana::runtime::Field;
 use names::ComponentName;
 
 impl Merger {

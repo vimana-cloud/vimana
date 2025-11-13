@@ -2,23 +2,29 @@
 
 syntax = "proto3";
 
-package work.runtime;
+package vimana.runtime;
 
 // All information necessary to operate any component.
 message Metadata {
 
   // The set of gRPC services implemented by this component.
-  repeated GrpcService service = 1;
+  // Mapping from fully qualified names (e.g. `package.name.ServiceName`)
+  // to service metadata.
+  map<string, GrpcService> services = 1;
+
+  // The set of all Protobuf message types required
+  // to describe any request or response message
+  // of any service in this component.
+  // Messages may be circularly- or self-referential
+  // by "pointing" to one another using indices in this array.
+  repeated ProtoMessage messages = 2;
 }
 
 // All information necessary to operate a single gRPC service.
 message GrpcService {
 
-  // Fully-qualified name of the service (e.g. `package.ServiceName`).
-  // Must be unique within a component.
-  string name = 1;
-
-  // Mapping from gRPC method names (e.g. `MethodName`) to descriptors.
+  // Mapping from gRPC method short names (e.g. `MethodName`)
+  // to method metadata.
   map<string, GrpcMethod> methods = 2;
 }
 
@@ -31,11 +37,11 @@ message GrpcMethod {
   // Streaming / unarity classification.
   GrpcArity arity = 2;
 
-  // Type definition of request messages.
-  Field request = 3;
+  // Index within `Metadata.types` of the request message.
+  uint32 request = 3;
 
-  // Type definition of response messages.
-  Field response = 4;
+  // Index within `Metadata.types` of the response message.
+  uint32 response = 4;
 }
 
 // Streaming / unarity classification for gRPC methods.
@@ -44,6 +50,12 @@ enum GrpcArity {
   SERVER_STREAMING = 1;
   CLIENT_STREAMING = 2;
   BIDI_STREAMING = 3;
+}
+
+// Protobuf message descriptor.
+message ProtoMessage {
+  // Fields of the message.
+  repeated Field fields = 1;
 }
 
 // Information necessary to encode / decode any Protobuf field.
@@ -56,16 +68,20 @@ message Field {
   // Wasm record field name (e.g. `field-name`).
   string name = 2;
 
-  // Subfields for compound types (message, enumeration, or one-of).
-  // Ignored for scalar types (all others).
-  repeated Field subfields = 3;
-
   // Roughly corresponds to field type.
-  // Ignored if this is a subfield of an enumeration.
+  // Ignored if this is a variant of an enumeration.
   oneof coding {
-    ScalarCoding scalar_coding = 4;
-    CompoundCoding compound_coding = 5;
+    ScalarCoding scalar_coding = 3;
+    CompoundCoding compound_coding = 4;
   }
+
+  // Index within `Metadata.types` of a nested message-typed field.
+  // Ignored for all other field types (scalars, enumerations, or one-ofs).
+  uint32 message = 5;
+
+  // Subfields for inline compound types (enumerations or one-ofs).
+  // Ignored for message types, or scalar types (all others).
+  repeated Field variants = 6;
 
   // Scalar fields have no constituent components.
   // They include all Protobuf types

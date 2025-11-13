@@ -1,6 +1,7 @@
 mod metadata;
 mod wit;
 
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io::{stdin, stdout, Read, Write};
@@ -29,16 +30,29 @@ pub(crate) enum ProtoSyntax {
     Editions,
 }
 
+/// A fully-qualified type name for either a message or enum type.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub(crate) struct QualifiedTypeName<'a> {
     qualifier: TypeNameQualifier<'a>,
     name: &'a str,
 }
 
+/// Protobuf effectively allows 2 layers of namespacing for types:
+/// the package, and (optionally) nesting messages.
+/// Both messages and enums can be defined within an outer message,
+/// which can itself be defined within an outer message, and so on.
+///
+/// Captures both layers of namespacing as a unit.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub(crate) struct TypeNameQualifier<'a> {
-    package: Vec<&'a str>,
+    package: ProtoPackage<'a>,
     outer_messages: Vec<&'a str>,
+}
+
+/// Represents a Protobuf package name (e.g. `some.package`).
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub(crate) struct ProtoPackage<'a> {
+    path: Vec<&'a str>,
 }
 
 /// Keeps track of all the relevant descriptors from a [request](CodeGeneratorRequest).
@@ -80,32 +94,46 @@ fn main() -> Result<()> {
 fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
     let descriptors = DescriptorMap::build(&request.proto_file)?;
 
-    let mut wit_file: WitFile = WitFile::default();
-    let mut metadata_file: MetadataFile = MetadataFile::default();
+    let mut wit_file: WitFile = WitFile::new(&descriptors);
+    let mut metadata_file: MetadataFile = MetadataFile::new(&descriptors);
+    let main_package: OnceCell<ProtoPackage> = OnceCell::new();
 
     for file_to_generate in &request.file_to_generate {
         let (file_descriptor, syntax) = descriptors.get_file(file_to_generate)?;
 
-        // `set_or_check_server_package` *must* be invoked
-        // before `compile_service` or `compile_message`.
-        let package = wit_file.set_or_check_server_package(file_descriptor.package())?;
+        let package = set_or_check_main_package(file_descriptor.package(), &main_package)?;
+        let qualifier = TypeNameQualifier::top_level(&package);
 
         for service_descriptor in &file_descriptor.service {
-            wit_file.compile_service(service_descriptor)?;
+            wit_file.compile_service(&package, service_descriptor)?;
+            metadata_file.compile_service(&package, service_descriptor)?;
         }
 
-        let qualifier = TypeNameQualifier::top_level(package);
         for message_descriptor in &file_descriptor.message_type {
-            wit_file.compile_message(
-                message_descriptor,
-                &qualifier,
-                syntax.clone(),
-                &descriptors,
-            )?;
+            wit_file.compile_message(&package, message_descriptor, &qualifier, syntax.clone())?;
         }
     }
 
-    Ok(vec![wit_file.generate()?, metadata_file.generate()?])
+    Ok(if let Some(package) = main_package.get() {
+        vec![wit_file.generate(package)?, metadata_file.generate()?]
+    } else {
+        Vec::default()
+    })
+}
+
+/// Set the main package namespace.
+/// If the namespace has already been set (from a different file),
+/// check that it's consistent with what was previously set.
+fn set_or_check_main_package<'a>(
+    package: &'a str,
+    main_package: &OnceCell<ProtoPackage<'a>>,
+) -> Result<ProtoPackage<'a>> {
+    let package = ProtoPackage::parse(package);
+    let existing_package = main_package.get_or_init(|| package.clone());
+    if &package != existing_package {
+        bail!("Conflicting packages: {existing_package} and {package}")
+    }
+    Ok(package)
 }
 
 impl<'a> DescriptorMap<'a> {
@@ -123,7 +151,7 @@ impl<'a> DescriptorMap<'a> {
             };
 
             let qualifier =
-                TypeNameQualifier::top_level(file_descriptor.package().split('.').collect());
+                TypeNameQualifier::into_top_level(ProtoPackage::parse(file_descriptor.package()));
 
             for message_type in &file_descriptor.message_type {
                 descriptors.insert_message(message_type, qualifier.clone(), syntax);
@@ -185,12 +213,12 @@ impl<'a> DescriptorMap<'a> {
     }
 
     pub(crate) fn get_enum(&self, name: &QualifiedTypeName<'a>) -> Option<&'a EnumDescriptorProto> {
-        self.enums.get(name).map(|value| value.clone())
+        self.enums.get(name).map(|value| *value)
     }
 }
 
 impl<'a> QualifiedTypeName<'a> {
-    pub(crate) fn from_path(type_path: &'a str, default_package: &Vec<&'a str>) -> Self {
+    pub(crate) fn from_path(type_path: &'a str, default_package: &ProtoPackage<'a>) -> Self {
         let mut parts = type_path.split('.');
 
         // The final part is the short name
@@ -217,7 +245,7 @@ impl<'a> QualifiedTypeName<'a> {
                     break;
                 }
             }
-            package
+            ProtoPackage::new(package)
         } else {
             default_package.clone()
         };
@@ -239,18 +267,20 @@ impl<'a> QualifiedTypeName<'a> {
 
 impl<'a> Display for QualifiedTypeName<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(
-            f,
-            ".{}.{}.{}",
-            self.qualifier.package.join("."),
-            self.qualifier.outer_messages.join("."),
-            self.name
-        )
+        write!(f, ".{}", self.qualifier.package)?;
+        for outer_message in &self.qualifier.outer_messages {
+            write!(f, ".{}", outer_message)?;
+        }
+        write!(f, ".{}", self.name)
     }
 }
 
 impl<'a> TypeNameQualifier<'a> {
-    fn top_level(package: Vec<&'a str>) -> Self {
+    fn top_level(package: &ProtoPackage<'a>) -> Self {
+        Self::into_top_level(package.clone())
+    }
+
+    fn into_top_level(package: ProtoPackage<'a>) -> Self {
         Self {
             package,
             outer_messages: Vec::default(),
@@ -278,6 +308,26 @@ impl<'a> TypeNameQualifier<'a> {
             qualifier: self,
             name,
         }
+    }
+}
+
+impl<'a> ProtoPackage<'a> {
+    fn new(path: Vec<&'a str>) -> Self {
+        Self { path }
+    }
+
+    fn parse(name: &'a str) -> Self {
+        Self::new(name.split('.').collect())
+    }
+
+    fn top_level_qualifier(&self) -> TypeNameQualifier<'a> {
+        TypeNameQualifier::top_level(self)
+    }
+}
+
+impl<'a> Display for ProtoPackage<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{}", self.path.join("."))
     }
 }
 
