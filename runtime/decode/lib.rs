@@ -109,11 +109,15 @@ enum DecodeLevel {
 }
 
 impl RequestDecoder {
-    pub fn new(request: &Field, component: Arc<ComponentName>) -> Result<Self> {
+    pub fn new(
+        messages: &Vec<ProtoMessage>,
+        request: u32,
+        component: Arc<ComponentName>,
+    ) -> Result<Self> {
         Ok(Self(Arc::new(RequestDecoderInner {
             inner: Merger::message_inner(request, component.as_ref())
                 .context("Invalid request decoder")?,
-            component: component,
+            component,
         })))
     }
 }

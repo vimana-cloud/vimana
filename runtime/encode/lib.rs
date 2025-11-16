@@ -1,4 +1,5 @@
 #![feature(box_as_ptr)]
+#![feature(push_mut)]
 
 mod compound;
 mod scalar;
@@ -10,13 +11,17 @@ use std::ptr::fn_addr_eq;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
-use metadata_proto::work::runtime::Field;
+use anyhow::Result;
+use metadata_proto::vimana::runtime::ProtoMessage;
 use prost::encoding::WireType;
 use tonic::codec::{EncodeBuf, Encoder as TonicEncoder};
 use tonic::Status;
 use wasmtime::component::Val;
 
+use compound::{
+    compile_response_encoder, count_response_encoder_messages, message_inner_encode,
+    message_inner_length,
+};
 use names::ComponentName;
 
 /// Encodes a top-level response message (*without* tag or length).
@@ -28,11 +33,24 @@ pub struct ResponseEncoder(Arc<ResponseEncoderInner>);
 
 /// See [`ResponseEncoder`].
 struct ResponseEncoderInner {
-    /// Encodes the protobuf contents.
-    inner: Encoder,
+    /// Array of encoders for all messages that may appear within the response.
+    /// The first element encodes the overall response message itself
+    /// (the length is always at least 1).
+    /// Any additional encoders would encode nested messages within the response.
+    ///
+    /// Using a vector allows us to represent self-referential message types,
+    /// which use pointers to encoders within this vector to refer to one another (or themselves).
+    /// That makes this a self-referential data structure.
+    messages: Vec<MessageEncoder>,
 
-    /// Component name used for error logging only, shared to save memory.
+    /// Component name used for error logging only,
+    /// shared among all encoders / decoders of a single component.
     component: Arc<ComponentName>,
+}
+
+struct MessageEncoder {
+    /// Map from subfield names to field encoders.
+    fields: HashMap<String, Encoder>,
 }
 
 /// An instance of an encoder is essentially hard-wired
@@ -59,18 +77,23 @@ struct Encoder {
 /// Each specific encoding function will know how to deal with this appropriately,
 /// but we also have to manually drop the appropriate one in [`Encoder::drop`].
 union CompoundEncoder {
-    /// Map from subfield names to encoders for messages and oneofs.
-    subfields: ManuallyDrop<HashMap<String, Encoder>>,
+    /// Encoder for nested messages.
+    /// This is a raw pointer into the [`messages`](ResponseEncoderInner::messages) field
+    /// of the surrounding [response encoder](ResponseEncoderInner).
+    message: *const MessageEncoder,
 
     /// Enumeration variants.
-    variants: ManuallyDrop<HashMap<String, u32>>,
+    enum_variants: ManuallyDrop<HashMap<String, u32>>,
+
+    /// Map from subfield names to encoders for oneofs.
+    oneof_variants: ManuallyDrop<HashMap<String, Encoder>>,
 
     /// Set this placeholder value for scalars.
     scalar: (),
 }
 
 /// Encode the [value](Val) to the [buffer](EncodeBuf)
-/// given the pre-computed [lengths](LengthQueue) of its constituent parts.
+/// given the pre-computed lengths of its constituent parts.
 /// Each implementation should be specific to a certain Protobuf type.
 type EncodeFn = fn(
     encoder: &Encoder,
@@ -79,7 +102,7 @@ type EncodeFn = fn(
     buf: &mut EncodeBuf<'_>,
 ) -> StdResult<(), EncodeError>;
 
-/// Pre-compute the queue of sub-lengths for the given value, and subfields recursively,
+/// Pre-compute the vector of sub-lengths for the given value, including subfields, recursively,
 /// for [encoding](EncodeFn) to consume.
 /// Returns the total length of the serialized value, including the leading tag and length.
 type LengthFn =
@@ -104,11 +127,27 @@ enum EncodeLevel {
 }
 
 impl ResponseEncoder {
-    pub fn new(response: &Field, component: Arc<ComponentName>) -> Result<Self> {
+    pub fn new(
+        messages: &Vec<ProtoMessage>,
+        response_index: u32,
+        component: Arc<ComponentName>,
+    ) -> Result<Self> {
+        let response_index = response_index as usize;
+        let mut index_map: HashMap<usize, usize> = HashMap::new();
+        count_response_encoder_messages(messages, response_index, &mut index_map)?;
+
+        // Allocate space for the relevant message encoders up front so it's never resized
+        // and pointers into the vector can be stable.
+        let mut message_encoders: Vec<MessageEncoder> = Vec::with_capacity(index_map.len());
+        compile_response_encoder(messages, response_index, &mut message_encoders, &index_map)?;
+
+        // Sanity checks.
+        debug_assert!(message_encoders.len() == index_map.len());
+        debug_assert!(message_encoders.len() == message_encoders.capacity());
+
         Ok(Self(Arc::new(ResponseEncoderInner {
-            inner: Encoder::message_inner(response, component.as_ref())
-                .context("Invalid response encoder")?,
-            component: component,
+            messages: message_encoders,
+            component,
         })))
     }
 }
@@ -119,10 +158,11 @@ impl TonicEncoder for ResponseEncoder {
 
     /// Encode a message to a writable buffer.
     fn encode(&mut self, item: Self::Item, dst: &mut EncodeBuf<'_>) -> Result<(), Self::Error> {
+        let field_encoders = &self.0.messages[0].fields;
         // TODO: Pre-allocate some space for lengths?
         let mut lengths = Vec::new();
-        let result = (self.0.inner.length)(&self.0.inner, &item, &mut lengths)
-            .and_then(|_length| (self.0.inner.encode)(&self.0.inner, &item, &mut lengths, dst))
+        let result = message_inner_length(field_encoders, &item, &mut lengths)
+            .and_then(|_length| message_inner_encode(field_encoders, &item, &mut lengths, dst))
             .map_err(|error| {
                 // An encoding error indicates that the Wasm component returned an invalid value.
                 // Report this as an INTERNAL status to the caller and log it,
@@ -143,21 +183,17 @@ impl Drop for Encoder {
         // Encoders are dropped when a container shuts down (infrequently)
         // so we can exhaustively check against the known compound encoding functions
         // to figure out which hash map needs to get dropped.
-        if fn_addr_eq(self.encode, compound::message_outer_encode as EncodeFn)
-            || fn_addr_eq(self.encode, compound::message_inner_encode as EncodeFn)
-            || fn_addr_eq(self.encode, compound::message_repeated_encode as EncodeFn)
-            || fn_addr_eq(self.encode, compound::oneof_encode as EncodeFn)
-        {
-            unsafe {
-                ManuallyDrop::drop(&mut self.compound.subfields);
-            }
-        } else if fn_addr_eq(self.encode, compound::enum_explicit_encode as EncodeFn)
+        if fn_addr_eq(self.encode, compound::enum_explicit_encode as EncodeFn)
             || fn_addr_eq(self.encode, compound::enum_implicit_encode as EncodeFn)
             || fn_addr_eq(self.encode, compound::enum_packed_encode as EncodeFn)
             || fn_addr_eq(self.encode, compound::enum_expanded_encode as EncodeFn)
         {
             unsafe {
-                ManuallyDrop::drop(&mut self.compound.variants);
+                ManuallyDrop::drop(&mut self.compound.enum_variants);
+            }
+        } else if fn_addr_eq(self.encode, compound::oneof_encode as EncodeFn) {
+            unsafe {
+                ManuallyDrop::drop(&mut self.compound.oneof_variants);
             }
         }
     }

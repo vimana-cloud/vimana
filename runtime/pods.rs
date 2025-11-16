@@ -88,7 +88,7 @@ impl PodInitializer {
 async fn initialize_grpc(
     wasmtime: WasmEngine,
     containers: ContainerStore,
-    name: Arc<ComponentName>,
+    name: &Arc<ComponentName>,
 ) -> StdResult<Arc<Routes>, Error> {
     let container = containers.get(name.as_ref()).await?;
 
@@ -98,11 +98,12 @@ async fn initialize_grpc(
         .context("Linking error")?;
 
     let mut service_router = Routes::default().into_axum_router();
-    for service in container.metadata.service.iter() {
+    for (service_name, service) in container.metadata.services {
         let mut method_router = Routes::default().into_axum_router();
 
-        for (method_name, method) in service.methods.iter() {
+        for (method_name, method) in service.methods {
             let codec = Codec::new(
+                &container.metadata.messages,
                 method
                     .request
                     .as_ref()
@@ -111,7 +112,7 @@ async fn initialize_grpc(
                     .response
                     .as_ref()
                     .ok_or(anyhow!("Metadata missing response"))?,
-                name.clone(),
+                name,
             )?;
 
             let export_index = container
@@ -204,13 +205,14 @@ struct MethodInner {
 
 impl Codec {
     pub(crate) fn new(
-        decoder: &Field,
-        encoder: &Field,
-        component: Arc<ComponentName>,
+        messages: &Vec<ProtoMessage>,
+        decoder: u32,
+        encoder: u32,
+        component: &Arc<ComponentName>,
     ) -> Result<Self> {
         Ok(Codec(Arc::new(CodecInner {
-            decoder: RequestDecoder::new(decoder, component.clone())?,
-            encoder: ResponseEncoder::new(encoder, component)?,
+            decoder: RequestDecoder::new(messages, decoder, component.clone())?,
+            encoder: ResponseEncoder::new(messages, encoder, component.clone())?,
         })))
     }
 }

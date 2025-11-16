@@ -15,7 +15,7 @@ message Metadata {
   // The set of all Protobuf message types required
   // to describe any request or response message
   // of any service in this component.
-  // Messages may be circularly- or self-referential
+  // Messages may be self-referential
   // by "pointing" to one another using indices in this array.
   repeated ProtoMessage messages = 2;
 }
