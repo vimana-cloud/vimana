@@ -51,7 +51,8 @@ RUST_EDITION = "2021"
 
 # Must use nightly to take advantage of experimental features (`#![feature]`).
 # https://github.com/bazelbuild/rules_rust/blob/0.67.0/rust/private/common.bzl#L36
-RUST_VERSION = "nightly/2025-04-03"
+RUST_NIGHTLY_DATE = "2025-11-01"
+RUST_VERSION = "nightly/{}".format(RUST_NIGHTLY_DATE)
 
 # Make sure we have a toolchain that can cross-compile to x86-64 / Linux / musl.
 # https://github.com/bazelbuild/rules_rust/blob/0.59.1/examples/musl_cross_compiling/MODULE.bazel
@@ -59,11 +60,11 @@ rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = RUST_EDITION,
     sha256s = {
-        "2025-03-18/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz": "b55983bf3bcdd04d2f344535886c857ad13725332831c48f7de758cb6d27fc01",
-        "2025-03-18/clippy-nightly-x86_64-unknown-linux-gnu.tar.xz": "3a9785a2206a4fdeafdb5ebef95a83e7c10200ab4e3dc91f3bfc2be84174aa32",
-        "2025-03-18/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz": "68c38009d1042018bdd5e5a7d7edd8b04bfb70add44007c2208f9b45f72715e8",
-        "2025-03-18/llvm-tools-nightly-x86_64-unknown-linux-gnu.tar.xz": "0685edcaead504dcf5071d076affb0d87887000f504b3217a1a5bea2059a9c26",
-        "2025-03-18/rust-std-nightly-x86_64-unknown-linux-musl.tar.xz": "b9699deee3ab0b508ad1d8924ebee2a8dbf26b84b56e4c66da8beca55e8e7517",
+        "{}/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "b5eab5cce0269f64caf9c36a607388cb591ccd61f46e886c34350384a039630a",
+        "{}/clippy-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "247d18366911dffde2aeb37b4ceb6ff3650f62b00fd82e3ee63cf57256de2545",
+        "{}/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "6f8fa84ec41cda902e5575edcbaec93f8a43b51932d63d1597dc01dc32ee1368",
+        "{}/llvm-tools-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "f0976321dd6bb6e1aca474fe743b55ec176414850ea2f0cda1732f208fc97bd5",
+        "{}/rust-std-nightly-x86_64-unknown-linux-musl.tar.xz".format(RUST_NIGHTLY_DATE): "ebb31c22602ca92731efdf78d0d440d68d06d02f527fd6426badec498cad22a5",
     },
     versions = [RUST_VERSION],
 )
