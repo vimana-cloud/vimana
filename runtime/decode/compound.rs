@@ -4,191 +4,339 @@ use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 use std::result::Result as StdResult;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use prost::encoding::{decode_varint, encoded_len_varint, WireType};
 use tonic::codec::DecodeBuf;
 use wasmtime::component::Val;
 
 use crate::{
     decode_tag, explicit_scalar, read_length_check_overflow, skip, CompoundMerger, DecodeError,
-    MergeFn, Merger, BUFFER_OVERFLOW, ENUM_NO_DEFAULT, FIELD_INDEX_OUT_OF_BOUNDS, INVALID_VARINT,
-    MESSAGE_NON_RECORD, NON_EXPLICIT_ONEOF_VARIANT, OVERFLOW_32BIT, REPEATED_NON_LIST,
-    WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
+    MergeFn, Merger, MessageMerger, BUFFER_OVERFLOW, ENUM_NO_DEFAULT, FIELD_INDEX_OUT_OF_BOUNDS,
+    INVALID_VARINT, MESSAGE_NON_RECORD, NON_EXPLICIT_ONEOF_VARIANT, OVERFLOW_32BIT,
+    REPEATED_NON_LIST, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
 };
 use metadata_proto::vimana::runtime::field::{Coding, CompoundCoding, ScalarCoding};
-use metadata_proto::vimana::runtime::Field;
-use names::ComponentName;
+use metadata_proto::vimana::runtime::{Field, ProtoMessage};
 
 impl Merger {
-    /// Construct a new [`Merger`] from the given [`Field`] representing a message type.
-    /// Only the [subfields](Field::subfields) are significant.
-    pub(crate) fn message_inner(message: &Field, component: &ComponentName) -> Result<Self> {
-        compile_message(message, message_inner_merge, component)
-    }
-}
-
-/// Common initialization logic for messages and oneofs.
-/// Oneofs just have the extra restriction that subfield encoders must be explicit.
-fn compile_message(field: &Field, merge: MergeFn, component: &ComponentName) -> Result<Merger> {
-    let mut subfields: HashMap<u32, (u32, Merger)> = HashMap::with_capacity(field.subfields.len());
-    let mut defaults: Vec<(String, Val)> = Vec::with_capacity(field.subfields.len());
-
-    for (index, subfield) in field.subfields.iter().enumerate() {
-        let (subfield_merger, subfield_default) = match subfield
-            .coding
-            .ok_or_else(|| anyhow!("Field #{} missing required coding", subfield.number))?
-        {
-            Coding::ScalarCoding(scalar_coding) => {
-                Merger::scalar(ScalarCoding::try_from(scalar_coding).with_context(|| {
-                    format!(
-                        "Invalid ScalarCoding for field #{}: {:?}",
-                        subfield.number, scalar_coding,
-                    )
-                })?)
-            }
-            Coding::CompoundCoding(compound_coding) => {
-                match CompoundCoding::try_from(compound_coding).with_context(|| {
-                    format!(
-                        "Invalid CompoundCoding for field #{}: {:?}",
-                        subfield.number, compound_coding,
-                    )
-                })? {
-                    CompoundCoding::EnumImplicit => {
-                        let merger = compile_enum_variants(subfield, enum_implicit_merge);
-
-                        // The enum must have a default zero value.
-                        if let Some(default) = unsafe { &merger.compound.enum_variants }.get(&0) {
-                            let default = default.clone();
-                            (merger, Val::Enum(default))
-                        } else {
-                            return Err(anyhow!(
-                                "Implicit enum at field #{} must have a default value",
-                                subfield.number
-                            ));
-                        }
-                    }
-                    CompoundCoding::EnumPacked => (
-                        compile_enum_variants(subfield, enum_repeated_merge),
-                        Val::List(Vec::new()),
-                    ),
-                    CompoundCoding::EnumExplicit => (
-                        compile_enum_variants(subfield, enum_explicit_merge),
-                        Val::Option(None),
-                    ),
-                    CompoundCoding::EnumExpanded => (
-                        compile_enum_variants(subfield, enum_repeated_merge),
-                        Val::List(Vec::new()),
-                    ),
-                    CompoundCoding::Message => (
-                        compile_message(subfield, message_outer_merge, component).with_context(
-                            || format!("Invalid message for field #{}", subfield.number),
-                        )?,
-                        Val::Option(None),
-                    ),
-                    CompoundCoding::MessageExpanded => (
-                        compile_message(subfield, message_repeated_merge, component).with_context(
-                            || format!("Invalid expanded message for field #{}", subfield.number),
-                        )?,
-                        Val::List(Vec::new()),
-                    ),
-                    CompoundCoding::Oneof => {
-                        // Oneofs get "flattened" into the containing message:
-                        // each variant field number is mapped
-                        // to the same subfield of the outer message.
-                        for variant in subfield.subfields.iter() {
-                            subfields.insert(
-                                variant.number,
-                                (
-                                    index as u32,
-                                    compile_oneof_variant(variant, component).with_context(
-                                        || {
-                                            format!(
-                                                "Invalid oneof variant #{} for field #{}",
-                                                variant.number, subfield.number
-                                            )
-                                        },
-                                    )?,
-                                ),
-                            );
-                        }
-                        // Oneofs always have an absent (explicit presence-tracked) default.
-                        defaults.push((subfield.name.clone(), Val::Option(None)));
-                        continue;
-                    }
-                }
-            }
-        };
-
-        subfields.insert(subfield.number, (index as u32, subfield_merger));
-        defaults.push((subfield.name.clone(), subfield_default));
+    fn message(message_merger: *const MessageMerger) -> Self {
+        Self {
+            merge: message_outer_merge,
+            compound: CompoundMerger {
+                message: message_merger,
+            },
+        }
     }
 
-    Ok(Merger {
-        merge,
-        defaults,
-        compound: CompoundMerger {
-            subfields: ManuallyDrop::new(subfields),
-        },
-    })
-}
-
-fn compile_oneof_variant(variant: &Field, component: &ComponentName) -> Result<Merger> {
-    let merger = match variant.coding.ok_or(anyhow!("Missing required coding"))? {
-        Coding::ScalarCoding(scalar_coding) => {
-            // Enforce explicit-only coding.
-            if explicit_scalar(scalar_coding) {
-                // We know the default will be an empty optional
-                // because we enforce explicit-only coding.
-                let (merger, _default) = Merger::scalar(
-                    ScalarCoding::try_from(scalar_coding)
-                        .with_context(|| format!("Invalid ScalarCoding: {:?}", scalar_coding))?,
-                );
-                merger
-            } else {
-                return Err(anyhow!("Oneof variants must use explicit coding"));
-            }
+    fn message_repeated(message_merger: *const MessageMerger) -> Self {
+        Self {
+            merge: message_repeated_merge,
+            compound: CompoundMerger {
+                message: message_merger,
+            },
         }
-        Coding::CompoundCoding(compound_coding) => {
-            match CompoundCoding::try_from(compound_coding)
-                .with_context(|| format!("Invalid CompoundCoding: {:?}", compound_coding))?
-            {
-                CompoundCoding::EnumExplicit => compile_enum_variants(variant, enum_explicit_merge),
-                CompoundCoding::Message => {
-                    compile_message(variant, message_outer_merge, component)?
-                }
-                _coding => {
-                    return Err(anyhow!("Oneof variants must use explicit coding"));
-                }
-            }
-        }
-    };
+    }
 
-    Ok(Merger {
-        merge: oneof_variant_merge,
-        defaults: Vec::new(),
-        compound: CompoundMerger {
-            oneof_variant: ManuallyDrop::new((variant.name.clone(), Box::new(merger))),
-        },
-    })
+    pub(crate) fn enum_implicit(enumeration: &Field) -> Result<(Self, Val)> {
+        let merger = compile_enum_variants(enumeration, enum_implicit_merge);
+
+        // The enum must have a default zero value.
+        if let Some(default) = unsafe { &merger.compound.enum_variants }.get(&0) {
+            let default = default.clone();
+            Ok((merger, Val::Enum(default)))
+        } else {
+            Err(anyhow!("Implicit enum must have a default value"))
+        }
+    }
+
+    pub(crate) fn enum_packed(enumeration: &Field) -> Self {
+        compile_enum_variants(enumeration, enum_repeated_merge)
+    }
+
+    pub(crate) fn enum_explicit(enumeration: &Field) -> Self {
+        compile_enum_variants(enumeration, enum_explicit_merge)
+    }
+
+    pub(crate) fn enum_expanded(enumeration: &Field) -> Self {
+        compile_enum_variants(enumeration, enum_repeated_merge)
+    }
 }
 
 /// Initialization logic for enumerations.
 fn compile_enum_variants(enumeration: &Field, merge: MergeFn) -> Merger {
-    let mut variants = HashMap::with_capacity(enumeration.subfields.len());
-    for subfield in &enumeration.subfields {
-        variants.insert(subfield.number, subfield.name.clone());
+    let mut variants = HashMap::with_capacity(enumeration.variants.len());
+    for variant in &enumeration.variants {
+        variants.insert(variant.number, variant.name.clone());
     }
     Merger {
         merge,
-        defaults: Vec::new(),
         compound: CompoundMerger {
             enum_variants: ManuallyDrop::new(variants),
         },
     }
 }
 
+pub(crate) fn count_request_decoder_messages(
+    source: &Vec<ProtoMessage>,
+    source_index: usize,
+    index_map: &mut HashMap<usize, usize>,
+) -> Result<()> {
+    if !index_map.contains_key(&source_index) {
+        index_map.insert(source_index, index_map.len());
+        count_compound_messages(source, &source[source_index].fields, index_map)
+    } else {
+        Ok(())
+    }
+}
+
+fn count_compound_messages(
+    source: &Vec<ProtoMessage>,
+    fields: &Vec<Field>,
+    index_map: &mut HashMap<usize, usize>,
+) -> Result<()> {
+    for field in fields {
+        if let Coding::CompoundCoding(compound_coding) = field
+            .coding
+            .ok_or_else(|| anyhow!("Field #{} missing required coding", field.number))?
+        {
+            match CompoundCoding::try_from(compound_coding).with_context(|| {
+                format!(
+                    "Invalid CompoundCoding for field #{}: {:?}",
+                    field.number, compound_coding,
+                )
+            })? {
+                CompoundCoding::Message | CompoundCoding::MessageExpanded => {
+                    count_request_decoder_messages(source, field.message as usize, index_map)?;
+                }
+                CompoundCoding::Oneof => {
+                    count_compound_messages(source, &field.variants, index_map)?;
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn compile_request_decoder(
+    source: &Vec<ProtoMessage>,
+    source_index: usize,
+    destination: &mut Vec<MessageMerger>,
+    index_map: &HashMap<usize, usize>,
+) -> Result<*const MessageMerger> {
+    let destination_index = index_map[&source_index];
+    if destination_index < destination.len() {
+        Ok(&destination[destination_index])
+    } else {
+        let message = &source[source_index];
+        debug_assert!(destination_index == destination.len());
+        let message_merger: *mut MessageMerger = destination
+            .push_mut_within_capacity(MessageMerger {
+                fields: HashMap::with_capacity(message.fields.len()),
+                defaults: Vec::with_capacity(message.fields.len()),
+            })
+            .map_err(|_| {
+                // This should never happen (indicates logic error).
+                anyhow!("Pre-compilation message counting failed")
+            })?;
+
+        for (index, source_field) in message.fields.iter().enumerate() {
+            let (field_merger, field_default) = match source_field
+                .coding
+                .ok_or_else(|| anyhow!("Field #{} missing required coding", source_field.number))?
+            {
+                Coding::ScalarCoding(scalar_coding) => {
+                    Merger::scalar(ScalarCoding::try_from(scalar_coding).with_context(|| {
+                        format!(
+                            "Invalid ScalarCoding for field #{}: {:?}",
+                            source_field.number, scalar_coding,
+                        )
+                    })?)
+                }
+                Coding::CompoundCoding(compound_coding) => {
+                    match CompoundCoding::try_from(compound_coding).with_context(|| {
+                        format!(
+                            "Invalid CompoundCoding for field #{}: {:?}",
+                            source_field.number, compound_coding,
+                        )
+                    })? {
+                        CompoundCoding::EnumImplicit => Merger::enum_implicit(source_field)
+                            .with_context(|| {
+                                format!("Invalid enum for field #{}", source_field.number)
+                            })?,
+                        CompoundCoding::EnumPacked => {
+                            (Merger::enum_packed(source_field), Val::List(Vec::new()))
+                        }
+                        CompoundCoding::EnumExplicit => {
+                            (Merger::enum_explicit(source_field), Val::Option(None))
+                        }
+                        CompoundCoding::EnumExpanded => {
+                            (Merger::enum_expanded(source_field), Val::List(Vec::new()))
+                        }
+                        CompoundCoding::Message => (
+                            Merger::message(
+                                compile_request_decoder(
+                                    source,
+                                    source_field.message as usize,
+                                    destination,
+                                    index_map,
+                                )
+                                .with_context(|| {
+                                    format!("Invalid message for field #{}", source_field.number)
+                                })?,
+                            ),
+                            Val::Option(None),
+                        ),
+                        CompoundCoding::MessageExpanded => (
+                            Merger::message_repeated(
+                                compile_request_decoder(
+                                    source,
+                                    source_field.message as usize,
+                                    destination,
+                                    index_map,
+                                )
+                                .with_context(|| {
+                                    format!(
+                                        "Invalid repeated message for field #{}",
+                                        source_field.number
+                                    )
+                                })?,
+                            ),
+                            Val::List(Vec::new()),
+                        ),
+                        CompoundCoding::Oneof => {
+                            // Oneofs get "flattened" into the containing message:
+                            // each variant field number is mapped
+                            // to the same field index of the outer message.
+                            let oneof_variants =
+                                compile_oneof(source, source_field, destination, index_map)
+                                    .context("Invalid oneof")?;
+                            for (variant_number, variant_merger) in oneof_variants {
+                                unsafe { &mut (*message_merger) }
+                                    .fields
+                                    .insert(variant_number, (index as u32, variant_merger));
+                            }
+                            unsafe { &mut (*message_merger) }
+                                .defaults
+                                .push((source_field.name.clone(), Val::Option(None)));
+                            continue;
+                        }
+                    }
+                }
+            };
+
+            unsafe { &mut (*message_merger) }
+                .fields
+                .insert(source_field.number, (index as u32, field_merger));
+            unsafe { &mut (*message_merger) }
+                .defaults
+                .push((source_field.name.clone(), field_default));
+        }
+
+        Ok(message_merger)
+    }
+}
+
+fn compile_oneof(
+    source: &Vec<ProtoMessage>,
+    field: &Field,
+    destination: &mut Vec<MessageMerger>,
+    index_map: &HashMap<usize, usize>,
+) -> Result<HashMap<u32, Merger>> {
+    let mut variant_mergers: HashMap<u32, Merger> = HashMap::with_capacity(field.variants.len());
+
+    for variant in &field.variants {
+        let variant_merger = match variant
+            .coding
+            .ok_or_else(|| anyhow!("Field #{} missing required coding", variant.number))?
+        {
+            Coding::ScalarCoding(scalar_coding) => {
+                // Enforce explicit-only coding for oneof variants.
+                if !explicit_scalar(scalar_coding) {
+                    bail!(
+                        "Variant #{} must use explicit scalar coding: {:?}",
+                        variant.number,
+                        scalar_coding,
+                    );
+                }
+
+                let (merger, _default) =
+                    Merger::scalar(ScalarCoding::try_from(scalar_coding).with_context(|| {
+                        format!(
+                            "Invalid ScalarCoding for field #{}: {:?}",
+                            variant.number, scalar_coding,
+                        )
+                    })?);
+
+                Merger {
+                    merge: oneof_variant_merge,
+                    compound: CompoundMerger {
+                        oneof_variant: ManuallyDrop::new((variant.name.clone(), Box::new(merger))),
+                    },
+                }
+            }
+            Coding::CompoundCoding(compound_coding) => {
+                match CompoundCoding::try_from(compound_coding).with_context(|| {
+                    format!(
+                        "Invalid CompoundCoding for field #{}: {:?}",
+                        variant.number, compound_coding,
+                    )
+                })? {
+                    CompoundCoding::EnumExplicit => {
+                        let merger = Merger::enum_explicit(variant);
+                        Merger {
+                            merge: oneof_variant_merge,
+                            compound: CompoundMerger {
+                                oneof_variant: ManuallyDrop::new((
+                                    variant.name.clone(),
+                                    Box::new(merger),
+                                )),
+                            },
+                        }
+                    }
+                    CompoundCoding::Message => {
+                        let merger = Merger::message(
+                            compile_request_decoder(
+                                source,
+                                variant.message as usize,
+                                destination,
+                                index_map,
+                            )
+                            .with_context(|| {
+                                format!("Invalid message for field #{}", variant.number)
+                            })?,
+                        );
+                        Merger {
+                            merge: oneof_variant_merge,
+                            compound: CompoundMerger {
+                                oneof_variant: ManuallyDrop::new((
+                                    variant.name.clone(),
+                                    Box::new(merger),
+                                )),
+                            },
+                        }
+                    }
+                    _ => {
+                        // One-ofs can only contain explicit subfields.
+                        bail!(
+                            "Variant #{} must use explicit compound coding: {:?}",
+                            variant.number,
+                            compound_coding,
+                        )
+                    }
+                }
+            }
+        };
+
+        variant_mergers.insert(variant.number, variant_merger);
+    }
+
+    Ok(variant_mergers)
+}
+
+#[inline]
 pub(crate) fn message_inner_merge(
-    merger: &Merger,
+    field_map: &HashMap<u32, (u32, Merger)>,
     _wire_type: WireType,
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
@@ -202,16 +350,14 @@ pub(crate) fn message_inner_merge(
             let (field_number, wire_type) = decode_tag(limit, src)?;
 
             // See if we know how to deal with this field number.
-            if let Some((index, subfield_merger)) =
-                unsafe { &merger.compound.subfields }.get(&field_number)
-            {
+            if let Some((index, subfield_merger)) = field_map.get(&field_number) {
                 // Get a mutable pointer to the relevant subvalue within this record.
                 if let Some(subdst) = fields.get_mut(*index as usize) {
                     // Call the field's merge function into that subvalue.
                     (subfield_merger.merge)(&subfield_merger, wire_type, limit, src, &mut subdst.1)
                         .map_err(|e| e.with_field(field_number))?;
                 } else {
-                    // The index calculated in `compile_message` is out of bounds.
+                    // The index calculated during compilation is out of bounds.
                     // This should be impossible.
                     return Err(
                         DecodeError::new(FIELD_INDEX_OUT_OF_BOUNDS).with_field(field_number)
@@ -239,8 +385,15 @@ pub(crate) fn message_outer_merge(
     if wire_type == WireType::LengthDelimited {
         let mut length = read_length_check_overflow(limit, src)?;
 
-        let mut value = Val::Record(merger.defaults.clone());
-        message_inner_merge(merger, wire_type, &mut length, src, &mut value)?;
+        let message_merger = unsafe { &(*merger.compound.message) };
+        let mut value = Val::Record(message_merger.defaults.clone());
+        message_inner_merge(
+            &message_merger.fields,
+            wire_type,
+            &mut length,
+            src,
+            &mut value,
+        )?;
 
         *dst = Val::Option(Some(Box::new(value)));
         Ok(())
@@ -263,9 +416,16 @@ pub(crate) fn message_repeated_merge(
             let mut length =
                 read_length_check_overflow(limit, src).map_err(|e| e.with_index(items.len()))?;
 
-            let mut value = Val::Record(merger.defaults.clone());
-            message_inner_merge(merger, wire_type, &mut length, src, &mut value)
-                .map_err(|e| e.with_index(items.len()))?;
+            let message_merger = unsafe { &(*merger.compound.message) };
+            let mut value = Val::Record(message_merger.defaults.clone());
+            message_inner_merge(
+                &message_merger.fields,
+                wire_type,
+                &mut length,
+                src,
+                &mut value,
+            )
+            .map_err(|e| e.with_index(items.len()))?;
 
             items.push(value);
             Ok(())

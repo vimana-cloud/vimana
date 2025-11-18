@@ -1,5 +1,7 @@
 //! Decode incoming requests into Wasm component record values.
 
+#![feature(push_mut)]
+
 mod compound;
 mod scalar;
 
@@ -10,8 +12,8 @@ use std::ptr::fn_addr_eq;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
-use metadata_proto::vimana::runtime::Field;
+use anyhow::Result;
+use metadata_proto::vimana::runtime::ProtoMessage;
 use prost::bytes::Buf;
 use prost::encoding::{decode_varint, encoded_len_varint, WireType};
 use tonic::codec::{DecodeBuf, Decoder as TonicDecoder};
@@ -19,8 +21,8 @@ use tonic::Status;
 use wasmtime::component::Val;
 
 use compound::{
-    enum_explicit_merge, enum_implicit_merge, enum_repeated_merge, message_inner_merge,
-    message_outer_merge, message_repeated_merge, oneof_variant_merge,
+    compile_request_decoder, count_request_decoder_messages, enum_explicit_merge,
+    enum_implicit_merge, enum_repeated_merge, message_inner_merge, oneof_variant_merge,
 };
 use names::ComponentName;
 
@@ -31,13 +33,38 @@ use names::ComponentName;
 #[derive(Clone)]
 pub struct RequestDecoder(Arc<RequestDecoderInner>);
 
+// Safe because the raw pointers in the decoder always point
+// into the Vec within RequestDecoderInner,
+// which is protected by an Arc and never modified after initialization.
+unsafe impl Send for RequestDecoder {}
+unsafe impl Sync for RequestDecoder {}
+
 /// See [`RequestDecoder`].
 struct RequestDecoderInner {
-    /// Decodes and merges protobuf contents into a default value.
-    inner: Merger,
+    /// Array of mergers for all messages that may appear within the request.
+    /// The first element decodes the overall request message itself
+    /// (the length is always at least 1).
+    /// Any additional mergers would decode nested messages within the request.
+    ///
+    /// Using a vector allows us to represent self-referential message types,
+    /// which use pointers to mergers within this vector to refer to one another (or themselves).
+    /// That makes this a self-referential data structure.
+    messages: Vec<MessageMerger>,
 
-    /// Component name used for error logging only, shared to save memory.
+    /// Component name used for error logging only,
+    /// shared among all encoders / decoders of a single component.
     component: Arc<ComponentName>,
+}
+
+pub(crate) struct MessageMerger {
+    /// Map from field numbers to field indices and mergers.
+    /// The field index is distinct from the Protobuf field number;
+    /// it is the 0-based index within the [value](Val)'s `Record` field list
+    /// in which to merge the value.
+    pub(crate) fields: HashMap<u32, (u32, Merger)>,
+
+    /// Default values for each field, if not encoded.
+    pub(crate) defaults: Vec<(String, Val)>,
 }
 
 /// Decodes a component [value](Val) for any specific Protobuf field,
@@ -45,9 +72,6 @@ struct RequestDecoderInner {
 struct Merger {
     /// Decode and merge a value.
     merge: MergeFn,
-
-    /// For records only: default values for each field, if not encoded.
-    defaults: Vec<(String, Val)>,
 
     /// Information for decoding compound types (messages, oneofs, enumerations).
     /// Ignored for scalar types.
@@ -60,11 +84,10 @@ struct Merger {
 /// Each specific decoding function will know how to deal with this appropriately,
 /// but we also have to manually drop the appropriate one in [`Merger::drop`].
 union CompoundMerger {
-    /// Map from subfield numbers to field inidices and decoders for messages.
-    /// The field index is distinct from the Protobuf field number;
-    /// it is the 0-based index within the [value](Val)'s `Record` field list
-    /// in which to merge the value.
-    subfields: ManuallyDrop<HashMap<u32, (u32, Merger)>>,
+    /// Merger for nested messages.
+    /// This is a raw pointer into the [`messages`](RequestDecoderInner::messages) field
+    /// of the surrounding [request decoder](RequestDecoderInner).
+    message: *const MessageMerger,
 
     /// Map from enum variant numbers to variant names (for enumerations only).
     enum_variants: ManuallyDrop<HashMap<u32, String>>,
@@ -111,12 +134,24 @@ enum DecodeLevel {
 impl RequestDecoder {
     pub fn new(
         messages: &Vec<ProtoMessage>,
-        request: u32,
+        request_index: u32,
         component: Arc<ComponentName>,
     ) -> Result<Self> {
+        let request_index = request_index as usize;
+        let mut index_map: HashMap<usize, usize> = HashMap::new();
+        count_request_decoder_messages(messages, request_index, &mut index_map)?;
+
+        // Allocate space for the relevant message mergers up front so it's never resized
+        // and pointers into the vector can be stable.
+        let mut message_mergers: Vec<MessageMerger> = Vec::with_capacity(index_map.len());
+        compile_request_decoder(messages, request_index, &mut message_mergers, &index_map)?;
+
+        // Sanity checks.
+        debug_assert!(message_mergers.len() == index_map.len());
+        debug_assert!(message_mergers.len() == message_mergers.capacity());
+
         Ok(Self(Arc::new(RequestDecoderInner {
-            inner: Merger::message_inner(request, component.as_ref())
-                .context("Invalid request decoder")?,
+            messages: message_mergers,
             component,
         })))
     }
@@ -130,9 +165,10 @@ impl TonicDecoder for RequestDecoder {
     fn decode(&mut self, src: &mut DecodeBuf<'_>) -> StdResult<Option<Self::Item>, Self::Error> {
         let mut length = u32::try_from(src.remaining())
             .map_err(|_| Status::invalid_argument("Request is too big"))?;
-        let mut value = Val::Record(self.0.inner.defaults.clone());
-        (self.0.inner.merge)(
-            &self.0.inner,
+        let message_merger = &self.0.messages[0];
+        let mut value = Val::Record(message_merger.defaults.clone());
+        message_inner_merge(
+            &message_merger.fields,
             WireType::LengthDelimited,
             &mut length,
             src,
@@ -154,12 +190,7 @@ impl Drop for Merger {
         // Mergers are dropped when a container shuts down (infrequently)
         // so we can exhaustively check against the known compound encoding functions
         // to figure out which type-specific data to drop.
-        if fn_addr_eq(self.merge, message_inner_merge as MergeFn)
-            || fn_addr_eq(self.merge, message_outer_merge as MergeFn)
-            || fn_addr_eq(self.merge, message_repeated_merge as MergeFn)
-        {
-            unsafe { ManuallyDrop::drop(&mut self.compound.subfields) }
-        } else if fn_addr_eq(self.merge, enum_explicit_merge as MergeFn)
+        if fn_addr_eq(self.merge, enum_explicit_merge as MergeFn)
             || fn_addr_eq(self.merge, enum_implicit_merge as MergeFn)
             || fn_addr_eq(self.merge, enum_repeated_merge as MergeFn)
         {

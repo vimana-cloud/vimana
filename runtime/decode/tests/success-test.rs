@@ -6,8 +6,8 @@ use tonic::codec::Decoder;
 use wasmtime::component::Val;
 
 use decode::RequestDecoder;
-use metadata_proto::work::runtime::field::{Coding, CompoundCoding, ScalarCoding};
-use metadata_proto::work::runtime::Field;
+use metadata_proto::vimana::runtime::field::{Coding, CompoundCoding, ScalarCoding};
+use metadata_proto::vimana::runtime::{Field, ProtoMessage};
 use names::Name;
 
 const EMPTY: [u8; 0] = [];
@@ -17,42 +17,27 @@ const COMPONENT_NAME: &str = "1234567890abcdef1234567890abcdef:some-server-id@1.
 /// Every decoding success test (where decoding is not expected to fail)
 /// follows the same pattern.
 ///
-/// This macro defines a test function named `$name`
-/// using a little IDL to express field types, encoded buffers, and expected decoded values.
+/// This macro defines a test function named `$test_name`
+/// using a little IDL to express message types, the encoded buffer,
+/// and the expected decoded value.
 ///
 /// Looks like:
 ///     test_success!(
-///         test_function_name,
-///         fields = (
-///             "field-name" <field type expression>
-///             "another-field" <field type expression>
-///             ...
-///         ),
-///         buffer = <byte slice>,
-///         expect = (
-///             "field-name" <value expression>
-///             "another-field" <value expression>
-///             ...
-///         ),
-///     )
+///         test_function_name:
+///         <message definition>, ...
+///         <message definition>;
+///         [<request index>] = <byte slice>;
+///         expect = <Wasm component value>
+///     );
 ///
 /// See [`test_messages_deep_nested_lengths`] for an example.
 macro_rules! test_success {
-    (
-        $name:ident,
-        fields = ($($field_name:literal $field:tt)*),
-        buffer = $buffer:expr,
-        expect = ($($value_name:literal $value:expr;)*),
-    ) => {
+    ($test_name:ident: $($message_definition:expr),+; [$request_index:literal] = $buffer:expr; expect = $expected:expr) => {
         #[test]
-        fn $name() {
+        fn $test_name() {
             let mut decoder = RequestDecoder::new(
-                &Field {
-                    number: 0,       // Ignored.
-                    name: "".into(), // Ignored.
-                    coding: None,    // Ignored.
-                    subfields: vec![$(field!($field_name $field),)*],
-                },
+                &vec![$($message_definition,)*],
+                $request_index,
                 Arc::new(Name::parse(COMPONENT_NAME).component().unwrap()),
             ).unwrap();
             let mut buffer = BytesMut::from(&$buffer[..]);
@@ -61,8 +46,7 @@ macro_rules! test_success {
 
             let result = decoder.decode(&mut decode_buffer).unwrap();
 
-            let expected = Some(bare_record!($($value_name $value);+));
-            assert_eq!(result, expected);
+            assert_eq!(result, Some($expected));
 
             // Make sure the decoder's drop method does not panic.
             drop(decoder);
@@ -70,29 +54,59 @@ macro_rules! test_success {
     };
 }
 
+/// Idiomatically express [`ProtoMessage`] objects.
+macro_rules! message {
+    ($($field_name:literal: $field:tt)+) => {
+        ProtoMessage {
+            fields: vec![$(field!($field_name $field),)*],
+        }
+    };
+}
+
+/// Idiomatically express [`Field`] objects of each type.
 macro_rules! field {
-    ($name:literal (scalar $number:literal $coding:expr)) => {
+    ($name:literal (scalar[$number:literal] ($coding:expr))) => {
         Field {
             name: String::from($name),
             number: $number,
+            message: 0,                // ignored
+            variants: Vec::default(),  // ignored
             coding: Some(Coding::ScalarCoding($coding as i32)),
-            subfields: Vec::new(),
         }
     };
-    ($name:literal (message $number:literal $($subfield_name:literal $subfield:tt)+)) => {
+    ($name:literal (message[$number:literal] $index:literal)) => {
         Field {
             name: String::from($name),
             number: $number,
+            message: $index,
+            variants: Vec::default(),  // ignored
             coding: Some(Coding::CompoundCoding(CompoundCoding::Message as i32)),
-            subfields: vec![$(field!($subfield_name $subfield),)*],
         }
     };
-    ($name:literal (oneof $($subfield_name:literal $subfield:tt)+)) => {
+    ($name:literal (oneof $($variant_name:literal: $variant:tt)+)) => {
         Field {
             name: String::from($name),
-            number: 0, // Ignored.
+            number: 0,   // ignored
+            message: 0,  // ignored
+            variants: vec![$(field!($variant_name $variant),)*],
             coding: Some(Coding::CompoundCoding(CompoundCoding::Oneof as i32)),
-            subfields: vec![$(field!($subfield_name $subfield),)*],
+        }
+    };
+    ($name:literal (enumeration[$number:literal] ($coding:expr) $($variant_name:literal: $variant_number:literal)+)) => {
+        Field {
+            name: String::from($name),
+            number: $number,
+            message: 0,  // ignored
+            variants: vec![$(
+                Field {
+                    name: String::from($variant_name),
+                    number: $variant_number,
+                    message: 0,                // ignored
+                    coding: None,              // ignored
+                    variants: Vec::default(),  // ignored
+                },
+            )*],
+            coding: Some(Coding::CompoundCoding(($coding) as i32)),
         }
     };
 }
@@ -140,25 +154,29 @@ struct DecodeBufClone<'a> {
 // This test verifies that the length pre-computation algorithm works
 // for deeply-nested fields of various kinds.
 test_success!(
-    test_messages_deep_nested_lengths,
-    fields = (
-        "x" (message 1
-            "a" (scalar 1 ScalarCoding::Sint32Implicit)
-        )
-        "y" (message 2
-            "aa" (message 30
-                "strings" (scalar 1 ScalarCoding::StringUtf8Expanded)
-                "variants" (oneof
-                    "another" (message 5
-                        "aaa" (scalar 1 ScalarCoding::FloatPacked)
-                    )
-                    "unused" (scalar 6 ScalarCoding::BoolExplicit)
-                )
-            )
-            "bb" (scalar 3 ScalarCoding::Int64Packed)
+    test_messages_deep_nested_lengths:
+    message!(
+        "a": (scalar[1] (ScalarCoding::Sint32Implicit))
+    ),
+    message!(
+        "aa": (message[30] 2)
+        "bb": (scalar[3] (ScalarCoding::Int64Packed))
+    ),
+    message!(
+        "strings": (scalar[1] (ScalarCoding::StringUtf8Expanded))
+        "variants": (oneof
+            "another": (message[5] 3)
+            "unused": (scalar[6] (ScalarCoding::BoolExplicit))
         )
     ),
-    buffer = &[
+    message!(
+        "aaa": (scalar[1] (ScalarCoding::FloatPacked))
+    ),
+    message!(
+        "x": (message[1] 0)
+        "y": (message[2] 1)
+    );
+    [4] = &[
         10,                        // 'x' tag: (1 << 3) + 2
         2,                         // length of submessage
           8,                       //   'a' tag: (1 << 3) + 0
@@ -185,8 +203,8 @@ test_success!(
             128, 1,                //     128
             128, 128, 128, 1,      //     2097152
             0,                     //     0
-    ],
-    expect = (
+    ];
+    expect = bare_record!(
         "x" record!(
             "a" Val::S32(-5)
         );
@@ -200,141 +218,141 @@ test_success!(
                 )
             );
             "bb" Val::List(vec![Val::S64(127), Val::S64(128), Val::S64(2097152), Val::S64(0)])
-        );
-    ),
+        )
+    )
 );
 
 test_success!(
-    test_bytes_implicit,
-    fields = (
-        "bytes-implicit" (scalar 12 ScalarCoding::BytesImplicit)
-    ),
-    buffer = &[
+    test_bytes_implicit:
+    message!(
+        "bytes-implicit": (scalar[12] (ScalarCoding::BytesImplicit))
+    );
+    [0] = &[
         98,             // tag: (12 << 3) + 2
         5,              // length of bytes
         1, 2, 3, 4, 5,  // bytes
-    ],
-    expect = (
+    ];
+    expect = bare_record!(
         "bytes-implicit" Val::List(vec![
             Val::U8(1),
             Val::U8(2),
             Val::U8(3),
             Val::U8(4),
             Val::U8(5),
-        ]);
-    ),
+        ])
+    )
 );
 
 test_success!(
-    test_bytes_implicit_empty,
-    fields = (
-        "bytes-implicit-empty" (scalar 12 ScalarCoding::BytesImplicit)
-    ),
-    buffer = &EMPTY,
-    expect = (
+    test_bytes_implicit_empty:
+    message!(
+        "bytes-implicit-empty": (scalar[12] (ScalarCoding::BytesImplicit))
+    );
+    [0] = &EMPTY;
+    expect = bare_record!(
         "bytes-implicit-empty" Val::List(vec![
             // Empty implicit bytes should not encode at all.
-        ]);
-    ),
+        ])
+    )
 );
 
 test_success!(
-    test_bytes_explicit,
-    fields = (
-        "bytes-explicit" (scalar 1 ScalarCoding::BytesExplicit)
-    ),
-    buffer = &[
+    test_bytes_explicit:
+    message!(
+        "bytes-explicit": (scalar[1] (ScalarCoding::BytesExplicit))
+    );
+    [0] = &[
         10,             // tag: (1 << 3) + 2
         0,              // length of bytes
-    ],
-    expect = (
+    ];
+    expect = bare_record!(
         "bytes-explicit" Val::Option(Some(Box::new(Val::List(vec![
             // Empty explicit bytes should encode with length 0.
-        ]))));
-    ),
+        ]))))
+    )
 );
 
 test_success!(
-    test_bytes_repeated,
-    fields = (
-        "bytes-repeated" (scalar 1 ScalarCoding::BytesExpanded)
-    ),
-    buffer = &[
+    test_bytes_repeated:
+    message!(
+        "bytes-repeated": (scalar[1] (ScalarCoding::BytesExpanded))
+    );
+    [0] = &[
         10,             // tag: (1 << 3) + 2
         2,              // length of bytes
           255, 127,     //   bytes
         10,             // tag: (1 << 3) + 2
         0,              // length of bytes
-    ],
-    expect = (
+    ];
+    expect = bare_record!(
         "bytes-repeated" Val::List(vec![
             Val::List(vec![
                 Val::U8(255),
                 Val::U8(127),
             ]),
             Val::List(Vec::new()),
-        ]);
-    ),
+        ])
+    )
 );
 
 test_success!(
-    test_string_implicit,
-    fields = (
-        "string-implicit" (scalar 12 ScalarCoding::StringUtf8Implicit)
-    ),
-    buffer = &[
+    test_string_implicit:
+    message!(
+        "string-implicit": (scalar[12] (ScalarCoding::StringUtf8Implicit))
+    );
+    [0] = &[
         98,                         // tag: (12 << 3) + 2
         5,                          // length of "hello"
           104, 101, 108, 108, 111,  //   bytes
-    ],
-    expect = (
-        "string-implicit" Val::String("hello".into());
-    ),
+    ];
+    expect = bare_record!(
+        "string-implicit" Val::String("hello".into())
+    )
 );
 
 test_success!(
-    test_string_implicit_empty,
-    fields = (
-        "string-implicit-empty" (scalar 12 ScalarCoding::StringUtf8Implicit)
-    ),
-    buffer = &EMPTY,
-    expect = (
-        "string-implicit-empty" Val::String("".into());
-    ),
+    test_string_implicit_empty:
+    message!(
+        "string-implicit-empty": (scalar[12] (ScalarCoding::StringUtf8Implicit))
+    );
+    [0] = &EMPTY;
+    expect = bare_record!(
+        "string-implicit-empty" Val::String("".into())
+    )
 );
 
 test_success!(
-    test_string_explicit,
-    fields = (
-        "string-explicit" (scalar 1 ScalarCoding::StringPermissiveExplicit)
-    ),
-    buffer = &[
+    test_string_explicit:
+    message!(
+        "string-explicit": (scalar[1] (ScalarCoding::StringPermissiveExplicit))
+    );
+    [0] = &[
         10,             // tag: (1 << 3) + 2
         0,              // length of bytes
-    ],
-    expect = (
+    ];
+    expect = bare_record!(
         "string-explicit" Val::Option(Some(Box::new(
             Val::String("".into())
-        )));
-    ),
+        )))
+    )
 );
 
 test_success!(
-    test_string_repeated,
-    fields = (
-        "string-repeated" (scalar 1 ScalarCoding::StringPermissiveExpanded)
-    ),
-    buffer = &[
+    test_string_repeated:
+    message!(
+        "string-repeated": (scalar[1] (ScalarCoding::StringPermissiveExpanded))
+    );
+    [0] = &[
         10,                                   // tag: (1 << 3) + 2
         7,                                    // length of "fersher"
           102, 101, 114, 115, 104, 101, 114,  //   "fersher"
         10,                                   // tag: (1 << 3) + 2
         0,                                    // length of bytes
-    ],
-    expect = (
+    ];
+    expect = bare_record!(
         "string-repeated" Val::List(vec![
             Val::String("fersher".into()),
             Val::String("".into()),
-        ]);
-    ),
+        ])
+    )
 );

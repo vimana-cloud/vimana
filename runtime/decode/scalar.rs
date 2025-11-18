@@ -95,7 +95,6 @@ impl Merger {
             Self {
                 merge,
                 // `defaults` and `compound` are ignored for scalars.
-                defaults: Vec::new(),
                 compound: CompoundMerger { scalar: () },
             },
             // Return the default value to the caller

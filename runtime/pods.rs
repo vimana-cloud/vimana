@@ -28,7 +28,7 @@ use crate::state::SingleUse;
 use decode::RequestDecoder;
 use encode::ResponseEncoder;
 use logging::log_warn;
-use metadata_proto::work::runtime::Field;
+use metadata_proto::vimana::runtime::ProtoMessage;
 use names::ComponentName;
 
 /// gRPC pods always use this arbitrarily chosen port for networking.
@@ -88,7 +88,7 @@ impl PodInitializer {
 async fn initialize_grpc(
     wasmtime: WasmEngine,
     containers: ContainerStore,
-    name: &Arc<ComponentName>,
+    name: Arc<ComponentName>,
 ) -> StdResult<Arc<Routes>, Error> {
     let container = containers.get(name.as_ref()).await?;
 
@@ -104,15 +104,9 @@ async fn initialize_grpc(
         for (method_name, method) in service.methods {
             let codec = Codec::new(
                 &container.metadata.messages,
-                method
-                    .request
-                    .as_ref()
-                    .ok_or(anyhow!("Metadata missing request"))?,
-                method
-                    .response
-                    .as_ref()
-                    .ok_or(anyhow!("Metadata missing response"))?,
-                name,
+                method.request,
+                method.response,
+                &name,
             )?;
 
             let export_index = container
@@ -152,7 +146,7 @@ async fn initialize_grpc(
             );
         }
 
-        service_router = service_router.nest(&format!("/{}", service.name), method_router);
+        service_router = service_router.nest(&format!("/{}", service_name), method_router);
     }
 
     Ok(Arc::new(Routes::from(service_router)))
