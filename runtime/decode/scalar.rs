@@ -11,9 +11,8 @@ use wasmtime::component::Val;
 
 use crate::{
     read_length_check_overflow, read_varint, CompoundMerger, DecodeError, MergeFn, Merger,
-    BUFFER_OVERFLOW, BUFFER_UNDERFLOW, INVALID_BOOL, INVALID_PERMISSIVE_STRING, INVALID_UTF8,
-    INVALID_VARINT, OVERFLOW_32BIT, REPEATED_NON_LIST, WIRETYPE_NON_32BIT, WIRETYPE_NON_64BIT,
-    WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
+    BUFFER_UNDERFLOW, INVALID_PERMISSIVE_STRING, INVALID_UTF8, INVALID_VARINT, REPEATED_NON_LIST,
+    WIRETYPE_NON_32BIT, WIRETYPE_NON_64BIT, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
 };
 use metadata_proto::vimana::runtime::field::ScalarCoding;
 
@@ -286,17 +285,8 @@ macro_rules! numeric_mergers {
 
 #[inline(always)]
 fn bool_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
-    if *limit >= 1 {
-        let byte = src.get_u8();
-        *limit -= 1;
-        if byte <= 1 {
-            Ok(Val::Bool(byte != 0))
-        } else {
-            Err(DecodeError::new(INVALID_BOOL))
-        }
-    } else {
-        Err(DecodeError::new(BUFFER_OVERFLOW))
-    }
+    let varint = read_varint(limit, src, INVALID_VARINT)?;
+    Ok(Val::Bool(varint != 0))
 }
 numeric_mergers!(
     bool_explicit_merge,
@@ -310,8 +300,7 @@ numeric_mergers!(
 #[inline(always)]
 fn int32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let varint = read_varint(limit, src, INVALID_VARINT)?;
-    let value = i32::try_from(varint).map_err(|_| DecodeError::new(OVERFLOW_32BIT))?;
-    Ok(Val::S32(value))
+    Ok(Val::S32(varint as i32))
 }
 numeric_mergers!(
     int32_explicit_merge,
@@ -325,7 +314,7 @@ numeric_mergers!(
 #[inline(always)]
 fn sint32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let varint = read_varint(limit, src, INVALID_VARINT)?;
-    let value = u32::try_from(varint).map_err(|_| DecodeError::new(OVERFLOW_32BIT))?;
+    let value = varint as u32;
     Ok(Val::S32(((value >> 1) as i32) ^ (-((value & 1) as i32))))
 }
 numeric_mergers!(
@@ -358,8 +347,7 @@ numeric_mergers!(
 #[inline(always)]
 fn uint32_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let varint = read_varint(limit, src, INVALID_VARINT)?;
-    let value = u32::try_from(varint).map_err(|_| DecodeError::new(OVERFLOW_32BIT))?;
-    Ok(Val::U32(value))
+    Ok(Val::U32(varint as u32))
 }
 numeric_mergers!(
     uint32_explicit_merge,
@@ -405,8 +393,7 @@ numeric_mergers!(
 #[inline(always)]
 fn sint64_decode_inner(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<Val, DecodeError> {
     let varint = read_varint(limit, src, INVALID_VARINT)?;
-    let value = varint as i64;
-    Ok(Val::S64(((value >> 1) as i64) ^ (-((value & 1) as i64))))
+    Ok(Val::S64(((varint >> 1) as i64) ^ (-((varint & 1) as i64))))
 }
 numeric_mergers!(
     sint64_explicit_merge,

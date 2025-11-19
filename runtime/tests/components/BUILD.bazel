@@ -30,7 +30,7 @@ genrule(
     outs = ["adder.binpb"],
     cmd = "cat $(SRCS)" +
           " | ./$(location @protobuf//:protoc)" +
-          " --encode=work.runtime.Metadata" +
+          " --encode=vimana.runtime.Metadata" +
           " --proto_path=`dirname $(location //runtime:metadata.proto)`" +
           " $(location //runtime:metadata.proto)" +
           " > $@",

@@ -24,7 +24,7 @@ use wasmtime::component::Component;
 use wasmtime::Engine as WasmEngine;
 
 use logging::log_info;
-use metadata_proto::work::runtime::Metadata;
+use metadata_proto::vimana::runtime::Metadata;
 use names::ComponentName;
 
 /// Each component directory under [store root](ContainerStore::root)

@@ -57,7 +57,10 @@ rust_binary(
 rust_library(
     name = "names",
     srcs = ["names.rs"],
-    visibility = [":__subpackages__"],
+    visibility = [
+        ":__subpackages__",
+        "//compiler/tests:__pkg__",
+    ],
     deps = [
         "@crates//:anyhow",
         "@crates//:lazy_static",
@@ -92,7 +95,7 @@ rust_prost_library(
     proto = "metadata-proto",
     visibility = [
         ":__subpackages__",
-        "//compiler:__pkg__",
+        "//compiler:__subpackages__",
     ],
 )
 

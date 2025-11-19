@@ -11,9 +11,9 @@ use wasmtime::component::Val;
 
 use crate::{
     explicit_scalar, tag, CompoundEncoder, EncodeError, Encoder, MessageEncoder, ENUM_NON_ENUM,
-    ENUM_VARIANT_UNRECOGNIZED, LENGTH_INCONSISTENCY, MESSAGE_NON_OPTIONAL, MESSAGE_NON_RECORD,
-    NO_ENCODER_FOR_FIELD, ONEOF_NON_OPTIONAL, ONEOF_NON_VARIANT, ONEOF_VARIANT_NO_PAYLOAD,
-    ONEOF_VARIANT_UNRECOGNIZED, REPEATED_NON_LIST,
+    ENUM_VARIANT_UNRECOGNIZED, EXPLICIT_NON_OPTION, LENGTH_INCONSISTENCY, MESSAGE_NON_OPTIONAL,
+    MESSAGE_NON_RECORD, NO_ENCODER_FOR_FIELD, ONEOF_NON_OPTIONAL, ONEOF_NON_VARIANT,
+    ONEOF_VARIANT_NO_PAYLOAD, ONEOF_VARIANT_UNRECOGNIZED, REPEATED_NON_LIST,
 };
 use metadata_proto::vimana::runtime::field::{Coding, CompoundCoding, ScalarCoding};
 use metadata_proto::vimana::runtime::{Field, ProtoMessage};
@@ -462,9 +462,9 @@ pub(crate) fn message_repeated_encode(
     }
 }
 
-/// Pre-calculate lengths for [`message_repeated_encode`].
-/// Never pushes to the queue because repeated messages are always expanded,
-/// although subfields of messages may push to the queue.
+/// Pre-calculate lengths for [`message_repeated_encode`],
+/// pushing the length of each item onto the `lengths` queue,
+/// and subfields of messages may also push to the queue.
 fn message_repeated_length(
     encoder: &Encoder,
     value: &Val,
@@ -472,13 +472,18 @@ fn message_repeated_length(
 ) -> StdResult<u32, EncodeError> {
     if let Val::List(items) = value {
         let mut total = 0;
-        for (index, value) in items.iter().enumerate() {
+        // Iterate over the elements in reverse,
+        // so sublengths are pushed in the opposite order of
+        // how they are later popped during encoding.
+        for (index, value) in items.iter().enumerate().rev() {
             let sublength = message_inner_length(
                 &unsafe { &(*encoder.compound.message) }.fields,
                 value,
                 lengths,
             )
             .map_err(|e| e.with_index(index))?;
+            lengths.push(sublength);
+
             total = u32::saturating_add(
                 total,
                 u32::saturating_add(
@@ -598,18 +603,29 @@ pub(crate) fn enum_explicit_encode(
     _lengths: &mut Vec<u32>,
     buf: &mut EncodeBuf<'_>,
 ) -> StdResult<(), EncodeError> {
-    if let Val::Enum(name) = value {
-        if let Some(number) = unsafe { &encoder.compound.enum_variants }.get(name) {
-            encode_varint(encoder.tag, buf);
-            encode_varint(*number as u64, buf);
-            Ok(())
+    if let Val::Option(option) = value {
+        if let Some(item) = option {
+            if let Val::Enum(name) = item.as_ref() {
+                if let Some(number) = unsafe { &encoder.compound.enum_variants }.get(name) {
+                    encode_varint(encoder.tag, buf);
+                    // Sign-extend the enum value as int32 before encoding.
+                    encode_varint((*number as i32 as i64) as u64, buf);
+                    Ok(())
+                } else {
+                    // Got an unexpected enum variant name.
+                    Err(EncodeError::new(ENUM_VARIANT_UNRECOGNIZED))
+                }
+            } else {
+                // Enumerations must correspond to WIT enums.
+                Err(EncodeError::new(ENUM_NON_ENUM))
+            }
         } else {
-            // Got an unexpected enum variant name.
-            Err(EncodeError::new(ENUM_VARIANT_UNRECOGNIZED))
+            // Absent enums are not encoded.
+            Ok(())
         }
     } else {
-        // Enumerations must correspond to WIT enums.
-        Err(EncodeError::new(ENUM_NON_ENUM))
+        // Explicit enums must be optional.
+        Err(EncodeError::new(EXPLICIT_NON_OPTION))
     }
 }
 
@@ -618,17 +634,30 @@ fn enum_explicit_length(
     value: &Val,
     _lengths: &mut Vec<u32>,
 ) -> StdResult<u32, EncodeError> {
-    if let Val::Enum(name) = value {
-        // Look up the enum variant number by name.
-        if let Some(number) = unsafe { &encoder.compound.enum_variants }.get(name) {
-            Ok((encoded_len_varint(encoder.tag) + encoded_len_varint(*number as u64)) as u32)
+    if let Val::Option(option) = value {
+        if let Some(item) = option {
+            if let Val::Enum(name) = item.as_ref() {
+                // Look up the enum variant number by name.
+                if let Some(number) = unsafe { &encoder.compound.enum_variants }.get(name) {
+                    // Sign-extend the enum value as int32 before computing length.
+                    Ok((encoded_len_varint(encoder.tag)
+                        + encoded_len_varint((*number as i32 as i64) as u64))
+                        as u32)
+                } else {
+                    // Got an unexpected enum variant name.
+                    Err(EncodeError::new(ENUM_VARIANT_UNRECOGNIZED))
+                }
+            } else {
+                // Enumerations must correspond to WIT enums.
+                Err(EncodeError::new(ENUM_NON_ENUM))
+            }
         } else {
-            // Got an unexpected enum variant name.
-            Err(EncodeError::new(ENUM_VARIANT_UNRECOGNIZED))
+            // Absent enums are not encoded.
+            Ok(0)
         }
     } else {
-        // Enumerations must correspond to WIT enums.
-        Err(EncodeError::new(ENUM_NON_ENUM))
+        // Explicit enums must be optional.
+        Err(EncodeError::new(EXPLICIT_NON_OPTION))
     }
 }
 
@@ -642,7 +671,8 @@ pub(crate) fn enum_implicit_encode(
         if let Some(number) = unsafe { &encoder.compound.enum_variants }.get(name) {
             if *number != 0 {
                 encode_varint(encoder.tag, buf);
-                encode_varint(*number as u64, buf);
+                // Sign-extend the enum value as int32 before encoding.
+                encode_varint((*number as i32 as i64) as u64, buf);
             }
             Ok(())
         } else {
@@ -663,7 +693,9 @@ fn enum_implicit_length(
     if let Val::Enum(name) = value {
         if let Some(number) = unsafe { &encoder.compound.enum_variants }.get(name) {
             Ok(if *number != 0 {
-                (encoded_len_varint(encoder.tag) + encoded_len_varint(*number as u64)) as u32
+                // Sign-extend the enum value as int32 before computing length.
+                (encoded_len_varint(encoder.tag)
+                    + encoded_len_varint((*number as i32 as i64) as u64)) as u32
             } else {
                 0
             })
@@ -691,7 +723,8 @@ pub(crate) fn enum_packed_encode(
                 for (index, value) in items.iter().enumerate() {
                     if let Val::Enum(name) = value {
                         if let Some(number) = unsafe { &encoder.compound.enum_variants }.get(name) {
-                            encode_varint(*number as u64, buf);
+                            // Sign-extend the enum value as int32 before encoding.
+                            encode_varint((*number as i32 as i64) as u64, buf);
                         } else {
                             return Err(
                                 EncodeError::new(ENUM_VARIANT_UNRECOGNIZED).with_index(index)
@@ -722,7 +755,8 @@ fn enum_packed_length(
             for (index, value) in items.iter().enumerate() {
                 if let Val::Enum(name) = value {
                     if let Some(number) = unsafe { &encoder.compound.enum_variants }.get(name) {
-                        total += encoded_len_varint(*number as u64) as u32;
+                        // Sign-extend the enum value as int32 before computing length.
+                        total += encoded_len_varint((*number as i32 as i64) as u64) as u32;
                     } else {
                         return Err(EncodeError::new(ENUM_VARIANT_UNRECOGNIZED).with_index(index));
                     }
@@ -753,7 +787,8 @@ pub(crate) fn enum_expanded_encode(
             if let Val::Enum(name) = value {
                 if let Some(number) = unsafe { &encoder.compound.enum_variants }.get(name) {
                     encode_varint(encoder.tag, buf);
-                    encode_varint(*number as u64, buf);
+                    // Sign-extend the enum value as int32 before encoding.
+                    encode_varint((*number as i32 as i64) as u64, buf);
                 } else {
                     return Err(EncodeError::new(ENUM_VARIANT_UNRECOGNIZED).with_index(index));
                 }
@@ -778,9 +813,10 @@ fn enum_expanded_length(
         for (index, value) in items.iter().enumerate() {
             if let Val::Enum(name) = value {
                 if let Some(number) = unsafe { &encoder.compound.enum_variants }.get(name) {
+                    // Sign-extend the enum value as int32 before computing length.
                     total = u32::saturating_add(
                         total,
-                        tag_length + encoded_len_varint(*number as u64) as u32,
+                        tag_length + encoded_len_varint((*number as i32 as i64) as u64) as u32,
                     );
                 } else {
                     return Err(EncodeError::new(ENUM_VARIANT_UNRECOGNIZED).with_index(index));

@@ -15,7 +15,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use metadata_proto::vimana::runtime::ProtoMessage;
 use prost::bytes::Buf;
-use prost::encoding::{decode_varint, encoded_len_varint, WireType};
+use prost::encoding::{decode_varint, WireType};
 use tonic::codec::{DecodeBuf, Decoder as TonicDecoder};
 use tonic::Status;
 use wasmtime::component::Val;
@@ -229,11 +229,12 @@ fn read_varint(
     src: &mut DecodeBuf<'_>,
     error: &'static str,
 ) -> StdResult<u64, DecodeError> {
+    let remaining_before = src.remaining();
     let varint = decode_varint(src).map_err(
         // Overflowed 64 bits or incomplete at end of buffer.
         |_| DecodeError::new(error),
     )?;
-    let bytes_read = encoded_len_varint(varint) as u32;
+    let bytes_read = (remaining_before - src.remaining()) as u32;
     if bytes_read > *limit {
         return Err(DecodeError::new(BUFFER_OVERFLOW));
     }
@@ -250,6 +251,10 @@ fn decode_tag(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<(u32, WireT
         // Indicates the field number exceeded 32 bits.
         DecodeError::new(INVALID_FIELD_NUMBER)
     })?;
+    // Field number 0 is reserved and invalid.
+    if field_number == 0 {
+        return Err(DecodeError::new(INVALID_FIELD_NUMBER));
+    }
     let wire_type = (tag as u8) & 0b111;
     // There are 6 possible wire types. Check that it is valid before unsafely transmuting.
     if wire_type >= 6 {
@@ -276,8 +281,10 @@ fn read_length_check_overflow(
 }
 
 /// Use wire type information to skip an unknown field.
+#[cold]
 #[inline(always)]
 fn skip(
+    field_number: u32,
     wire_type: WireType,
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
@@ -305,9 +312,38 @@ fn skip(
             *limit -= 4;
             src.advance(4)
         }
-        // StartGroup and EndGroup are deprecated. Always skip.
-        // They have no payload, so once we've read the tag, we've already skipped it.
-        WireType::StartGroup | WireType::EndGroup => (),
+        WireType::StartGroup => {
+            return skip_group(field_number, limit, src);
+        }
+        WireType::EndGroup => {
+            // An EndGroup tag without a preceding StartGroup is an error.
+            return Err(DecodeError::new(UNMATCHED_END_GROUP));
+        }
+    }
+    Ok(())
+}
+
+/// Skip until finding the [`EndGroup`](WireType::EndGroup) tag
+/// that matches a previously-skipped [`StartGroup`](WireType::StartGroup) tag.
+#[cold]
+fn skip_group(
+    field_number: u32,
+    limit: &mut u32,
+    src: &mut DecodeBuf<'_>,
+) -> StdResult<(), DecodeError> {
+    loop {
+        if *limit == 0 {
+            return Err(DecodeError::new(UNMATCHED_START_GROUP));
+        }
+        let (inner_field_number, inner_wire_type) = decode_tag(limit, src)?;
+        if inner_wire_type == WireType::EndGroup {
+            if inner_field_number == field_number {
+                break;
+            } else {
+                return Err(DecodeError::new(UNMATCHED_END_GROUP));
+            }
+        }
+        skip(inner_field_number, inner_wire_type, limit, src)?;
     }
     Ok(())
 }
@@ -363,13 +399,13 @@ const WIRETYPE_NON_VARINT: &str = "Wire type should be varint";
 const WIRETYPE_NON_LENGTH_DELIMITED: &str = "Wire type should be length-delimited";
 const WIRETYPE_NON_32BIT: &str = "Wire type should be 32-bit";
 const WIRETYPE_NON_64BIT: &str = "Wire type should be 64-bit";
-const OVERFLOW_32BIT: &str = "Overflowed 32 bits";
 const INVALID_UTF8: &str = "Invalid UTF-8";
 const INVALID_PERMISSIVE_STRING: &str = "Invalid permissive string";
-const INVALID_BOOL: &str = "Invalid boolean value";
 
 const ENUM_NO_DEFAULT: &str = "Enum has no default value";
 const NON_EXPLICIT_ONEOF_VARIANT: &str = "Oneof variant is not explicitly presence-tracked";
 const MESSAGE_NON_RECORD: &str = "Message is not a record";
 const FIELD_INDEX_OUT_OF_BOUNDS: &str = "Field index out of bounds";
 const REPEATED_NON_LIST: &str = "Repeated value is not a list";
+const UNMATCHED_END_GROUP: &str = "Unmatched end group tag";
+const UNMATCHED_START_GROUP: &str = "Unmatched start group tag";

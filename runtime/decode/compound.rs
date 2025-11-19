@@ -5,15 +5,16 @@ use std::mem::ManuallyDrop;
 use std::result::Result as StdResult;
 
 use anyhow::{anyhow, bail, Context, Result};
-use prost::encoding::{decode_varint, encoded_len_varint, WireType};
+use prost::bytes::Buf;
+use prost::encoding::{decode_varint, WireType};
 use tonic::codec::DecodeBuf;
 use wasmtime::component::Val;
 
 use crate::{
     decode_tag, explicit_scalar, read_length_check_overflow, skip, CompoundMerger, DecodeError,
     MergeFn, Merger, MessageMerger, BUFFER_OVERFLOW, ENUM_NO_DEFAULT, FIELD_INDEX_OUT_OF_BOUNDS,
-    INVALID_VARINT, MESSAGE_NON_RECORD, NON_EXPLICIT_ONEOF_VARIANT, OVERFLOW_32BIT,
-    REPEATED_NON_LIST, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
+    INVALID_VARINT, MESSAGE_NON_RECORD, NON_EXPLICIT_ONEOF_VARIANT, REPEATED_NON_LIST,
+    UNMATCHED_END_GROUP, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
 };
 use metadata_proto::vimana::runtime::field::{Coding, CompoundCoding, ScalarCoding};
 use metadata_proto::vimana::runtime::{Field, ProtoMessage};
@@ -365,7 +366,8 @@ pub(crate) fn message_inner_merge(
                 }
             } else {
                 // Unknown field number. Use wire type information to skip it.
-                skip(wire_type, limit, src).map_err(|e| e.with_field(field_number))?;
+                skip(field_number, wire_type, limit, src)
+                    .map_err(|e| e.with_field(field_number))?;
             }
         }
         Ok(())
@@ -386,16 +388,21 @@ pub(crate) fn message_outer_merge(
         let mut length = read_length_check_overflow(limit, src)?;
 
         let message_merger = unsafe { &(*merger.compound.message) };
-        let mut value = Val::Record(message_merger.defaults.clone());
-        message_inner_merge(
-            &message_merger.fields,
-            wire_type,
-            &mut length,
-            src,
-            &mut value,
-        )?;
 
-        *dst = Val::Option(Some(Box::new(value)));
+        // If there's already a value, merge into it. Otherwise create a new one.
+        let value = if let Val::Option(Some(existing)) = dst {
+            existing.as_mut()
+        } else {
+            *dst = Val::Option(Some(Box::new(Val::Record(message_merger.defaults.clone()))));
+            if let Val::Option(Some(v)) = dst {
+                v.as_mut()
+            } else {
+                unreachable!()
+            }
+        };
+
+        message_inner_merge(&message_merger.fields, wire_type, &mut length, src, value)?;
+
         Ok(())
     } else {
         Err(DecodeError::new(WIRETYPE_NON_LENGTH_DELIMITED))
@@ -469,14 +476,15 @@ fn enum_inner(
     limit: &mut u32,
     src: &mut DecodeBuf<'_>,
 ) -> StdResult<Val, DecodeError> {
+    let remaining_before = src.remaining();
     let varint = decode_varint(src).map_err(|_| DecodeError::new(INVALID_VARINT))?;
-    let bytes_read = encoded_len_varint(varint) as u32;
+    let bytes_read = (remaining_before - src.remaining()) as u32;
     if bytes_read > *limit {
         return Err(DecodeError::new(BUFFER_OVERFLOW));
     }
     *limit -= bytes_read;
 
-    let value = u32::try_from(varint).map_err(|_| DecodeError::new(OVERFLOW_32BIT))?;
+    let value = varint as u32;
     let enum_variants = unsafe { &merger.compound.enum_variants };
     if let Some(name) = enum_variants.get(&value).or_else(|| enum_variants.get(&0)) {
         Ok(Val::Enum(name.clone()))

@@ -31,6 +31,12 @@ use names::ComponentName;
 #[derive(Clone)]
 pub struct ResponseEncoder(Arc<ResponseEncoderInner>);
 
+// Safe because the raw pointers in the encoder always point
+// into the Vec within ResponseEncoderInner,
+// which is protected by an Arc and never modified after initialization.
+unsafe impl Send for ResponseEncoder {}
+unsafe impl Sync for ResponseEncoder {}
+
 /// See [`ResponseEncoder`].
 struct ResponseEncoderInner {
     /// Array of encoders for all messages that may appear within the response.
