@@ -1,13 +1,14 @@
 //! Decode incoming requests into Wasm component record values.
 
 #![feature(push_mut)]
+#![feature(cold_path)]
 
 mod compound;
 mod scalar;
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FmtResult, Write};
-use std::mem::{transmute, ManuallyDrop};
+use std::mem::{ManuallyDrop, transmute};
 use std::ptr::fn_addr_eq;
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -15,9 +16,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use metadata_proto::vimana::runtime::ProtoMessage;
 use prost::bytes::Buf;
-use prost::encoding::{decode_varint, WireType};
-use tonic::codec::{DecodeBuf, Decoder as TonicDecoder};
+use prost::encoding::{WireType, decode_varint};
 use tonic::Status;
+use tonic::codec::{DecodeBuf, Decoder as TonicDecoder};
 use wasmtime::component::Val;
 
 use compound::{

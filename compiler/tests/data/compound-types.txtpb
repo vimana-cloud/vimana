@@ -60,6 +60,12 @@ messages {
       name: "louis"
     }
   }
+  fields {
+    number: 200
+    name: "good-coverage"
+    compound_coding: MESSAGE
+    message: 3
+  }
 }
 messages {
   fields {
@@ -70,4 +76,11 @@ messages {
   }
 }
 messages {
+}
+messages {
+  fields {
+    number: 1
+    name: "unused"
+    scalar_coding: SFIXED64_IMPLICIT
+  }
 }

@@ -2,16 +2,17 @@
 
 use std::collections::HashMap;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use heck::ToKebabCase;
 use prost::Message;
 use prost_types::compiler::code_generator_response::File;
 use prost_types::field_descriptor_proto::{Label, Type};
 use prost_types::{
-    EnumValueDescriptorProto, FieldDescriptorProto, MethodDescriptorProto, ServiceDescriptorProto,
+    EnumValueDescriptorProto, FieldDescriptorProto, MethodDescriptorProto, OneofDescriptorProto,
+    ServiceDescriptorProto,
 };
 
-use crate::{DescriptorMap, ProtoPackage, ProtoSyntax, QualifiedTypeName};
+use crate::{DescriptorMap, ProtoPackage, ProtoSyntax, QualifiedTypeName, TypeNameQualifier};
 use metadata_proto::vimana::runtime::field::Coding;
 use metadata_proto::vimana::runtime::{
     Field, GrpcArity, GrpcMethod, GrpcService, Metadata, ProtoMessage,
@@ -20,32 +21,40 @@ use metadata_proto::vimana::runtime::{
 /// Name of the generated metadata file in the output directory.
 const FILENAME: &str = "metadata.binpb";
 
-const CODING_IMPLICIT_OFFSET: i32 = 0;
-const CODING_PACKED_OFFSET: i32 = 1;
-const CODING_EXPLICIT_OFFSET: i32 = 2;
-const CODING_EXPANDED_OFFSET: i32 = 3;
+/// Coding values occur in a regular cycle of 4 categories:
+/// implicit, packed, explicit, expanded.
+const CODING_CATEGORIES: i32 = 4;
 
-const SCALAR_BYTES_OFFSET: i32 = 0;
-const SCALAR_STRING_UTF8_OFFSET: i32 = 4;
-const SCALAR_STRING_PERMISSIVE_OFFSET: i32 = 8;
-const SCALAR_BOOL_OFFSET: i32 = 12;
-const SCALAR_INT32_OFFSET: i32 = 16;
-const SCALAR_SINT32_OFFSET: i32 = 20;
-const SCALAR_SFIXED32_OFFSET: i32 = 24;
-const SCALAR_UINT32_OFFSET: i32 = 28;
-const SCALAR_FIXED32_OFFSET: i32 = 32;
-const SCALAR_INT64_OFFSET: i32 = 36;
-const SCALAR_SINT64_OFFSET: i32 = 40;
-const SCALAR_SFIXED64_OFFSET: i32 = 44;
-const SCALAR_UINT64_OFFSET: i32 = 48;
-const SCALAR_FIXED64_OFFSET: i32 = 52;
-const SCALAR_FLOAT_OFFSET: i32 = 56;
-const SCALAR_DOUBLE_OFFSET: i32 = 60;
+// The four categories of coding values.
+const CODING_CATEGORY_IMPLICIT: i32 = 0;
+const CODING_CATEGORY_PACKED: i32 = 1;
+const CODING_CATEGORY_EXPLICIT: i32 = 2;
+const CODING_CATEGORY_EXPANDED: i32 = 3;
 
-const COMPOUND_ENUM_OFFSET: i32 = 0;
-const COMPOUND_MESSAGE_OFFSET: i32 = 4;
-const COMPOUND_ONEOF_OFFSET: i32 = 8;
+// Coding constants for scalar values.
+const CODING_SCALAR_BYTES: i32 = 0;
+const CODING_SCALAR_STRING_UTF8: i32 = 4;
+const CODING_SCALAR_STRING_PERMISSIVE: i32 = 8;
+const CODING_SCALAR_BOOL: i32 = 12;
+const CODING_SCALAR_INT32: i32 = 16;
+const CODING_SCALAR_SINT32: i32 = 20;
+const CODING_SCALAR_SFIXED32: i32 = 24;
+const CODING_SCALAR_UINT32: i32 = 28;
+const CODING_SCALAR_FIXED32: i32 = 32;
+const CODING_SCALAR_INT64: i32 = 36;
+const CODING_SCALAR_SINT64: i32 = 40;
+const CODING_SCALAR_SFIXED64: i32 = 44;
+const CODING_SCALAR_UINT64: i32 = 48;
+const CODING_SCALAR_FIXED64: i32 = 52;
+const CODING_SCALAR_FLOAT: i32 = 56;
+const CODING_SCALAR_DOUBLE: i32 = 60;
 
+// Coding constants for compound values.
+const CODING_COMPOUND_ENUM: i32 = 0;
+const CODING_COMPOUND_MESSAGE: i32 = 4;
+const CODING_COMPOUND_ONEOF: i32 = 8;
+
+/// The type used to index into the message definition array.
 type MessageIndex = u32;
 
 /// An incrementally-built model of a Vimana component metadata file,
@@ -75,19 +84,19 @@ impl<'a> MetadataFile<'a> {
 
     pub(crate) fn compile_service(
         &mut self,
-        main_package: &ProtoPackage<'a>,
         service_descriptor: &'a ServiceDescriptorProto,
+        server_qualifier: &TypeNameQualifier<'a>,
     ) -> Result<()> {
         let mut methods: HashMap<String, GrpcMethod> = HashMap::new();
         for method_descriptor in &service_descriptor.method {
             methods.insert(
                 String::from(method_descriptor.name()),
-                self.compile_method(main_package, method_descriptor)?,
+                self.compile_method(method_descriptor, server_qualifier)?,
             );
         }
 
         self.metadata.services.insert(
-            qualified_service_name(main_package, service_descriptor.name()),
+            qualified_service_name(service_descriptor.name(), &server_qualifier.package),
             GrpcService { methods },
         );
 
@@ -96,8 +105,8 @@ impl<'a> MetadataFile<'a> {
 
     fn compile_method(
         &mut self,
-        main_package: &ProtoPackage<'a>,
         method_descriptor: &'a MethodDescriptorProto,
+        server_qualifier: &TypeNameQualifier<'a>,
     ) -> Result<GrpcMethod> {
         Ok(GrpcMethod {
             function: method_descriptor.name().to_kebab_case(),
@@ -112,17 +121,17 @@ impl<'a> MetadataFile<'a> {
             } else {
                 GrpcArity::Unary as i32
             },
-            request: self.compile_message(main_package, method_descriptor.input_type())?,
-            response: self.compile_message(main_package, method_descriptor.output_type())?,
+            request: self.compile_message(method_descriptor.input_type(), server_qualifier)?,
+            response: self.compile_message(method_descriptor.output_type(), server_qualifier)?,
         })
     }
 
     fn compile_message(
         &mut self,
-        main_package: &ProtoPackage<'a>,
         message_name: &'a str,
+        server_qualifier: &TypeNameQualifier<'a>,
     ) -> Result<MessageIndex> {
-        let message_name = QualifiedTypeName::from_path(message_name, main_package);
+        let message_name = QualifiedTypeName::from_path(message_name, server_qualifier);
 
         if let Some(index) = self.message_indices.get(&message_name) {
             // If we already compiled this message, return the existing index.
@@ -138,8 +147,37 @@ impl<'a> MetadataFile<'a> {
                 .ok_or_else(|| anyhow!("Type not found: {message_name}"))?;
 
             let mut fields: Vec<Field> = Vec::new();
+            let mut oneof_fields: Vec<Field> = message_descriptor
+                .oneof_decl
+                .iter()
+                .map(oneof_field)
+                .collect();
             for field_descriptor in &message_descriptor.field {
-                fields.push(self.compile_field(main_package, field_descriptor, syntax)?);
+                let mut field = self.compile_field(field_descriptor, server_qualifier, syntax)?;
+
+                if let Some(oneof_index) = field_descriptor.oneof_index
+                    && !field_descriptor.proto3_optional()
+                {
+                    if let Some(oneof_field) = oneof_fields.get_mut(oneof_index as usize) {
+                        force_explicit_coding(&mut field);
+                        oneof_field.variants.push(field);
+                    } else {
+                        bail!("Invalid oneof index {}", oneof_index);
+                    }
+                } else {
+                    fields.push(field);
+                }
+            }
+            for oneof_field in oneof_fields {
+                // An empty variants vector indicates that the field is a proto3 optional
+                // (synthetic one-of) which does not count as a true one-of.
+                // Protobuf guarantees that all synthetic one-ofs
+                // are preceeded by all true one-ofs,
+                // so we can break early once we encounter the first synthetic.
+                if oneof_field.variants.is_empty() {
+                    break;
+                }
+                fields.push(oneof_field);
             }
 
             self.metadata
@@ -153,8 +191,8 @@ impl<'a> MetadataFile<'a> {
 
     fn compile_field(
         &mut self,
-        main_package: &ProtoPackage<'a>,
         field_descriptor: &'a FieldDescriptorProto,
+        server_qualifier: &TypeNameQualifier<'a>,
         syntax: ProtoSyntax,
     ) -> Result<Field> {
         let mut field = Field::default();
@@ -162,52 +200,53 @@ impl<'a> MetadataFile<'a> {
         field.name = field_descriptor.name().to_kebab_case();
 
         let scalar_type_offset = match field_descriptor.r#type() {
-            Type::Double => SCALAR_DOUBLE_OFFSET,
-            Type::Float => SCALAR_FLOAT_OFFSET,
-            Type::Int64 => SCALAR_INT64_OFFSET,
-            Type::Uint64 => SCALAR_UINT64_OFFSET,
-            Type::Int32 => SCALAR_INT32_OFFSET,
-            Type::Fixed64 => SCALAR_FIXED64_OFFSET,
-            Type::Fixed32 => SCALAR_FIXED32_OFFSET,
-            Type::Bool => SCALAR_BOOL_OFFSET,
+            Type::Double => CODING_SCALAR_DOUBLE,
+            Type::Float => CODING_SCALAR_FLOAT,
+            Type::Int64 => CODING_SCALAR_INT64,
+            Type::Uint64 => CODING_SCALAR_UINT64,
+            Type::Int32 => CODING_SCALAR_INT32,
+            Type::Fixed64 => CODING_SCALAR_FIXED64,
+            Type::Fixed32 => CODING_SCALAR_FIXED32,
+            Type::Bool => CODING_SCALAR_BOOL,
             Type::String => {
                 if syntax == ProtoSyntax::Proto2 {
-                    SCALAR_STRING_PERMISSIVE_OFFSET
+                    CODING_SCALAR_STRING_PERMISSIVE
                 } else {
-                    SCALAR_STRING_UTF8_OFFSET
+                    CODING_SCALAR_STRING_UTF8
                 }
             }
             Type::Message => {
                 let coding_offset = field_coding_offset(field_descriptor, syntax)?;
-                if coding_offset != CODING_EXPLICIT_OFFSET
-                    && coding_offset != CODING_EXPANDED_OFFSET
+                if coding_offset != CODING_CATEGORY_EXPLICIT
+                    && coding_offset != CODING_CATEGORY_EXPANDED
                 {
                     bail!("Message fields must have either explicit or expanded coding");
                 }
                 field.coding = Some(Coding::CompoundCoding(
-                    COMPOUND_MESSAGE_OFFSET + coding_offset,
+                    CODING_COMPOUND_MESSAGE + coding_offset,
                 ));
 
-                field.message = self.compile_message(main_package, field_descriptor.type_name())?;
+                field.message =
+                    self.compile_message(field_descriptor.type_name(), server_qualifier)?;
 
                 return Ok(field);
             }
             Type::Enum => {
                 let coding_offset = field_coding_offset(field_descriptor, syntax)?;
-                field.coding = Some(Coding::CompoundCoding(COMPOUND_ENUM_OFFSET + coding_offset));
+                field.coding = Some(Coding::CompoundCoding(CODING_COMPOUND_ENUM + coding_offset));
 
                 let enum_name =
-                    QualifiedTypeName::from_path(field_descriptor.type_name(), main_package);
+                    QualifiedTypeName::from_path(field_descriptor.type_name(), server_qualifier);
                 field.variants = self.compile_enum_variants(enum_name)?;
 
                 return Ok(field);
             }
-            Type::Bytes => SCALAR_BYTES_OFFSET,
-            Type::Uint32 => SCALAR_UINT32_OFFSET,
-            Type::Sfixed32 => SCALAR_SFIXED32_OFFSET,
-            Type::Sfixed64 => SCALAR_SFIXED64_OFFSET,
-            Type::Sint32 => SCALAR_SINT32_OFFSET,
-            Type::Sint64 => SCALAR_SINT64_OFFSET,
+            Type::Bytes => CODING_SCALAR_BYTES,
+            Type::Uint32 => CODING_SCALAR_UINT32,
+            Type::Sfixed32 => CODING_SCALAR_SFIXED32,
+            Type::Sfixed64 => CODING_SCALAR_SFIXED64,
+            Type::Sint32 => CODING_SCALAR_SINT32,
+            Type::Sint64 => CODING_SCALAR_SINT64,
             Type::Group => {
                 bail!("Protobuf groups are not supported; use nested messages instead")
             }
@@ -259,10 +298,32 @@ impl<'a> MetadataFile<'a> {
     }
 }
 
-fn qualified_service_name<'a>(package: &ProtoPackage<'a>, name: &'a str) -> String {
+fn qualified_service_name(name: &str, package: &ProtoPackage) -> String {
     let mut path = package.path.clone();
     path.push(name);
     path.join(".")
+}
+
+fn oneof_field(oneof: &OneofDescriptorProto) -> Field {
+    let mut field = Field::default();
+    field.name = oneof.name().to_kebab_case();
+    field.coding = Some(Coding::CompoundCoding(CODING_COMPOUND_ONEOF));
+    field
+}
+
+fn force_explicit_coding(field: &mut Field) {
+    field.coding = Some(match field.coding.unwrap() {
+        Coding::ScalarCoding(scalar_coding) => {
+            Coding::ScalarCoding(force_explicit_coding_offset(scalar_coding))
+        }
+        Coding::CompoundCoding(compound_coding) => {
+            Coding::CompoundCoding(force_explicit_coding_offset(compound_coding))
+        }
+    });
+}
+
+fn force_explicit_coding_offset(offset: i32) -> i32 {
+    return (offset / CODING_CATEGORIES) * CODING_CATEGORIES + CODING_CATEGORY_EXPLICIT;
 }
 
 fn enum_variant_field(variant: &EnumValueDescriptorProto) -> Field {
@@ -282,9 +343,9 @@ fn field_coding_offset<'a>(
                 && !field_descriptor.proto3_optional()
                 && field_descriptor.r#type() != Type::Message
             {
-                CODING_IMPLICIT_OFFSET
+                CODING_CATEGORY_IMPLICIT
             } else {
-                CODING_EXPLICIT_OFFSET
+                CODING_CATEGORY_EXPLICIT
             }
         }
         Label::Required => {
@@ -304,9 +365,9 @@ fn field_coding_offset<'a>(
                 .as_ref()
                 .and_then(|options| options.packed);
             if explicitly_packed.unwrap_or(packed_by_default) {
-                CODING_PACKED_OFFSET
+                CODING_CATEGORY_PACKED
             } else {
-                CODING_EXPANDED_OFFSET
+                CODING_CATEGORY_EXPANDED
             }
         }
     })

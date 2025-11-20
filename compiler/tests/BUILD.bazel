@@ -1,5 +1,47 @@
+load("@bazel_skylib//rules:native_binary.bzl", "native_test")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@bazel_skylib//rules/directory:directory.bzl", "directory")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
+load("//compiler:defs.bzl", "vimana_protoc")
+
+package(default_testonly = True)
+
+# For example usage of the conformance test runner, see:
+# https://github.com/protocolbuffers/protobuf/blob/v33.1/conformance/bazel_conformance_test_runner.sh
+native_test(
+    name = "conformance-test",
+    src = "@protobuf//conformance:conformance_test_runner",
+    args = [
+        "--enforce_recommended",
+        "--failure_list",
+        "$(location :conformance-known-failures.txt)",
+        "$(location :conformance)",
+    ],
+    data = [
+        ":conformance",
+        ":conformance-known-failures.txt",
+    ],
+)
+
+rust_binary(
+    name = "conformance",
+    srcs = ["conformance.rs"],
+    data = [
+        ":test-messages-proto3-vimana",
+    ],
+    deps = [
+        ":conformance-prost",
+        "//runtime:metadata-prost",
+        "//runtime:names",
+        "//runtime/decode",
+        "//runtime/encode",
+        "@crates//:prost",
+        "@crates//:tonic",
+        "@crates//:bytes",
+    ],
+)
 
 py_test(
     name = "success-test",
@@ -22,3 +64,48 @@ directory(
     name = "data",
     srcs = glob(["data/**"]),
 )
+
+rust_prost_library(
+    name = "conformance-prost",
+    proto = "@protobuf//conformance:conformance_proto",
+)
+
+vimana_protoc(
+    name = "test-messages-proto2-vimana",
+    srcs = ["@protobuf//src/google/protobuf:test_messages_proto2.proto"],
+)
+
+vimana_protoc(
+    name = "test-messages-proto3-vimana",
+    srcs = [
+        ":test-messages-proto2-dummy-service",
+        "@protobuf//src/google/protobuf:test_messages_proto3.proto",
+    ],
+    include = {
+        ":test-messages-proto2-dummy-service": "",
+        "@protobuf//:well_known_type_protos": "google/protobuf",
+    },
+)
+
+write_file(
+    name = "test-messages-proto2-dummy-service",
+    out = "test-messages-proto2-dummy-service.proto",
+    content = [
+        "syntax = \"proto3\";",
+        "package protobuf_test_messages.proto3;",
+        "import \"google/protobuf/test_messages_proto3.proto\";",
+        "service Dummy {",
+        "  rpc Dummy(TestAllTypesProto3) returns (TestAllTypesProto3) {}",
+        "}",
+    ],
+)
+
+#rust_prost_library(
+#    name = "test-messages-proto2-editions-prost",
+#    proto = "@protobuf//editions:test_messages_proto2_editions_proto",
+#)
+#
+#rust_prost_library(
+#    name = "test-messages-proto3-editions-prost",
+#    proto = "@protobuf//editions:test_messages_proto3_editions_proto",
+#)

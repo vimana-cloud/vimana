@@ -1,20 +1,21 @@
 //! Decoding logic for compound protobuf fields (messages, enums, and oneofs).
 
+use core::hint::cold_path;
 use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 use std::result::Result as StdResult;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use prost::bytes::Buf;
-use prost::encoding::{decode_varint, WireType};
+use prost::encoding::{WireType, decode_varint};
 use tonic::codec::DecodeBuf;
 use wasmtime::component::Val;
 
 use crate::{
-    decode_tag, explicit_scalar, read_length_check_overflow, skip, CompoundMerger, DecodeError,
-    MergeFn, Merger, MessageMerger, BUFFER_OVERFLOW, ENUM_NO_DEFAULT, FIELD_INDEX_OUT_OF_BOUNDS,
-    INVALID_VARINT, MESSAGE_NON_RECORD, NON_EXPLICIT_ONEOF_VARIANT, REPEATED_NON_LIST,
-    UNMATCHED_END_GROUP, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
+    BUFFER_OVERFLOW, CompoundMerger, DecodeError, ENUM_NO_DEFAULT, FIELD_INDEX_OUT_OF_BOUNDS,
+    INVALID_VARINT, MESSAGE_NON_RECORD, MergeFn, Merger, MessageMerger, NON_EXPLICIT_ONEOF_VARIANT,
+    REPEATED_NON_LIST, UNMATCHED_END_GROUP, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
+    decode_tag, explicit_scalar, read_length_check_overflow, skip,
 };
 use metadata_proto::vimana::runtime::field::{Coding, CompoundCoding, ScalarCoding};
 use metadata_proto::vimana::runtime::{Field, ProtoMessage};
@@ -46,6 +47,7 @@ impl Merger {
             let default = default.clone();
             Ok((merger, Val::Enum(default)))
         } else {
+            cold_path();
             Err(anyhow!("Implicit enum must have a default value"))
         }
     }
@@ -360,12 +362,14 @@ pub(crate) fn message_inner_merge(
                 } else {
                     // The index calculated during compilation is out of bounds.
                     // This should be impossible.
+                    cold_path();
                     return Err(
                         DecodeError::new(FIELD_INDEX_OUT_OF_BOUNDS).with_field(field_number)
                     );
                 }
             } else {
                 // Unknown field number. Use wire type information to skip it.
+                cold_path();
                 skip(field_number, wire_type, limit, src)
                     .map_err(|e| e.with_field(field_number))?;
             }
@@ -373,6 +377,7 @@ pub(crate) fn message_inner_merge(
         Ok(())
     } else {
         // API violation - this method should always be called for a `Record`.
+        cold_path();
         Err(DecodeError::new(MESSAGE_NON_RECORD))
     }
 }
@@ -456,7 +461,18 @@ pub(crate) fn oneof_variant_merge(
     let variant = unsafe { &merger.compound.oneof_variant };
     let variant_name = variant.0.clone();
     let variant_merger = variant.1.as_ref();
-    let mut value = Val::Option(None);
+
+    // If the same variant has already been set, use it as the starting value for merging.
+    // This enables proper merge semantics for message fields within oneofs.
+    let mut value = if let Val::Option(Some(existing_variant)) = dst
+        && let Val::Variant(existing_name, existing_value) = existing_variant.as_ref()
+        && existing_name == &variant_name
+    {
+        cold_path();
+        Val::Option(existing_value.as_ref().map(|v| v.clone()))
+    } else {
+        Val::Option(None)
+    };
 
     // Call the inner merge function, then wrap the result as a named variant.
     (variant_merger.merge)(variant_merger, wire_type, limit, src, &mut value)?;
@@ -466,6 +482,7 @@ pub(crate) fn oneof_variant_merge(
         Ok(())
     } else {
         // This should have been verified in `compile_oneof_variant`.
+        cold_path();
         Err(DecodeError::new(NON_EXPLICIT_ONEOF_VARIANT))
     }
 }

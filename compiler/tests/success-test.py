@@ -1,3 +1,17 @@
+"""
+These tests confirm basic operation of the compiler "in isolation"
+by verifying that compiling each Protobuf file under the `data/` subdirectory
+results in the corresponding expected WIT and metadata files.
+
+It does not involve any of the actual encoding / decoding logic from the runtime.
+For a much more comprehensive test suite that also covers en-/de-coding,
+see the conformance test.
+
+The output metadata file is converted to Protobuf text format,
+rather than the binary format produced by the compiler,
+for easier manual editing and verification.
+"""
+
 from os import listdir
 from os.path import exists, splitext
 from os.path import join as joinPath

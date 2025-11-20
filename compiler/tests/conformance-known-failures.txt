@@ -1,0 +1,17 @@
+# These tests verify that a single unknown field (an unexpected field number in the input)
+# is preserved in the output.
+Required.Proto2.ProtobufInput.UnknownVarint.ProtobufOutput
+Required.Proto3.ProtobufInput.UnknownVarint.ProtobufOutput
+
+# These tests verify that repeated unknown fields are preserved in the output
+# in the same order in which they appeared in the input.
+Required.Proto3.ProtobufInput.UnknownOrdering.ProtobufOutput
+Required.Proto2.ProtobufInput.UnknownOrdering.ProtobufOutput
+
+# Tests that fail due to lack of MessageSet support.
+# MessageSet is a proto2 feature that Vimana does not support.
+Required.Proto2.ProtobufInput.ValidMessageSetEncoding.ProtobufOutput
+Required.Proto2.ProtobufInput.ValidMessageSetEncoding.OutOfOrderGroupsEntries.ProtobufOutput
+Required.Proto2.ProtobufInput.MessageSetEncoding.UnknownExtension.ProtobufOutput
+Recommended.Proto2.ProtobufInput.ValidMessageSetEncoding.SubmessageEncoding.ProtobufOutput
+Recommended.Proto2.ProtobufInput.ValidMessageSetEncoding.SubmessageEncoding.NotUnknown.ProtobufOutput

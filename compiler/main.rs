@@ -19,6 +19,7 @@ use wit::WitFile;
 pub(crate) const VIMANA_API_VERSION: &str = "0.0.0";
 /// Version of the WASI API to import.
 pub(crate) const WASI_API_VERSION: &str = "0.2.0";
+
 /// Bitwise union of supported features.
 /// https://github.com/protocolbuffers/protobuf/blob/v31.1/src/google/protobuf/compiler/code_generator.h#L96
 const SUPPORTED_FEATURES: u64 = Feature::Proto3Optional as u64;
@@ -33,7 +34,9 @@ pub(crate) enum ProtoSyntax {
 /// A fully-qualified type name for either a message or enum type.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub(crate) struct QualifiedTypeName<'a> {
+    /// The "namespace" in which this type lives.
     qualifier: TypeNameQualifier<'a>,
+    /// Short name of the type (Protobuf syntax).
     name: &'a str,
 }
 
@@ -41,8 +44,7 @@ pub(crate) struct QualifiedTypeName<'a> {
 /// the package, and (optionally) nesting messages.
 /// Both messages and enums can be defined within an outer message,
 /// which can itself be defined within an outer message, and so on.
-///
-/// Captures both layers of namespacing as a unit.
+/// The structure captures both layers of namespacing as a unit.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub(crate) struct TypeNameQualifier<'a> {
     package: ProtoPackage<'a>,
@@ -101,16 +103,18 @@ fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
     for file_to_generate in &request.file_to_generate {
         let (file_descriptor, syntax) = descriptors.get_file(file_to_generate)?;
 
-        let package = set_or_check_main_package(file_descriptor.package(), &main_package)?;
-        let qualifier = TypeNameQualifier::top_level(&package);
+        let package_qualifier = TypeNameQualifier::top_level(set_or_check_main_package(
+            file_descriptor.package(),
+            &main_package,
+        )?);
 
         for service_descriptor in &file_descriptor.service {
-            wit_file.compile_service(&package, service_descriptor)?;
-            metadata_file.compile_service(&package, service_descriptor)?;
+            wit_file.compile_service(service_descriptor, &package_qualifier)?;
+            metadata_file.compile_service(service_descriptor, &package_qualifier)?;
         }
 
         for message_descriptor in &file_descriptor.message_type {
-            wit_file.compile_message(&package, message_descriptor, &qualifier, syntax.clone())?;
+            wit_file.compile_message(message_descriptor, &package_qualifier, syntax.clone())?;
         }
     }
 
@@ -151,7 +155,7 @@ impl<'a> DescriptorMap<'a> {
             };
 
             let qualifier =
-                TypeNameQualifier::into_top_level(ProtoPackage::parse(file_descriptor.package()));
+                TypeNameQualifier::top_level(ProtoPackage::parse(file_descriptor.package()));
 
             for message_type in &file_descriptor.message_type {
                 descriptors.insert_message(message_type, qualifier.clone(), syntax);
@@ -218,7 +222,7 @@ impl<'a> DescriptorMap<'a> {
 }
 
 impl<'a> QualifiedTypeName<'a> {
-    pub(crate) fn from_path(type_path: &'a str, default_package: &ProtoPackage<'a>) -> Self {
+    pub(crate) fn from_path(type_path: &'a str, qualifier_context: &TypeNameQualifier<'a>) -> Self {
         let mut parts = type_path.split('.');
 
         // The final part is the short name
@@ -247,7 +251,12 @@ impl<'a> QualifiedTypeName<'a> {
             }
             ProtoPackage::new(package)
         } else {
-            default_package.clone()
+            // Right now, this just assumes that any non-fully-qualified type name
+            // must refer to a top-level type in the same Protobuf package
+            // as the qualifier context.
+            // TODO: A proper search of the DescriptorMap using C++-style scoping rules.
+            // github.com/protocolbuffers/protobuf/blob/v33.1/src/google/protobuf/descriptor.proto#L296-L300
+            qualifier_context.package.clone()
         };
 
         // Any remaining parts must be outer nesting messages.
@@ -263,6 +272,12 @@ impl<'a> QualifiedTypeName<'a> {
             name,
         }
     }
+
+    /// Assuming this type name represents a message type,
+    /// return the qualifier for types nested within that message.
+    fn subqualifier(&self) -> TypeNameQualifier<'a> {
+        self.qualifier.nested(self.name)
+    }
 }
 
 impl<'a> Display for QualifiedTypeName<'a> {
@@ -276,11 +291,7 @@ impl<'a> Display for QualifiedTypeName<'a> {
 }
 
 impl<'a> TypeNameQualifier<'a> {
-    fn top_level(package: &ProtoPackage<'a>) -> Self {
-        Self::into_top_level(package.clone())
-    }
-
-    fn into_top_level(package: ProtoPackage<'a>) -> Self {
+    fn top_level(package: ProtoPackage<'a>) -> Self {
         Self {
             package,
             outer_messages: Vec::default(),
@@ -321,7 +332,7 @@ impl<'a> ProtoPackage<'a> {
     }
 
     fn top_level_qualifier(&self) -> TypeNameQualifier<'a> {
-        TypeNameQualifier::top_level(self)
+        TypeNameQualifier::top_level(self.clone())
     }
 }
 

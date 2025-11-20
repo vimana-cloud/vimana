@@ -27,6 +27,11 @@ message OuterMessage {
 
   // I have a few.
   repeated Friend a_third = 4;
+
+  TestInterfaceNamespacing good_coverage = 200;
+
+  // This should be co-located with the `dilemma` variant.
+  message TestInterfaceNamespacing { sfixed64 unused = 1; }
 }
 
 // Like a Matryoshka.

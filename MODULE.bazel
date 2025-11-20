@@ -47,7 +47,7 @@ use_repo(switched_rules, "com_google_googleapis_imports")
 
 # Rust setup:
 
-RUST_EDITION = "2021"
+RUST_EDITION = "2024"
 
 # Must use nightly to take advantage of experimental features (`#![feature]`).
 # https://github.com/bazelbuild/rules_rust/blob/0.67.0/rust/private/common.bzl#L36

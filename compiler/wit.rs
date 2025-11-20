@@ -1,20 +1,19 @@
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use heck::ToKebabCase;
 use prost_types::compiler::code_generator_response::File;
 use prost_types::field_descriptor_proto::{Label, Type as ProtoType};
 use prost_types::{DescriptorProto, EnumDescriptorProto, ServiceDescriptorProto};
 use wit_encoder::{
     Enum, Field, Ident, Include, Interface, NestedPackage, Package, PackageName, Record,
-    StandaloneFunc, Type as WitType, TypeDef as WitTypeDef, TypeDefKind as WitTypeDefKind, World,
-    WorldItem,
+    StandaloneFunc, Type, TypeDef, TypeDefKind, Variant, VariantCase, World, WorldItem,
 };
 
 use crate::{
-    sorted_map_entries, sorted_set_values, DescriptorMap, ProtoPackage, ProtoSyntax,
-    QualifiedTypeName, TypeNameQualifier, VIMANA_API_VERSION, WASI_API_VERSION,
+    DescriptorMap, ProtoPackage, ProtoSyntax, QualifiedTypeName, TypeNameQualifier,
+    VIMANA_API_VERSION, WASI_API_VERSION, sorted_map_entries, sorted_set_values,
 };
 
 /// Name of the generated WIT file in the output directory.
@@ -28,9 +27,12 @@ const PACKAGE_NAME: &str = "proto";
 /// The single generated world always has the static name `server`.
 /// Individual services are converted to inline interfaces in exported by that world.
 const WORLD_NAME: &str = "server";
-/// Message types are compiled into an interface of the main package called `types`.
+/// Message and enum types are compiled into an interface called `types`.
 const TYPES_INTERFACE_NAME: &str = "types";
+/// One-ofs are compiled into an interface called `oneofs`.
+const ONEOFS_INTERFACE_NAME: &str = "oneofs";
 
+/// The name of the single parameter of each method handler function.
 const REQUEST_PARAMETER_NAME: &str = "request";
 
 /// An incrementally-built model of a Vimana server WIT file,
@@ -54,23 +56,61 @@ struct ServerWorld<'a> {
     /// The set of interfaces exported by this world.
     /// Each interface corresponds to a Protobuf service.
     services: Vec<Interface>,
-    /// The set of all types that appear as either requests or responses
+    /// The set of all message type names that appear as either requests or responses
     /// in any of the methods of the services in the main package.
     /// These types must be imported into the world with a `use` statement.
     types_used: HashSet<QualifiedTypeName<'a>>,
 }
 
+/// A collection of message and enum type definitions within the same "qualifier namespace".
+///
 /// All message types are organized by "name qualifiers",
 /// which consist of the Protobuf package and, optionally, any outer nesting message names
 /// (e.g. `.package.OuterMessage` for type `.package.OuterMessage.InnerMessage`).
 /// Each unique qualifier maps to a distinct WIT interface
 /// holding the record and enumeration type definitions within that "qualifier namespace".
 struct TypesInterface<'a> {
-    /// The set records and enumerations defined within the "qualifier namespace".
-    types_defined: Vec<WitTypeDef>,
-    /// The set of all types that are referenced by types in this interface,
+    /// The set records and enumerations defined within the qualifier namespace.
+    types_defined: Vec<TypeDef>,
+
+    /// The set of all messages and enums that are referenced by types in this interface,
     /// but which belong to a different interface.
     /// These types must be imported into the interface with a `use` statement.
+    types_used: HashSet<QualifiedTypeName<'a>>,
+
+    /// The set of all one-ofs that are referenced by messages in this interface.
+    /// Unlike messages and enums, one-ofs are "single-use";
+    /// a one-of type will always be referenced in exactly one single place.
+    /// One-of type name qualifiers are always nested inside an outer message.
+    oneofs_used: Vec<QualifiedTypeName<'a>>,
+
+    /// An optional [one-ofs interfaces](OneofsInterface)
+    /// that exist in the same package as this types interface.
+    ///
+    /// This would occur when a nested message sits alongside a one-of.
+    /// For instance, in this example,
+    /// the `choice` one-of would be in the same package as the `Inner` message:
+    ///     message Outer {
+    ///         oneof choice {
+    ///             first = 1;
+    ///             second = 2;
+    ///         }
+    ///         message Inner {}
+    ///     }
+    oneofs_interface: Option<OneofsInterface<'a>>,
+}
+
+/// Similar to a [`TypesInterface`] but for one-of fields,
+/// which are not considered standalone types in Protobuf,
+/// but must be modeled as such in WIT (as [`Variant`] types).
+///
+/// There will be exactly one one-ofs interface
+/// for each message type that includes at least one `oneof` field.
+struct OneofsInterface<'a> {
+    /// The set of one-of [variants](Variant) defined within the qualifier namespace.
+    oneofs_defined: Vec<TypeDef>,
+    /// The set of all messages and enums that are referenced by types in this interface.
+    /// Such types must necessarily belong to another interface.
     types_used: HashSet<QualifiedTypeName<'a>>,
 }
 
@@ -86,8 +126,8 @@ impl<'a> WitFile<'a> {
 
     pub(crate) fn compile_service(
         &mut self,
-        server_package: &ProtoPackage<'a>,
         service_descriptor: &'a ServiceDescriptorProto,
+        package_qualifier: &TypeNameQualifier<'a>,
     ) -> Result<()> {
         let mut service = Interface::new(service_descriptor.name().to_kebab_case());
 
@@ -112,16 +152,16 @@ impl<'a> WitFile<'a> {
             }
 
             let request_type =
-                QualifiedTypeName::from_path(method_descriptor.input_type(), server_package);
+                QualifiedTypeName::from_path(method_descriptor.input_type(), package_qualifier);
             let response_type =
-                QualifiedTypeName::from_path(method_descriptor.output_type(), server_package);
+                QualifiedTypeName::from_path(method_descriptor.output_type(), package_qualifier);
 
             let mut function = StandaloneFunc::new(method_descriptor.name().to_kebab_case(), false);
             function.set_params((
                 REQUEST_PARAMETER_NAME,
-                WitType::Named(Ident::from(request_type.name.to_kebab_case())),
+                Type::Named(Ident::from(request_type.name.to_kebab_case())),
             ));
-            function.set_result(Some(WitType::Named(Ident::from(
+            function.set_result(Some(Type::Named(Ident::from(
                 response_type.name.to_kebab_case(),
             ))));
             service.function(function);
@@ -136,7 +176,6 @@ impl<'a> WitFile<'a> {
 
     pub(crate) fn compile_message(
         &mut self,
-        server_package: &ProtoPackage<'a>,
         message_descriptor: &'a DescriptorProto,
         qualifier: &TypeNameQualifier<'a>,
         syntax: ProtoSyntax,
@@ -145,21 +184,16 @@ impl<'a> WitFile<'a> {
         if !self.types_compiled.contains(&type_name) {
             self.types_compiled.insert(type_name.clone());
 
-            let (type_definition, types_used) = message_type_definition(
-                server_package,
-                message_descriptor,
-                type_name.name,
-                syntax,
-            )?;
+            let (types_interface, oneofs_interface) =
+                message_definition(message_descriptor, &type_name, syntax)?;
 
-            for type_used in &types_used {
+            for type_used in &types_interface.types_used {
                 // Check if it's a message type first
                 if let Some((depended_descriptor, depended_syntax)) =
                     self.descriptors.get_message(type_used)
                 {
                     // Recursively compile message dependencies
                     self.compile_message(
-                        server_package,
                         depended_descriptor,
                         &type_used.qualifier,
                         depended_syntax,
@@ -171,7 +205,8 @@ impl<'a> WitFile<'a> {
                 }
             }
 
-            self.upsert_type_definition(type_name.qualifier, type_definition, types_used);
+            self.upsert_oneofs_interface(type_name.subqualifier(), oneofs_interface);
+            self.upsert_types_interface(type_name.qualifier, types_interface);
         }
 
         Ok(())
@@ -187,29 +222,43 @@ impl<'a> WitFile<'a> {
             self.types_compiled.insert(type_name.clone());
 
             let type_definition = enum_type_definition(enum_descriptor, type_name.name);
-            self.upsert_type_definition(type_name.qualifier, type_definition, Vec::new());
+            self.upsert_types_interface(
+                type_name.qualifier,
+                TypesInterface::define_enum(type_definition),
+            );
         }
     }
 
-    fn upsert_type_definition(
+    fn upsert_types_interface(
         &mut self,
         qualifier: TypeNameQualifier<'a>,
-        type_definition: WitTypeDef,
-        types_used: Vec<QualifiedTypeName<'a>>,
+        types_interface: TypesInterface<'a>,
     ) {
         match self.types_interfaces.get_mut(&qualifier) {
-            Some(types_interface) => {
-                types_interface.types_defined.push(type_definition);
-                types_interface.types_used.extend(types_used);
+            Some(existing_types_interface) => {
+                existing_types_interface.merge(types_interface);
             }
             None => {
-                self.types_interfaces.insert(
-                    qualifier,
-                    TypesInterface {
-                        types_defined: vec![type_definition],
-                        types_used: types_used.into_iter().collect(),
-                    },
-                );
+                self.types_interfaces.insert(qualifier, types_interface);
+            }
+        }
+    }
+
+    fn upsert_oneofs_interface(
+        &mut self,
+        qualifier: TypeNameQualifier<'a>,
+        oneofs_interface: OneofsInterface<'a>,
+    ) {
+        if !oneofs_interface.oneofs_defined.is_empty() {
+            match self.types_interfaces.get_mut(&qualifier) {
+                Some(existing_types_interface) => {
+                    debug_assert!(existing_types_interface.oneofs_interface.is_none());
+                    existing_types_interface.oneofs_interface = Some(oneofs_interface);
+                }
+                None => {
+                    self.types_interfaces
+                        .insert(qualifier, TypesInterface::for_oneofs(oneofs_interface));
+                }
             }
         }
     }
@@ -223,7 +272,9 @@ impl<'a> WitFile<'a> {
         if let Some(server_package_types_interface) =
             self.types_interfaces.remove(&server_package_qualifier)
         {
-            server_package.interface(server_package_types_interface.into_interface());
+            server_package.interface(
+                server_package_types_interface.into_interface(&server_package_qualifier),
+            );
         }
         wit_contents.push_str(server_package.to_string().as_str());
 
@@ -247,38 +298,67 @@ impl<'a> WitFile<'a> {
     }
 }
 
-fn message_type_definition<'a>(
-    server_package: &ProtoPackage<'a>,
+/// Return a single-definition [types interface](TypesInterface) for a message type,
+/// which can be merged with other types interfaces in the same qualifying context.
+///
+/// Also return a dedicated [one-ofs interface](OneofsInterface) for this message type.
+fn message_definition<'a>(
     descriptor: &'a DescriptorProto,
-    name: &'a str,
+    message_type_name: &QualifiedTypeName<'a>,
     syntax: ProtoSyntax,
-) -> Result<(WitTypeDef, Vec<QualifiedTypeName<'a>>)> {
-    let mut wit_fields: Vec<Field> = Vec::with_capacity(descriptor.field.len());
+) -> Result<(TypesInterface<'a>, OneofsInterface<'a>)> {
+    // The set of fields (excluding one-ofs) that define this message type.
+    let mut fields: Vec<Field> = Vec::with_capacity(descriptor.field.len());
+    // Mapping from the short names (Protobuf syntax) of one-of fields contained within this message
+    // to lists of variant cases defining the one-of field.
+    // These must be handled separately from the rest of the fields
+    // because their definition cannot be completed until processing all fields.
+    let mut oneof_fields: Vec<(&'a str, Vec<VariantCase>)> = descriptor
+        .oneof_decl
+        .iter()
+        .map(|oneof_decl| (oneof_decl.name(), Vec::new()))
+        .collect();
+    // The set of external message and enum types referenced by this message
+    // (may contain duplicates that will be de-duped later).
     let mut types_used: Vec<QualifiedTypeName> = Vec::new();
+    // The set of fully-qualified type names for one-of fields within this message.
+    // Has the same length as `oneofs_defined` (because one-of types are "single-use").
+    let mut oneofs_used: Vec<QualifiedTypeName> = Vec::new();
+    // The set of definitions for one-of fields within this message.
+    // Has the same length as `oneofs_used` (because one-of types are "single-use").
+    let mut oneofs_defined: Vec<TypeDef> = Vec::new();
+    // The set of message and enum types referenced by any of the one-ofs in this message
+    // (may contain duplicates that will be de-duped later).
+    let mut oneof_types_used: Vec<QualifiedTypeName> = Vec::new();
+
     for field_descriptor in &descriptor.field {
+        let mut type_used: Option<QualifiedTypeName> = None;
+
         let mut wit_type = match field_descriptor.r#type() {
-            ProtoType::Double => WitType::F64,
-            ProtoType::Float => WitType::F32,
-            ProtoType::Int64 => WitType::S64,
-            ProtoType::Uint64 => WitType::U64,
-            ProtoType::Int32 => WitType::S32,
-            ProtoType::Fixed64 => WitType::U64,
-            ProtoType::Fixed32 => WitType::U32,
-            ProtoType::Bool => WitType::Bool,
-            ProtoType::String => WitType::String,
+            ProtoType::Double => Type::F64,
+            ProtoType::Float => Type::F32,
+            ProtoType::Int64 => Type::S64,
+            ProtoType::Uint64 => Type::U64,
+            ProtoType::Int32 => Type::S32,
+            ProtoType::Fixed64 => Type::U64,
+            ProtoType::Fixed32 => Type::U32,
+            ProtoType::Bool => Type::Bool,
+            ProtoType::String => Type::String,
             ProtoType::Message | ProtoType::Enum => {
-                let type_name =
-                    QualifiedTypeName::from_path(field_descriptor.type_name(), server_package);
-                let wit_short_name = type_name.name.to_kebab_case();
-                types_used.push(type_name);
-                WitType::named(wit_short_name)
+                let field_type_name = QualifiedTypeName::from_path(
+                    field_descriptor.type_name(),
+                    &message_type_name.qualifier,
+                );
+                let wit_short_name = field_type_name.name.to_kebab_case();
+                type_used = Some(field_type_name);
+                Type::named(wit_short_name)
             }
-            ProtoType::Bytes => WitType::list(WitType::U8),
-            ProtoType::Uint32 => WitType::U32,
-            ProtoType::Sfixed32 => WitType::S32,
-            ProtoType::Sfixed64 => WitType::S64,
-            ProtoType::Sint32 => WitType::S32,
-            ProtoType::Sint64 => WitType::S64,
+            ProtoType::Bytes => Type::list(Type::U8),
+            ProtoType::Uint32 => Type::U32,
+            ProtoType::Sfixed32 => Type::S32,
+            ProtoType::Sfixed64 => Type::S64,
+            ProtoType::Sint32 => Type::S32,
+            ProtoType::Sint64 => Type::S64,
             ProtoType::Group => {
                 bail!("Protobuf groups are not supported; use nested messages instead")
             }
@@ -286,7 +366,7 @@ fn message_type_definition<'a>(
         wit_type = match field_descriptor.label() {
             Label::Optional => {
                 if syntax == ProtoSyntax::Proto2 || field_descriptor.proto3_optional() {
-                    WitType::option(wit_type)
+                    Type::option(wit_type)
                 } else {
                     wit_type
                 }
@@ -295,28 +375,77 @@ fn message_type_definition<'a>(
                 // YAGNI (this is proto2-only syntax that's highly discouraged).
                 bail!("Required fields are not supported");
             }
-            Label::Repeated => WitType::list(wit_type),
+            Label::Repeated => Type::list(wit_type),
         };
-        wit_fields.push(Field::new(
-            field_descriptor.name().to_kebab_case(),
-            wit_type,
+
+        // Proto3 optionals use a hack for presence tracking called "synthetic one-ofs"
+        // Those are not real one-ofs.
+        if !field_descriptor.proto3_optional()
+            && let Some(oneof_index) = field_descriptor.oneof_index
+        {
+            if let Some((_, cases)) = oneof_fields.get_mut(oneof_index as usize) {
+                cases.push(VariantCase::value(
+                    field_descriptor.name().to_kebab_case(),
+                    wit_type,
+                ));
+                if let Some(type_used) = type_used {
+                    oneof_types_used.push(type_used);
+                }
+            } else {
+                bail!("Invalid oneof index {}", oneof_index);
+            }
+        } else {
+            fields.push(Field::new(
+                field_descriptor.name().to_kebab_case(),
+                wit_type,
+            ));
+            if let Some(type_used) = type_used {
+                types_used.push(type_used);
+            }
+        }
+    }
+
+    let oneof_qualifier = message_type_name.subqualifier();
+    for (oneof_name_proto, cases) in oneof_fields {
+        // An empty cases vector indicates that the field is a proto3 optional (synthetic one-of)
+        // which does not count as a true one-of.
+        // Protobuf guarantees that all synthetic one-ofs are preceeded by all true one-ofs,
+        // so we can break early once we encounter the first synthetic.
+        if cases.is_empty() {
+            break;
+        }
+
+        let oneof_name_wit = oneof_name_proto.to_kebab_case();
+        oneofs_defined.push(TypeDef::new(
+            oneof_name_wit.clone(),
+            TypeDefKind::Variant(Variant::from(cases)),
+        ));
+        oneofs_used.push(oneof_qualifier.r#type(oneof_name_proto));
+        fields.push(Field::new(
+            oneof_name_wit.clone(),
+            Type::named(oneof_name_wit),
         ));
     }
+
     Ok((
-        WitTypeDef::new(
-            name.to_kebab_case(),
-            WitTypeDefKind::Record(Record::new(wit_fields)),
+        TypesInterface::define_message(
+            TypeDef::new(
+                message_type_name.name.to_kebab_case(),
+                TypeDefKind::Record(Record::new(fields)),
+            ),
+            types_used,
+            oneofs_used,
         ),
-        types_used,
+        OneofsInterface::define(oneofs_defined, oneof_types_used),
     ))
 }
 
-fn enum_type_definition<'a>(enum_descriptor: &'a EnumDescriptorProto, name: &'a str) -> WitTypeDef {
+fn enum_type_definition<'a>(enum_descriptor: &'a EnumDescriptorProto, name: &'a str) -> TypeDef {
     let mut wit_enum = Enum::empty();
     for variant in &enum_descriptor.value {
         wit_enum.case(variant.name().to_kebab_case());
     }
-    WitTypeDef::new(name.to_kebab_case(), WitTypeDefKind::Enum(wit_enum))
+    TypeDef::new(name.to_kebab_case(), TypeDefKind::Enum(wit_enum))
 }
 
 impl<'a> ServerWorld<'a> {
@@ -327,7 +456,7 @@ impl<'a> ServerWorld<'a> {
             "vimana:grpc/imports@{VIMANA_API_VERSION}"
         )));
         for used_type in sorted_set_values(self.types_used) {
-            world.use_type(used_type.use_type_target(), used_type.use_type_item(), None);
+            world.use_type(used_type.use_type_target(), used_type.use_item(), None);
         }
         for service in self.services {
             world.item(WorldItem::InlineInterfaceExport(service));
@@ -337,10 +466,57 @@ impl<'a> ServerWorld<'a> {
 }
 
 impl<'a> TypesInterface<'a> {
-    fn into_interface(self) -> Interface {
+    fn define_message(
+        type_definition: TypeDef,
+        types_used: Vec<QualifiedTypeName<'a>>,
+        oneofs_used: Vec<QualifiedTypeName<'a>>,
+    ) -> Self {
+        Self {
+            types_defined: vec![type_definition],
+            types_used: types_used.into_iter().collect(),
+            oneofs_used,
+            oneofs_interface: None,
+        }
+    }
+
+    fn define_enum(type_definition: TypeDef) -> Self {
+        Self {
+            types_defined: vec![type_definition],
+            types_used: HashSet::new(),
+            oneofs_used: Vec::new(),
+            oneofs_interface: None,
+        }
+    }
+
+    fn for_oneofs(oneofs_interface: OneofsInterface<'a>) -> Self {
+        Self {
+            types_defined: Vec::new(),
+            types_used: HashSet::new(),
+            oneofs_used: Vec::new(),
+            oneofs_interface: Some(oneofs_interface),
+        }
+    }
+
+    fn merge(&mut self, other: TypesInterface<'a>) {
+        self.types_defined.extend(other.types_defined);
+        self.types_used.extend(other.types_used);
+        self.oneofs_used.extend(other.oneofs_used);
+        if other.oneofs_interface.is_some() {
+            debug_assert!(self.oneofs_interface.is_none());
+            self.oneofs_interface = other.oneofs_interface;
+        }
+    }
+
+    fn into_interface(self, qualifier: &TypeNameQualifier<'a>) -> Interface {
         let mut interface = Interface::new(TYPES_INTERFACE_NAME);
         for used_type in sorted_set_values(self.types_used) {
-            interface.use_type(used_type.use_type_target(), used_type.use_type_item(), None);
+            // Only add use statements for types from different qualifiers.
+            if &used_type.qualifier != qualifier {
+                interface.use_type(used_type.use_type_target(), used_type.use_item(), None);
+            }
+        }
+        for used_oneof in self.oneofs_used {
+            interface.use_type(used_oneof.use_oneof_target(), used_oneof.use_item(), None);
         }
         for defined_type in self.types_defined {
             interface.type_def(defined_type);
@@ -348,28 +524,63 @@ impl<'a> TypesInterface<'a> {
         interface
     }
 
-    fn into_nested_package(self, qualifier: TypeNameQualifier<'a>) -> NestedPackage {
-        let mut package = NestedPackage::new(qualifier.into_namespaced_package_name());
-        package.interface(self.into_interface());
+    fn into_nested_package(mut self, qualifier: TypeNameQualifier<'a>) -> NestedPackage {
+        let mut package = NestedPackage::new(qualifier.namespaced_package_name());
+        let oneofs_interface = self.oneofs_interface.take();
+        if !self.types_defined.is_empty() {
+            package.interface(self.into_interface(&qualifier));
+        }
+        if let Some(oneofs_interface) = oneofs_interface {
+            package.interface(oneofs_interface.into_interface());
+        }
         package
+    }
+}
+
+impl<'a> OneofsInterface<'a> {
+    fn define(oneofs_defined: Vec<TypeDef>, types_used: Vec<QualifiedTypeName<'a>>) -> Self {
+        Self {
+            oneofs_defined,
+            types_used: types_used.into_iter().collect(),
+        }
+    }
+
+    fn into_interface(self) -> Interface {
+        let mut interface = Interface::new(ONEOFS_INTERFACE_NAME);
+        for used_type in sorted_set_values(self.types_used) {
+            interface.use_type(used_type.use_type_target(), used_type.use_item(), None);
+        }
+        for defined_oneof in self.oneofs_defined {
+            interface.type_def(defined_oneof);
+        }
+        interface
     }
 }
 
 impl<'a> QualifiedTypeName<'a> {
     fn use_type_target(&self) -> Ident {
+        self.use_target(TYPES_INTERFACE_NAME)
+    }
+
+    fn use_oneof_target(&self) -> Ident {
+        self.use_target(ONEOFS_INTERFACE_NAME)
+    }
+
+    fn use_target(&self, interface_name: &str) -> Ident {
         Ident::from(format!(
-            "{}:{}/{TYPES_INTERFACE_NAME}",
+            "{}:{}/{interface_name}",
             self.qualifier.package_namespace(),
             self.qualifier.package_name()
         ))
     }
-    fn use_type_item(&self) -> Ident {
+
+    fn use_item(&self) -> Ident {
         Ident::from(self.name.to_kebab_case())
     }
 }
 
 impl<'a> TypeNameQualifier<'a> {
-    fn into_namespaced_package_name(self) -> PackageName {
+    fn namespaced_package_name(&self) -> PackageName {
         PackageName::new(self.package_namespace(), self.package_name(), None)
     }
 

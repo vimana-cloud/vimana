@@ -10,8 +10,9 @@ world server {
 }
 
 interface types {
-  use foo:bar-baz:quux:proto/types.{ friend, inner-message };
   use foo:bar-baz:quux:proto/inner-message/a-container/types.{ empty-message };
+  use foo:bar-baz:quux:proto/outer-message/types.{ test-interface-namespacing };
+  use foo:bar-baz:quux:proto/outer-message/oneofs.{ dilemma };
   record inner-message {
     another-layer: empty-message,
   }
@@ -26,9 +27,9 @@ interface types {
   }
   record outer-message {
     inner: inner-message,
-    one: bool,
-    the-other: inner-message,
     a-third: list<friend>,
+    good-coverage: test-interface-namespacing,
+    dilemma: dilemma,
   }
 }
 
@@ -36,5 +37,22 @@ package foo:bar-baz:quux:proto/inner-message/a-container {
 
   interface types {
     record empty-message {    }
+  }
+}
+
+package foo:bar-baz:quux:proto/outer-message {
+
+  interface types {
+    record test-interface-namespacing {
+      unused: s64,
+    }
+  }
+
+  interface oneofs {
+    use foo:bar-baz:quux:proto/types.{ inner-message };
+    variant dilemma {
+      one(bool),
+      the-other(inner-message),
+    }
   }
 }
