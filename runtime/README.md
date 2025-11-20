@@ -1,6 +1,6 @@
-# Work Node Runtime
+# Vimana Runtime
 
-The Work runtime implements the K8s [Container Runtime Interface] (CRI)
+The Vimana runtime implements the K8s [Container Runtime Interface] (CRI)
 to coordinate running containers with the control plane,
 while also listening on on various IP addresses
 for gRPC traffic over HTTP/3 (the data plane).
@@ -21,7 +21,7 @@ The term "pod" may sometimes be used to refer to an entire pod / container unit.
 
 ### State
 
-Work nodes keep track of running pods
+The runtime keeps track of running pods
 in a single global in-memory associative array called the pod pool,
 keyed by the pod / container ID.
 
@@ -91,7 +91,7 @@ Here's the same state machine illustrated as a table:
 
 Vimana's resources can be conceptualized in a heirarchy.
 
-Each container runs a single [component](/docs/glossary.md#component),
+Each container runs a single component,
 but there may be several containers running the same component on a single node.
 This leads to two essential ways
 the runtime may have to identify a component or individual container:

@@ -1,4 +1,4 @@
-# Vimana Monorepo
+# Vimana
 
 [![Unit tests status](https://github.com/vimana-cloud/vimana/actions/workflows/unit-tests.yaml/badge.svg)](https://github.com/vimana-cloud/vimana/actions/workflows/unit-tests.yaml)
 
@@ -9,30 +9,141 @@ built from extremely lightweight [WebAssembly components].
 This project is a **work in progress**.
 It is not yet ready for serious use in a production environment.
 
-See the [overview] to learn more.
+To get started using Vimana, see the [Developer Setup].
 
 [WebAssembly components]: https://component-model.bytecodealliance.org/
-[overview]: docs/overview.md
+[Developer Setup]: docs/get-started.md
 
-## One-Time Setup
+## Running Services
 
-1. Clone this repository.
-2. (Mac only) Install [core utilities] and [Xcode].
-   Make sure you have your [developer permission].
-3. Install [Bazelisk].
-4. Install [Docker] and enable the daemon.
-   1. A container registry is required to run Vimana locally.
-      Just run the [reference implementation] with automatic restart forever:
-      ```bash
-      docker run --detach --restart=always --name=registry --publish=5000:5000 registry:latest
-      ```
+Vimana is all about running *services*.
+Those could be [gRPC] services, HTTP/JSON services, JSON-RPC services,
+or potentially other types of services that can be [defined in Protobuf].
 
-[core utilities]: https://formulae.brew.sh/formula/coreutils
-[Xcode]: https://apps.apple.com/app/xcode/
-[developer permission]: https://developer.apple.com/register/
-[Bazelisk]: https://github.com/bazelbuild/bazelisk
-[Docker]: https://docs.docker.com/
-[reference implementation]: https://hub.docker.com/_/registry
+Kubernetes has long facilitated running [services] at scale,
+but Vimana leverages Wasm to provide a higher level of abstraction,
+more advanced built-in features,
+and a far more efficient runtime for FaaS-style use-cases.
+
+Vimana consists of 3 principle parts:
+
+1. The [Protobuf compiler plugin],
+   which converts Protobuf service definitions to WIT interfaces
+   so that server implementations can be compiled as Wasm components.
+2. The [runtime], which runs the compiled components as K8s pods.
+3. The [K8s operator] providing an ergonomic API
+   to spin up and manage Vimana services.
+
+[gRPC]: https://grpc.io/
+[defined in Protobuf]: https://protobuf.dev/programming-guides/proto3/#services
+[services]: https://kubernetes.io/docs/concepts/services-networking/service/
+[Protobuf compiler plugin]: compiler/
+[runtime]: runtime/
+[K8s operator]: operator/
+
+## Images
+
+Vimana uses specialized server images that are similar to [Wasm OCI artifacts].
+
+See the [compiler documentation] for more information on how to compile a Vimana image.
+
+[Wasm OCI artifacts]: https://tag-runtime.cncf.io/wgs/wasm/deliverables/wasm-oci-artifact/
+[compiler documentation]: compiler/README.md
+
+## API
+
+Vimana provides three Kubernetes [custom resource definitions] (CRDs)
+to manage services.
+These CRDs strike a balance between simplicity and expressivity.
+
+<details>
+<summary style="cursor:pointer"><strong>CRD Class Diagram</strong></summary>
+
+```mermaid
+classDiagram
+    Domain <|-- Server
+    Server <|-- Component
+    class Domain {
+        **id** : UUID for the domain
+        **aliases** (optional) alias domains  [*e.g.* "example.com"]
+        **failover** (optional) failover domains in case of an outage
+        **grpc** (optional) domain-wide gRPC configuration [*e.g.* reflection]
+        **open-api** (optional) whether to serve an OpenAPI schema
+    }
+    class Server {
+        **id** : user-provided ID for the domain
+        **services** : list of fully-qualified service names provided by this server
+        **auth** (optional) JWKS-based authentication
+        **features** (optional) feature flags
+    }
+    class Component {
+        **version** : semantic version of the component
+        **image** : Wasm component "container" image
+    }
+```
+
+</details>
+
+Custom resource definitions can be found under [`operator/config/crd/bases/`].
+For simple examples of each resource, see [`mvp.yaml`]
+
+[custom resource definitions]: https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/
+[`operator/config/crd/bases/`]: /operator/config/crd/bases/
+[`mvp.yaml`]: /e2e/mvp.yaml
+
+### Domains
+
+A `Domain` configures *where* to run a service,
+as well as certain settings that span across `Server` boundaries,
+such as whether to provide an OpenAPI schema or gRPC reflection
+at the domain level.
+
+It is also the basic unit of developer access control,
+corresponding to a K8s [namespace]
+and providing isolation from other domains.
+
+[namespace]: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+
+### Servers
+
+A `Server` bundles a set of services
+that are implemented, deployed, and upgraded as a unit.
+It does **not** necessarily represent a single "machine"
+(like a K8s `Pod`).
+Rather, it defines the properties of the service(s)
+which do not change across version upgrades,
+like authentication or feature flags.
+
+### Components
+
+Each `Component` represents a concrete,
+versioned implementation of a `Server`.
+
+Multiple components (also referred to as *versions*)
+may co-exist at the same time for a given server.
+Traffic will be distributed to each version
+according to the server's `version-weights`.
+
+Each component references an image,
+which is a specialization of an [OCI] container image
+that contains a Wasm component
+and its associated metadata necessary for the Vimana runtime to function.
+
+[OCI]: https://opencontainers.org/
+
+### Vimanas
+
+Wait, there's a fourth CRD?
+
+At the top of the hierarchy is the `Vimana` resource.
+Each `Vimana` essentially maps to a K8s [gateway]
+that exposes its constituent services to external traffic.
+
+Multiple `Vimana` resources may co-exist within a cluster,
+but typically there is only a single `Vimana` per cluster,
+and most developers can get away with sparing it little thought.
+
+[gateway]: https://kubernetes.io/docs/concepts/services-networking/gateway/
 
 ## Cluster Provision
 
@@ -129,97 +240,3 @@ bazel run //cluster:destroy -- 'my-cluster.net'
 [application default credentials]: https://cloud.google.com/docs/authentication/application-default-credentials
 [`cluster/profiles/profiles.yaml`]: cluster/profiles/profiles.yaml
 [kOps state store]: https://kops.sigs.k8s.io/state/
-
-## Tools
-
-Most of the major tools you need to work with Vimana
-are automatically sourced from official GitHub release binaries.
-Just install [`direnv`] to set up convenient [tool aliases]
-whenever you enter the repository directory in your shell.
-
-The following tool aliases are provided:
-
-- `bazel-docker`
-- `crane`
-- `crictl`
-- `istioctl`
-- `kops`
-- `kubectl`
-- `kustomize`
-- `minikube` (only on x86-64)
-- `openssl`
-- `sudo-persist`
-- `wasmtime`
-- `wasm-tools`
-
-[`direnv`]: https://direnv.net/
-[tool aliases]: dev/tools/
-
-### Bazel Container
-
-Vimana builds fine on any Linux system.
-However, it relies on some Linux-specific features
-that make building or testing certain things directly on a Mac impractical:
-
-- The [runtime] uses [`rtnetlink`], which cannot be built natively for Mac.
-  The runtime can always be cross-compiled for Linux
-  (which is always the case when building node images)
-  but it cannot be tested locally on a Mac.
-- The [runtime tests] use Bazel's [`requires-fakeroot`] tag
-  (in order to manipulate the network device using `rtnetlink`),
-  and that tag is only supported by Bazel on Linux.
-
-To work around this, any Bazel command can be run in a persistent container
-dedicated to the current Git worktree.
-Use the built-in [`bazel-docker`] script
-(which is available automatically after enabling [`direnv`] &mdash; see [tools])
-as a drop-in replacement for `bazel`, *e.g.*
-
-```bash
-bazel-docker test //runtime/tests/...
-```
-
-> [!NOTE]
-> In order to work around a subtle issue with bind-mounting MacOS directories in Docker,
-> `bazel-docker` transparently manages a persistent secondary container called `bazel-output-sync`
-> to synchronize the build cache with the host.
-> When that container first starts,
-> build artifacts and test logs will only become available on the host system
-> after a significant delay (perhaps a few minutes).
-> After that initial sync,
-> subsequent invocations of `bazel-docker` should only incur modest lag (perhaps a second)
-> before output files are available.
-
-[runtime]: runtime/
-[`rtnetlink`]: https://en.wikipedia.org/wiki/Netlink
-[runtime tests]: runtime/tests/
-[`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
-[`bazel-docker`]: dev/tools/bazel-docker
-[tools]: #tools
-
-### VSCode
-
-The repository includes some VSCode workspace settings:
-
-- **Recommended extensions:**<br />
-  VSCode will bug you about them whenever you open the workspace,
-  until they are installed.
-- **A default build task:**<br />
-  Invoke it with `Ctrl+Shift+B` by default.
-  This task builds all Bazel rules
-  in the same package as the source file that is currently open
-  which have a direct dependency on that file.
-- **A default test task:**<br />
-  VSCode does not provide a keybinding to invoke it by default.
-  You can configure one for [`workbench.action.tasks.test`].
-  This task runs all Bazel test rules (in any package)
-  which directly depend on a rule that's built by the default build task,
-  or which are themselves included in the default build.
-- A task to automatically generate a `rust-project.json` file based on the Bazel rules
-  when the workspace is opened.
-  This allows the recommended [rust-analyzer] extension
-  to function in a non-Cargo workspace.
-- Various formatting rules.
-
-[`workbench.action.tasks.test`]: https://code.visualstudio.com/docs/reference/default-keybindings#_tasks
-[rust-analyzer]: https://rust-analyzer.github.io/
