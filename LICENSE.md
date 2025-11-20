@@ -1,6 +1,6 @@
 # Business Source License 1.1
 
-This same License is also available as [unformatted text](LICENSE.txt).
+This License is also available as [unformatted text](LICENSE.txt).
 
 <table>
   <thead>
@@ -41,40 +41,17 @@ This same License is also available as [unformatted text](LICENSE.txt).
         <p>
           You may make production use of the Licensed Work,
           provided Your use does not include offering the Licensed
-          Work to third parties on a hosted or embedded basis in
-          order to compete with the Licensor’s paid version(s) of
-          the Licensed Work. For the purposes of this license:
+          Work to third parties as a hosted or managed service,
+          where the service provides users with access to any
+          substantial set of the features or functionality of the
+          Licensed Work.
         </p>
         <p>
-          A “competitive offering” is a Product that is offered to
-          third parties on a paid basis, including through paid
-          support arrangements, that significantly overlaps with
-          the capabilities of the Licensor’s paid version(s) of the
-          Licensed Work. If Your Product is not a competitive
-          offering when You first make it generally available, it
-          will not become a competitive offering later due to the
-          Licensor releasing a new version of the Licensed Work
-          with additional capabilities. In addition, Products that
-          are not provided on a paid basis are not competitive.
-        </p>
-        <p>
-          “Product” means software that is offered to end users to
-          manage in their own environments or offered as a service
-          on a hosted basis.
-        </p>
-        <p>
-          “Embedded” means including the source code or executable
-          code from the Licensed Work in a competitive offering.
-          “Embedded” also means packaging the competitive offering
-          in such a way that the Licensed Work must be accessed or
-          downloaded for the competitive offering to operate.
-        </p>
-        <p>
-          Hosting or using the Licensed Work(s) for internal
+          Hosting or using the Licensed Work for internal
           purposes within an organization is not considered a
-          competitive offering. The Licensor considers your
-          organization to include all of your affiliates under
-          common control.
+          violation of the Additional Use Grant. The Licensor
+          considers your organization to include all of your
+          affiliates under common control.
         </p>
       </td>
     </tr>
@@ -91,7 +68,10 @@ This same License is also available as [unformatted text](LICENSE.txt).
         <strong>Change License</strong>
       </td>
       <td>
-        MIT No Attribution (MIT-0)
+        <a href="https://spdx.org/licenses/MIT-0.html">MIT No Attribution</a>
+        or
+        <a href="https://spdx.org/licenses/Apache-2.0.html">Apache License 2.0</a>
+        (MIT-0 OR Apache-2.0)
       </td>
     </tr>
   </tbody>
