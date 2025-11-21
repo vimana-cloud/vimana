@@ -12,9 +12,7 @@ def _platform_binary_transition_impl(settings, attr):
 _platform_binary_transition = transition(
     implementation = _platform_binary_transition_impl,
     inputs = [],
-    outputs = [
-        "//command_line_option:platforms",
-    ],
+    outputs = ["//command_line_option:platforms"],
 )
 
 def _platform_binary_impl(ctx):

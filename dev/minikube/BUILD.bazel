@@ -1,6 +1,7 @@
-load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//operator:deploy-configure.bzl", "operator_deploy_configure")
 
 # Name of some registry we can push / pull images to / from,
 # from the execution platform's perspective.
@@ -12,9 +13,7 @@ cluster_registry = "host.minikube.internal:5000"
 
 kicbase_image_name = "kicbase-vimanad"
 
-kicbase_tag = "latest"
-
-kicbase_local_repo = local_registry + "/" + kicbase_image_name + ":" + kicbase_tag
+kicbase_local_image_name = "{}/{}".format(local_registry, kicbase_image_name)
 
 # Start a Vimana-enabled minikube cluster locally
 # with the latest builds of the runtime and operator from source.
@@ -29,13 +28,13 @@ sh_binary(
         "$(location @rules_k8s//:minikube-bin)",
         "$(location :kicbase-image-push-local)",
         "$(location //operator:image-push-local)",
-        kicbase_local_repo,
+        "{}:latest".format(kicbase_local_image_name),
         cluster_registry,
-        "$(location //operator:deploy)",
+        "$(location :operator-deploy-minikube)",
     ],
     data = [
         ":kicbase-image-push-local",
-        "//operator:deploy",
+        ":operator-deploy-minikube",
         "//operator:image-push-local",
         "@rules_k8s//:helm",
         "@rules_k8s//:kubectl",
@@ -65,12 +64,12 @@ sh_binary(
         "$(location @rules_k8s//:kubectl)",
         "$(location //cluster/node:vimanad-x86_64-linux)",
         "$(location //operator:image-push-local)",
-        "$(location //operator:deploy)",
+        "$(location :operator-deploy-minikube)",
     ],
     data = [
+        ":operator-deploy-minikube",
         "//cluster/node:vimanad-x86_64-linux",
         "//dev/lib:util-bash",
-        "//operator:deploy",
         "//operator:image-push-local",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
@@ -89,14 +88,8 @@ oci_image(
 oci_push(
     name = "kicbase-image-push-local",
     image = ":kicbase-image",
-    remote_tags = [kicbase_tag],
-    repository = local_registry + "/" + kicbase_image_name,
-)
-
-oci_load(
-    name = "kicbase-image-load",
-    image = ":kicbase-image",
-    repo_tags = [kicbase_image_name + ":" + kicbase_tag],
+    remote_tags = ["latest"],
+    repository = kicbase_local_image_name,
 )
 
 pkg_tar(
@@ -120,4 +113,9 @@ pkg_tar(
         "/crictl-x86_64-linux.exe": "/usr/bin/crictl",
         "/host-local-x86_64-linux.exe": "/opt/cni/bin/host-local",
     },
+)
+
+operator_deploy_configure(
+    name = "operator-deploy-minikube",
+    image_name = "{}/vimana-operator".format(cluster_registry),
 )
