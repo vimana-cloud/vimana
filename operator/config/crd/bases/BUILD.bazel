@@ -1,9 +1,8 @@
-filegroup(
+load("//operator:directory.bzl", "collect_directory", "source_files_except_build_and_templates")
+
+collect_directory(
     name = "bases",
-    srcs = glob(
-        ["*"],
-        exclude = ["BUILD.bazel"],
-    ),
+    srcs = source_files_except_build_and_templates(),
     visibility = [
         "//operator/config/crd:__pkg__",
         "//operator/internal/controller:__pkg__",

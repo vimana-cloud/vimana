@@ -1,9 +1,19 @@
-filegroup(
+load("//operator:directory.bzl", "collect_directory", "source_files_except_build_and_templates")
+
+collect_directory(
     name = "manager",
-    srcs = glob(
-        ["*"],
-        allow_empty = True,
-        exclude = ["BUILD.bazel"],
-    ),
+    srcs = source_files_except_build_and_templates() + [
+        ":kustomization",
+    ],
     visibility = ["//operator/config:__pkg__"],
+)
+
+genrule(
+    name = "kustomization",
+    srcs = ["kustomization.yaml.tmpl"],
+    outs = ["kustomization.yaml"],
+    # TODO: Perhaps there can be a cleaner solution with `expand_template`:
+    #   https://github.com/bazelbuild/bazel-skylib/issues/442
+    cmd = "sed 's|{{.ImageName}}|$(IMAGE_NAME)|; s|{{.ImageTag}}|latest|' $(SRCS) > \"$@\"",
+    toolchains = ["//operator:image-name"],
 )

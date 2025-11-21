@@ -1,6 +1,8 @@
-filegroup(
+load("//operator:directory.bzl", "collect_directory", "source_files_except_build_and_templates")
+
+collect_directory(
     name = "config",
-    srcs = [
+    srcs = source_files_except_build_and_templates() + [
         "//operator/config/crd",
         "//operator/config/default",
         "//operator/config/manager",
@@ -10,10 +12,6 @@ filegroup(
         "//operator/config/rbac",
         "//operator/config/samples",
         "//operator/config/scorecard",
-    ] + glob(
-        ["*"],
-        allow_empty = True,
-        exclude = ["BUILD.bazel"],
-    ),
+    ],
     visibility = ["//operator:__pkg__"],
 )

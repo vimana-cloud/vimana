@@ -1,12 +1,10 @@
-filegroup(
+load("//operator:directory.bzl", "collect_directory", "source_files_except_build_and_templates")
+
+collect_directory(
     name = "scorecard",
-    srcs = [
+    srcs = source_files_except_build_and_templates() + [
         "//operator/config/scorecard/bases",
         "//operator/config/scorecard/patches",
-    ] + glob(
-        ["*"],
-        allow_empty = True,
-        exclude = ["BUILD.bazel"],
-    ),
+    ],
     visibility = ["//operator/config:__pkg__"],
 )
