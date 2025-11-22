@@ -12,8 +12,8 @@ use wit_encoder::{
 };
 
 use crate::{
-    DescriptorMap, ProtoPackage, ProtoSyntax, QualifiedTypeName, TypeNameQualifier,
-    VIMANA_API_VERSION, WASI_API_VERSION, sorted_map_entries, sorted_set_values,
+    DescriptorMap, PluginParameters, ProtoPackage, ProtoSyntax, QualifiedTypeName,
+    TypeNameQualifier, VIMANA_API_VERSION, WASI_API_VERSION, sorted_map_entries, sorted_set_values,
 };
 
 /// Name of the generated WIT file in the output directory.
@@ -48,6 +48,8 @@ pub(crate) struct WitFile<'a> {
     /// A map wherein descriptors for all messages and enums can be looked up
     /// by fully-qualified name.
     descriptors: &'a DescriptorMap<'a>,
+    /// The set of command-line options passed to the plugin via `--vimana_opt`.
+    parameters: &'a PluginParameters,
 }
 
 /// The compiler always generates a single 'server' world for the component to implement.
@@ -115,12 +117,16 @@ struct OneofsInterface<'a> {
 }
 
 impl<'a> WitFile<'a> {
-    pub(crate) fn new(descriptors: &'a DescriptorMap<'a>) -> Self {
+    pub(crate) fn new(
+        descriptors: &'a DescriptorMap<'a>,
+        parameters: &'a PluginParameters,
+    ) -> Self {
         Self {
             server_world: ServerWorld::default(),
             types_interfaces: HashMap::new(),
             types_compiled: HashSet::new(),
             descriptors,
+            parameters,
         }
     }
 
@@ -184,29 +190,30 @@ impl<'a> WitFile<'a> {
         if !self.types_compiled.contains(&type_name) {
             self.types_compiled.insert(type_name.clone());
 
-            let (types_interface, oneofs_interface) =
-                message_definition(message_descriptor, &type_name, syntax)?;
-
-            for type_used in &types_interface.types_used {
-                // Check if it's a message type first
-                if let Some((depended_descriptor, depended_syntax)) =
-                    self.descriptors.get_message(type_used)
-                {
-                    // Recursively compile message dependencies
-                    self.compile_message(
-                        depended_descriptor,
-                        &type_used.qualifier,
-                        depended_syntax,
-                    )?;
-                } else if let Some(enum_descriptor) = self.descriptors.get_enum(type_used) {
-                    self.compile_enum(enum_descriptor, &type_used.qualifier);
-                } else {
-                    bail!("Type not found: {type_used}");
+            if let Some((types_interface, oneofs_interface)) =
+                message_definition(message_descriptor, &type_name, syntax, self.parameters)?
+            {
+                for type_used in &types_interface.types_used {
+                    // Check if it's a message type first
+                    if let Some((depended_descriptor, depended_syntax)) =
+                        self.descriptors.get_message(type_used)
+                    {
+                        // Recursively compile message dependencies
+                        self.compile_message(
+                            depended_descriptor,
+                            &type_used.qualifier,
+                            depended_syntax,
+                        )?;
+                    } else if let Some(enum_descriptor) = self.descriptors.get_enum(type_used) {
+                        self.compile_enum(enum_descriptor, &type_used.qualifier);
+                    } else {
+                        bail!("Type not found: {type_used}");
+                    }
                 }
-            }
 
-            self.upsert_oneofs_interface(type_name.subqualifier(), oneofs_interface);
-            self.upsert_types_interface(type_name.qualifier, types_interface);
+                self.upsert_oneofs_interface(type_name.subqualifier(), oneofs_interface);
+                self.upsert_types_interface(type_name.qualifier, types_interface);
+            }
         }
 
         Ok(())
@@ -306,7 +313,8 @@ fn message_definition<'a>(
     descriptor: &'a DescriptorProto,
     message_type_name: &QualifiedTypeName<'a>,
     syntax: ProtoSyntax,
-) -> Result<(TypesInterface<'a>, OneofsInterface<'a>)> {
+    parameters: &PluginParameters,
+) -> Result<Option<(TypesInterface<'a>, OneofsInterface<'a>)>> {
     // The set of fields (excluding one-ofs) that define this message type.
     let mut fields: Vec<Field> = Vec::with_capacity(descriptor.field.len());
     // Mapping from the short names (Protobuf syntax) of one-of fields contained within this message
@@ -360,6 +368,9 @@ fn message_definition<'a>(
             ProtoType::Sint32 => Type::S32,
             ProtoType::Sint64 => Type::S64,
             ProtoType::Group => {
+                if parameters.ignore_groups {
+                    return Ok(None);
+                }
                 bail!("Protobuf groups are not supported; use nested messages instead")
             }
         };
@@ -373,6 +384,9 @@ fn message_definition<'a>(
             }
             Label::Required => {
                 // YAGNI (this is proto2-only syntax that's highly discouraged).
+                if parameters.ignore_required {
+                    return Ok(None);
+                }
                 bail!("Required fields are not supported");
             }
             Label::Repeated => Type::list(wit_type),
@@ -427,7 +441,7 @@ fn message_definition<'a>(
         ));
     }
 
-    Ok((
+    Ok(Some((
         TypesInterface::define_message(
             TypeDef::new(
                 message_type_name.name.to_kebab_case(),
@@ -437,7 +451,7 @@ fn message_definition<'a>(
             oneofs_used,
         ),
         OneofsInterface::define(oneofs_defined, oneof_types_used),
-    ))
+    )))
 }
 
 fn enum_type_definition<'a>(enum_descriptor: &'a EnumDescriptorProto, name: &'a str) -> TypeDef {

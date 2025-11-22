@@ -42,7 +42,7 @@ def _vimana_protoc_impl(ctx):
     # The set of import paths that will be passed to `protoc`.
     # This is derived from the closest common ancestor directory of each include file group,
     # after stripping the import path prefix from the end of that directory.
-    include_paths = []
+    include_paths = set()
 
     for filegroup, import_prefix in ctx.attr.include.items():
         files = filegroup.files.to_list()
@@ -56,10 +56,14 @@ def _vimana_protoc_impl(ctx):
                 fail("Expected path '{}' to end with '{}'".format(directory, import_prefix))
             directory = directory[:-len(import_prefix)]
 
-        include_paths.append(directory)
+        include_paths.add(directory)
 
     wit_file = ctx.actions.declare_file(paths.join(ctx.label.name, "server.wit"))
     metadata_file = ctx.actions.declare_file("metadata.binpb", sibling = wit_file)
+
+    parameters = []
+    if ctx.attr.ignore_unsupported_features:
+        parameters.append("--vimana_opt=ignore-groups,ignore-required")
 
     ctx.actions.run(
         executable = ctx.executable._protoc_bin,
@@ -74,7 +78,7 @@ def _vimana_protoc_impl(ctx):
         ] + [
             src.path
             for src in ctx.files.srcs
-        ],
+        ] + parameters,
         tools = [ctx.executable._protoc_gen_vimana_bin],
     )
 
@@ -100,6 +104,13 @@ vimana_protoc = rule(
                   " The import path prefix must appear at the end" +
                   " of the files' common path prefix.",
             allow_files = [".proto"],
+        ),
+        "ignore_unsupported_features": attr.bool(
+            doc = "Rather than failing with an error for unsupported field types," +
+                  " like groups or required fields," +
+                  " simply display a warning and ignore those fields instead." +
+                  " Useful for running the Protobuf conformance tests.",
+            default = False,
         ),
         "_protoc_bin": attr.label(
             default = "@protobuf//:protoc",

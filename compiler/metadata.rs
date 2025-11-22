@@ -12,7 +12,10 @@ use prost_types::{
     ServiceDescriptorProto,
 };
 
-use crate::{DescriptorMap, ProtoPackage, ProtoSyntax, QualifiedTypeName, TypeNameQualifier};
+use crate::{
+    DescriptorMap, PluginParameters, ProtoPackage, ProtoSyntax, QualifiedTypeName,
+    TypeNameQualifier,
+};
 use metadata_proto::vimana::runtime::field::Coding;
 use metadata_proto::vimana::runtime::{
     Field, GrpcArity, GrpcMethod, GrpcService, Metadata, ProtoMessage,
@@ -70,15 +73,21 @@ pub(crate) struct MetadataFile<'a> {
     /// A map wherein descriptors for all messages and enums can be looked up
     /// by fully-qualified name.
     descriptors: &'a DescriptorMap<'a>,
+    /// The set of command-line options passed to the plugin via `--vimana_opt`.
+    parameters: &'a PluginParameters,
 }
 
 impl<'a> MetadataFile<'a> {
-    pub(crate) fn new(descriptors: &'a DescriptorMap<'a>) -> Self {
+    pub(crate) fn new(
+        descriptors: &'a DescriptorMap<'a>,
+        parameters: &'a PluginParameters,
+    ) -> Self {
         Self {
             metadata: Metadata::default(),
             message_indices: HashMap::new(),
             enum_variants: HashMap::new(),
             descriptors,
+            parameters,
         }
     }
 
@@ -153,19 +162,21 @@ impl<'a> MetadataFile<'a> {
                 .map(oneof_field)
                 .collect();
             for field_descriptor in &message_descriptor.field {
-                let mut field = self.compile_field(field_descriptor, server_qualifier, syntax)?;
-
-                if let Some(oneof_index) = field_descriptor.oneof_index
-                    && !field_descriptor.proto3_optional()
+                if let Some(mut field) =
+                    self.compile_field(field_descriptor, server_qualifier, syntax)?
                 {
-                    if let Some(oneof_field) = oneof_fields.get_mut(oneof_index as usize) {
-                        force_explicit_coding(&mut field);
-                        oneof_field.variants.push(field);
+                    if let Some(oneof_index) = field_descriptor.oneof_index
+                        && !field_descriptor.proto3_optional()
+                    {
+                        if let Some(oneof_field) = oneof_fields.get_mut(oneof_index as usize) {
+                            force_explicit_coding(&mut field);
+                            oneof_field.variants.push(field);
+                        } else {
+                            bail!("Invalid oneof index {}", oneof_index);
+                        }
                     } else {
-                        bail!("Invalid oneof index {}", oneof_index);
+                        fields.push(field);
                     }
-                } else {
-                    fields.push(field);
                 }
             }
             for oneof_field in oneof_fields {
@@ -194,7 +205,7 @@ impl<'a> MetadataFile<'a> {
         field_descriptor: &'a FieldDescriptorProto,
         server_qualifier: &TypeNameQualifier<'a>,
         syntax: ProtoSyntax,
-    ) -> Result<Field> {
+    ) -> Result<Option<Field>> {
         let mut field = Field::default();
         field.number = field_descriptor.number() as u32;
         field.name = field_descriptor.name().to_kebab_case();
@@ -216,30 +227,47 @@ impl<'a> MetadataFile<'a> {
                 }
             }
             Type::Message => {
-                let coding_offset = field_coding_offset(field_descriptor, syntax)?;
-                if coding_offset != CODING_CATEGORY_EXPLICIT
-                    && coding_offset != CODING_CATEGORY_EXPANDED
-                {
-                    bail!("Message fields must have either explicit or expanded coding");
-                }
-                field.coding = Some(Coding::CompoundCoding(
-                    CODING_COMPOUND_MESSAGE + coding_offset,
-                ));
+                return Ok(
+                    if let Some(coding_offset) =
+                        field_coding_offset(field_descriptor, syntax, self.parameters)?
+                    {
+                        if coding_offset != CODING_CATEGORY_EXPLICIT
+                            && coding_offset != CODING_CATEGORY_EXPANDED
+                        {
+                            bail!("Message fields must have either explicit or expanded coding");
+                        }
+                        field.coding = Some(Coding::CompoundCoding(
+                            CODING_COMPOUND_MESSAGE + coding_offset,
+                        ));
 
-                field.message =
-                    self.compile_message(field_descriptor.type_name(), server_qualifier)?;
+                        field.message =
+                            self.compile_message(field_descriptor.type_name(), server_qualifier)?;
 
-                return Ok(field);
+                        Some(field)
+                    } else {
+                        None
+                    },
+                );
             }
             Type::Enum => {
-                let coding_offset = field_coding_offset(field_descriptor, syntax)?;
-                field.coding = Some(Coding::CompoundCoding(CODING_COMPOUND_ENUM + coding_offset));
+                return Ok(
+                    if let Some(coding_offset) =
+                        field_coding_offset(field_descriptor, syntax, self.parameters)?
+                    {
+                        field.coding =
+                            Some(Coding::CompoundCoding(CODING_COMPOUND_ENUM + coding_offset));
 
-                let enum_name =
-                    QualifiedTypeName::from_path(field_descriptor.type_name(), server_qualifier);
-                field.variants = self.compile_enum_variants(enum_name)?;
+                        let enum_name = QualifiedTypeName::from_path(
+                            field_descriptor.type_name(),
+                            server_qualifier,
+                        );
+                        field.variants = self.compile_enum_variants(enum_name)?;
 
-                return Ok(field);
+                        Some(field)
+                    } else {
+                        None
+                    },
+                );
             }
             Type::Bytes => CODING_SCALAR_BYTES,
             Type::Uint32 => CODING_SCALAR_UINT32,
@@ -248,12 +276,22 @@ impl<'a> MetadataFile<'a> {
             Type::Sint32 => CODING_SCALAR_SINT32,
             Type::Sint64 => CODING_SCALAR_SINT64,
             Type::Group => {
+                if self.parameters.ignore_groups {
+                    return Ok(None);
+                }
                 bail!("Protobuf groups are not supported; use nested messages instead")
             }
         };
-        let coding_offset = field_coding_offset(field_descriptor, syntax)?;
-        field.coding = Some(Coding::ScalarCoding(scalar_type_offset + coding_offset));
-        Ok(field)
+        return Ok(
+            if let Some(coding_offset) =
+                field_coding_offset(field_descriptor, syntax, self.parameters)?
+            {
+                field.coding = Some(Coding::ScalarCoding(scalar_type_offset + coding_offset));
+                Some(field)
+            } else {
+                None
+            },
+        );
     }
 
     fn compile_enum_variants(&mut self, name: QualifiedTypeName<'a>) -> Result<Vec<Field>> {
@@ -336,8 +374,9 @@ fn enum_variant_field(variant: &EnumValueDescriptorProto) -> Field {
 fn field_coding_offset<'a>(
     field_descriptor: &'a FieldDescriptorProto,
     syntax: ProtoSyntax,
-) -> Result<i32> {
-    Ok(match field_descriptor.label() {
+    parameters: &'a PluginParameters,
+) -> Result<Option<i32>> {
+    Ok(Some(match field_descriptor.label() {
         Label::Optional => {
             if syntax == ProtoSyntax::Proto3
                 && !field_descriptor.proto3_optional()
@@ -350,6 +389,9 @@ fn field_coding_offset<'a>(
         }
         Label::Required => {
             // YAGNI (this is proto2-only syntax that's highly discouraged).
+            if parameters.ignore_required {
+                return Ok(None);
+            }
             bail!("Required fields are not supported");
         }
         Label::Repeated => {
@@ -370,5 +412,5 @@ fn field_coding_offset<'a>(
                 CODING_CATEGORY_EXPANDED
             }
         }
-    })
+    }))
 }

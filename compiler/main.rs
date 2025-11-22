@@ -4,9 +4,9 @@ mod wit;
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::io::{stdin, stdout, Read, Write};
+use std::io::{Read, Write, stdin, stdout};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use prost::Message;
 use prost_types::compiler::code_generator_response::{Feature, File};
 use prost_types::compiler::{CodeGeneratorRequest, CodeGeneratorResponse};
@@ -15,14 +15,22 @@ use prost_types::{DescriptorProto, EnumDescriptorProto, FileDescriptorProto};
 use metadata::MetadataFile;
 use wit::WitFile;
 
-/// Version of the Vimana API to import.
+/// Version of the Vimana API to import in generated WIT files.
 pub(crate) const VIMANA_API_VERSION: &str = "0.0.0";
-/// Version of the WASI API to import.
+/// Version of the WASI API to import in generated WIT files.
 pub(crate) const WASI_API_VERSION: &str = "0.2.0";
 
 /// Bitwise union of supported features.
 /// https://github.com/protocolbuffers/protobuf/blob/v31.1/src/google/protobuf/compiler/code_generator.h#L96
 const SUPPORTED_FEATURES: u64 = Feature::Proto3Optional as u64;
+
+/// Plugin parameters that can be set via `--vimana_opt` command-line options.
+pub(crate) struct PluginParameters {
+    /// Ignore group-typed fields in proto2 instead of failing.
+    pub(crate) ignore_groups: bool,
+    /// Ignore required fields in proto2 instead of failing.
+    pub(crate) ignore_required: bool,
+}
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub(crate) enum ProtoSyntax {
@@ -69,6 +77,28 @@ pub(crate) struct DescriptorMap<'a> {
     enums: HashMap<QualifiedTypeName<'a>, &'a EnumDescriptorProto>,
 }
 
+impl PluginParameters {
+    /// Parse a string of comma-separated parameter names into a [`PluginParameters`] object.
+    /// Return an error if any of the parameter names are unrecognized.
+    fn parse(parameters: &str) -> Result<Self> {
+        let mut parameters: HashSet<&str> = parameters
+            .split(',')
+            .filter(|parameter| !parameter.is_empty())
+            .collect();
+        let result = Self {
+            ignore_groups: parameters.remove("ignore-groups"),
+            ignore_required: parameters.remove("ignore-required"),
+        };
+        if !parameters.is_empty() {
+            bail!(
+                "Unknown parameters: {:?}",
+                parameters.iter().collect::<Vec<_>>()
+            );
+        }
+        Ok(result)
+    }
+}
+
 fn main() -> Result<()> {
     // Read and parse the entire input from stdin.
     // If an error occurs here, exit with a failure status.
@@ -94,10 +124,11 @@ fn main() -> Result<()> {
 }
 
 fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
+    let parameters = PluginParameters::parse(request.parameter())?;
     let descriptors = DescriptorMap::build(&request.proto_file)?;
 
-    let mut wit_file: WitFile = WitFile::new(&descriptors);
-    let mut metadata_file: MetadataFile = MetadataFile::new(&descriptors);
+    let mut wit_file: WitFile = WitFile::new(&descriptors, &parameters);
+    let mut metadata_file: MetadataFile = MetadataFile::new(&descriptors, &parameters);
     let main_package: OnceCell<ProtoPackage> = OnceCell::new();
 
     for file_to_generate in &request.file_to_generate {

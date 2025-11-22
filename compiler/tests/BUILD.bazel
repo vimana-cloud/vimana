@@ -1,10 +1,10 @@
 load("@bazel_skylib//rules:native_binary.bzl", "native_test")
-load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@bazel_skylib//rules/directory:directory.bzl", "directory")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("@rules_rust//rust:defs.bzl", "rust_binary")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
 load("//compiler:defs.bzl", "vimana_protoc")
+load(":dummy-service.bzl", "dummy_service")
 
 package(default_testonly = True)
 
@@ -29,6 +29,7 @@ rust_binary(
     name = "conformance",
     srcs = ["conformance.rs"],
     data = [
+        ":test-messages-proto2-vimana",
         ":test-messages-proto3-vimana",
     ],
     deps = [
@@ -37,9 +38,9 @@ rust_binary(
         "//runtime:names",
         "//runtime/decode",
         "//runtime/encode",
+        "@crates//:bytes",
         "@crates//:prost",
         "@crates//:tonic",
-        "@crates//:bytes",
     ],
 )
 
@@ -71,33 +72,41 @@ rust_prost_library(
 )
 
 vimana_protoc(
-    name = "test-messages-proto2-vimana",
-    srcs = ["@protobuf//src/google/protobuf:test_messages_proto2.proto"],
-)
-
-vimana_protoc(
     name = "test-messages-proto3-vimana",
     srcs = [
-        ":test-messages-proto2-dummy-service",
-        "@protobuf//src/google/protobuf:test_messages_proto3.proto",
+        ":test-messages-proto3-dummy-service",
     ],
     include = {
-        ":test-messages-proto2-dummy-service": "",
+        ":test-messages-proto3-dummy-service": "",
+        "@protobuf//src/google/protobuf:test_messages_proto3.proto": "google/protobuf",
         "@protobuf//:well_known_type_protos": "google/protobuf",
     },
 )
 
-write_file(
-    name = "test-messages-proto2-dummy-service",
-    out = "test-messages-proto2-dummy-service.proto",
-    content = [
-        "syntax = \"proto3\";",
-        "package protobuf_test_messages.proto3;",
-        "import \"google/protobuf/test_messages_proto3.proto\";",
-        "service Dummy {",
-        "  rpc Dummy(TestAllTypesProto3) returns (TestAllTypesProto3) {}",
-        "}",
+dummy_service(
+    name = "test-messages-proto3-dummy-service",
+    imports = ["google/protobuf/test_messages_proto3.proto"],
+    package = "protobuf_test_messages.proto3",
+    type = "TestAllTypesProto3",
+)
+
+vimana_protoc(
+    name = "test-messages-proto2-vimana",
+    srcs = [
+        ":test-messages-proto2-dummy-service",
     ],
+    include = {
+        ":test-messages-proto2-dummy-service": "",
+        "@protobuf//src/google/protobuf:test_messages_proto2.proto": "google/protobuf",
+    },
+    ignore_unsupported_features = True,
+)
+
+dummy_service(
+    name = "test-messages-proto2-dummy-service",
+    imports = ["google/protobuf/test_messages_proto2.proto"],
+    package = "protobuf_test_messages.proto2",
+    type = "TestAllTypesProto2",
 )
 
 #rust_prost_library(

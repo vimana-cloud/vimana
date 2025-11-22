@@ -29,6 +29,8 @@ use metadata_proto::vimana::runtime::Metadata;
 use names::Name;
 
 const TEST_ALL_TYPES_PROTO2_MESSAGE_NAME: &str = "protobuf_test_messages.proto2.TestAllTypesProto2";
+const TEST_ALL_TYPES_PROTO2_METADATA_PATH: &str =
+    "compiler/tests/test-messages-proto2-vimana/metadata.binpb";
 
 const TEST_ALL_TYPES_PROTO3_MESSAGE_NAME: &str = "protobuf_test_messages.proto3.TestAllTypesProto3";
 const TEST_ALL_TYPES_PROTO3_METADATA_PATH: &str =
@@ -73,6 +75,13 @@ impl Harness {
     fn new() -> Self {
         let mut codecs = HashMap::new();
         codecs.insert(
+            String::from(TEST_ALL_TYPES_PROTO2_MESSAGE_NAME),
+            Codec::load(
+                TEST_ALL_TYPES_PROTO2_METADATA_PATH,
+                "protobuf_test_messages.proto2.Dummy",
+            ),
+        );
+        codecs.insert(
             String::from(TEST_ALL_TYPES_PROTO3_MESSAGE_NAME),
             Codec::load(
                 TEST_ALL_TYPES_PROTO3_METADATA_PATH,
@@ -89,11 +98,6 @@ impl Harness {
     fn do_test(&mut self, request: ConformanceRequest) -> ConformanceResponse {
         if request.requested_output_format() != WireFormat::Protobuf {
             return result_skipped("Only wire format output is supported");
-        }
-
-        // TODO: Test proto2 conformance once we figure out message sets.
-        if request.message_type.as_str() == TEST_ALL_TYPES_PROTO2_MESSAGE_NAME {
-            return result_skipped("Conformance tests for proto2 no yet supported");
         }
 
         let bytes = match request.payload.unwrap() {

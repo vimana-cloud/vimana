@@ -9,7 +9,7 @@ Required.Proto3.ProtobufInput.UnknownOrdering.ProtobufOutput
 Required.Proto2.ProtobufInput.UnknownOrdering.ProtobufOutput
 
 # Tests that fail due to lack of MessageSet support.
-# MessageSet is a proto2 feature that Vimana does not support.
+# MessageSet is a legacy feature that "users outside Google will probably never need to use".
 Required.Proto2.ProtobufInput.ValidMessageSetEncoding.ProtobufOutput
 Required.Proto2.ProtobufInput.ValidMessageSetEncoding.OutOfOrderGroupsEntries.ProtobufOutput
 Required.Proto2.ProtobufInput.MessageSetEncoding.UnknownExtension.ProtobufOutput
