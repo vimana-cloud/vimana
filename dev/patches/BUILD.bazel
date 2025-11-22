@@ -1,1 +1,4 @@
-exports_files(["konnectivity-client.patch"])
+exports_files([
+    "konnectivity-client.patch",
+    "protobuf-conformance-visibility.patch",
+])

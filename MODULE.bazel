@@ -10,6 +10,13 @@ bazel_dep(name = "grpc", version = "1.74.1")
 bazel_dep(name = "openssl", version = "3.3.1.bcr.8")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "protobuf", version = "33.0")
+single_version_override(
+    module_name = "protobuf",
+    # TODO: Remove this patch once these issues are closed:
+    #   https://github.com/protocolbuffers/protobuf/issues/24486
+    #   https://github.com/protocolbuffers/protobuf/issues/24508
+    patches = ["//dev/patches:protobuf-conformance-visibility.patch"],
+)
 bazel_dep(name = "toolchains_musl", version = "0.1.27")
 bazel_dep(name = "rules_go", version = "0.58.3")
 bazel_dep(name = "rules_nodejs", version = "6.6.0")
@@ -26,7 +33,6 @@ git_override(
     commit = "c133bdabf253886f640d764d1748aa9ac644ab1c",
     remote = "https://github.com/vimana-cloud/cri-api.git",
 )
-
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
