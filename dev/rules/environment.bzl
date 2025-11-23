@@ -1,6 +1,13 @@
 """
 A module extension and repository rule
 configuring information about the environment Bazel is running in.
+
+The module extension exports a file called 'environment.bzl'
+which contains constants configured for the current build environment.
+
+At present, it only contains a single string-valued constant called `localhost`.
+When running inside a container, the value of that string is `host.docker.internal`.
+Otherwise, the value is `localhost`.
 """
 
 def _environment_repository_impl(repository_ctx):
