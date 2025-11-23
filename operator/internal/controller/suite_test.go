@@ -48,7 +48,7 @@ var _ = BeforeSuite(func() {
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			// Our custom CRDs being tested.
-			filepath.Join("..", "..", "config", "crd", "bases"),
+			filepath.Join("..", "..", "config", "crd", "bases", "bases"),
 			// CRD dependencies (the Gateway API and Envoy Gateway).
 			"apis",
 		},
