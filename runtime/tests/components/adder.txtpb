@@ -23,7 +23,7 @@ messages {
 }
 
 services {
-  key: "foo.bar.AdderService"
+  key: "foo.AdderService"
   value {
     methods {
       key: "AddFloats"

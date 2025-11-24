@@ -40,7 +40,7 @@ const REQUEST_PARAMETER_NAME: &str = "request";
 /// generated from Protobuf service and type definitions.
 pub(crate) struct WitFile<'a> {
     /// The world that defines the server component.
-    server_world: ServerWorld<'a>,
+    server_world: ServerWorld,
     /// Interfaces under which message and enum types are defined.
     types_interfaces: HashMap<TypeNameQualifier<'a>, TypesInterface<'a>>,
     /// Set to keep track of all types compiled so far,
@@ -55,14 +55,10 @@ pub(crate) struct WitFile<'a> {
 
 /// The compiler always generates a single 'server' world for the component to implement.
 #[derive(Default)]
-struct ServerWorld<'a> {
+struct ServerWorld {
     /// The set of interfaces exported by this world.
     /// Each interface corresponds to a Protobuf service.
     services: Vec<Interface>,
-    /// The set of all message type names that appear as either requests or responses
-    /// in any of the methods of the services in the main package.
-    /// These types must be imported into the world with a `use` statement.
-    types_used: HashSet<QualifiedTypeName<'a>>,
 }
 
 /// A collection of message and enum type definitions within the same "qualifier namespace".
@@ -93,6 +89,7 @@ struct TypesInterface<'a> {
     /// This would occur when a nested message sits alongside a one-of.
     /// For instance, in this example,
     /// the `choice` one-of would be in the same package as the `Inner` message:
+    ///
     ///     message Outer {
     ///         oneof choice {
     ///             first = 1;
@@ -100,6 +97,7 @@ struct TypesInterface<'a> {
     ///         }
     ///         message Inner {}
     ///     }
+    ///
     oneofs_interface: Option<OneofsInterface<'a>>,
 }
 
@@ -137,6 +135,7 @@ impl<'a> WitFile<'a> {
         package_qualifier: &TypeNameQualifier<'a>,
     ) -> Result<()> {
         let mut service = Interface::new(service_descriptor.name().to_kebab_case());
+        let mut types_used: HashSet<QualifiedTypeName<'a>> = HashSet::new();
 
         for method_descriptor in &service_descriptor.method {
             if let Some(options) = method_descriptor.options.as_ref() {
@@ -170,8 +169,16 @@ impl<'a> WitFile<'a> {
             ))));
             service.function(function);
 
-            self.server_world.types_used.insert(request_type);
-            self.server_world.types_used.insert(response_type);
+            types_used.insert(request_type);
+            types_used.insert(response_type);
+        }
+
+        for used_type in into_sorted_set_values(types_used) {
+            service.use_type(
+                used_type.use_type_target(&used_type.qualifier == package_qualifier),
+                used_type.use_item(),
+                None,
+            );
         }
 
         self.server_world.services.push(service);
@@ -460,16 +467,13 @@ fn enum_type_definition<'a>(enum_descriptor: &'a EnumDescriptorProto, name: &'a 
     TypeDef::new(name.to_kebab_case(), TypeDefKind::Enum(wit_enum))
 }
 
-impl<'a> ServerWorld<'a> {
+impl ServerWorld {
     fn into_world(self) -> World {
         let mut world = World::new(WORLD_NAME);
         world.include(Include::new(format!("wasi:cli/imports@{WASI_API_VERSION}")));
         world.include(Include::new(format!(
             "vimana:grpc/imports@{VIMANA_API_VERSION}"
         )));
-        for used_type in into_sorted_set_values(self.types_used) {
-            world.use_type(used_type.use_type_target(), used_type.use_item(), None);
-        }
         for service in self.services {
             world.item(WorldItem::InlineInterfaceExport(service));
         }
@@ -524,7 +528,7 @@ impl<'a> TypesInterface<'a> {
         for used_type in into_sorted_set_values(self.types_used) {
             // Only add use statements for types from different qualifiers.
             if &used_type.qualifier != qualifier {
-                interface.use_type(used_type.use_type_target(), used_type.use_item(), None);
+                interface.use_type(used_type.use_type_target(false), used_type.use_item(), None);
             }
         }
         for used_oneof in self.oneofs_used {
@@ -560,7 +564,9 @@ impl<'a> OneofsInterface<'a> {
     fn into_interface(self) -> Interface {
         let mut interface = Interface::new(ONEOFS_INTERFACE_NAME);
         for used_type in into_sorted_set_values(self.types_used) {
-            interface.use_type(used_type.use_type_target(), used_type.use_item(), None);
+            // Types are always defined in external interfaces,
+            // so they can never use a relative import (`use` statement).
+            interface.use_type(used_type.use_type_target(false), used_type.use_item(), None);
         }
         for defined_oneof in self.oneofs_defined {
             interface.type_def(defined_oneof);
@@ -570,20 +576,26 @@ impl<'a> OneofsInterface<'a> {
 }
 
 impl<'a> QualifiedTypeName<'a> {
-    fn use_type_target(&self) -> Ident {
-        self.use_target(TYPES_INTERFACE_NAME)
+    fn use_type_target(&self, relative: bool) -> Ident {
+        self.use_target(TYPES_INTERFACE_NAME, relative)
     }
 
     fn use_oneof_target(&self) -> Ident {
-        self.use_target(ONEOFS_INTERFACE_NAME)
+        // Oneof imports only occur in types interfaces,
+        // so they can never be relative.
+        self.use_target(ONEOFS_INTERFACE_NAME, false)
     }
 
-    fn use_target(&self, interface_name: &str) -> Ident {
-        Ident::from(format!(
-            "{}:{}/{interface_name}",
-            self.qualifier.package_namespace(),
-            self.qualifier.package_name()
-        ))
+    fn use_target(&self, interface_name: &str, relative: bool) -> Ident {
+        if relative {
+            Ident::from(String::from(interface_name))
+        } else {
+            Ident::from(format!(
+                "{}:{}/{interface_name}",
+                self.qualifier.package_namespace(),
+                self.qualifier.package_name()
+            ))
+        }
     }
 
     fn use_item(&self) -> Ident {

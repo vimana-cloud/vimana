@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package foo.bar;
+package foo;
 
 service AdderService {
   rpc AddFloats(AddFloatsRequest) returns (AddFloatsResponse) {}

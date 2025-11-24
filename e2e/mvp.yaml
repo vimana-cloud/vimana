@@ -27,7 +27,7 @@ metadata:
 spec:
   id: 'the-adder-server'
   domain: '00000000000000000000000000000001'
-  services: ["foo.bar.AdderService"]
+  services: ["foo.AdderService"]
   versionWeights:
     "1.0.0": 1
 ---

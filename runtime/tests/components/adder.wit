@@ -1,7 +1,7 @@
 // WIT for `PingPongService`
 // should match `ping-pong.txtpb`
 
-package foo:bar@1.2.3;
+package foo:proto@1.2.3;
 
 world %adder-service {
   use types.{%add-floats-request, %add-floats-response};

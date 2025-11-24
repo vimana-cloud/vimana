@@ -1,5 +1,6 @@
 load("@bazel_skylib//rules:native_binary.bzl", "native_test")
 load("@bazel_skylib//rules/directory:directory.bzl", "directory")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("@rules_rust//rust:defs.bzl", "rust_binary")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
@@ -73,14 +74,15 @@ rust_prost_library(
 
 vimana_protoc(
     name = "test-messages-proto3-vimana",
-    srcs = [
-        ":test-messages-proto3-dummy-service",
+    proto = ":test-messages-proto3-proto",
+)
+
+proto_library(
+    name = "test-messages-proto3-proto",
+    srcs = [":test-messages-proto3-dummy-service"],
+    deps = [
+        "@protobuf//src/google/protobuf:test_messages_proto3_proto",
     ],
-    include = {
-        ":test-messages-proto3-dummy-service": "",
-        "@protobuf//src/google/protobuf:test_messages_proto3.proto": "google/protobuf",
-        "@protobuf//:well_known_type_protos": "google/protobuf",
-    },
 )
 
 dummy_service(
@@ -92,14 +94,16 @@ dummy_service(
 
 vimana_protoc(
     name = "test-messages-proto2-vimana",
-    srcs = [
-        ":test-messages-proto2-dummy-service",
-    ],
-    include = {
-        ":test-messages-proto2-dummy-service": "",
-        "@protobuf//src/google/protobuf:test_messages_proto2.proto": "google/protobuf",
-    },
     ignore_unsupported_features = True,
+    proto = ":test-messages-proto2-proto",
+)
+
+proto_library(
+    name = "test-messages-proto2-proto",
+    srcs = [":test-messages-proto2-dummy-service"],
+    deps = [
+        "@protobuf//src/google/protobuf:test_messages_proto2_proto",
+    ],
 )
 
 dummy_service(
@@ -108,13 +112,3 @@ dummy_service(
     package = "protobuf_test_messages.proto2",
     type = "TestAllTypesProto2",
 )
-
-#rust_prost_library(
-#    name = "test-messages-proto2-editions-prost",
-#    proto = "@protobuf//editions:test_messages_proto2_editions_proto",
-#)
-#
-#rust_prost_library(
-#    name = "test-messages-proto3-editions-prost",
-#    proto = "@protobuf//editions:test_messages_proto3_editions_proto",
-#)
