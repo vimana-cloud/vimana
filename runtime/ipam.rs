@@ -1,15 +1,15 @@
 //! IP address management.
 
 use std::fmt::{Display, Result as FmtResult};
-use std::io::{pipe, PipeReader, Write};
+use std::io::{PipeReader, Write, pipe};
 use std::mem::drop;
 use std::net::IpAddr;
 use std::simd::u8x16;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use futures::stream::TryStreamExt;
-use rtnetlink::{new_connection, Handle as NetlinkHandle};
+use rtnetlink::{Handle as NetlinkHandle, new_connection};
 use serde::Deserialize;
 use serde_json::{from_slice, json, to_vec};
 use sha2::{Digest, Sha256};
@@ -17,7 +17,7 @@ use tokio::process::Command;
 use tokio::task::spawn;
 
 use logging::log_info;
-use names::{hexify, PodName};
+use names::{PodName, hexify};
 
 /// CNI plugin API version.
 /// Seems to be the latest version supported by the `host-local` plugin

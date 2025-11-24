@@ -14,8 +14,8 @@ use wasmtime::component::Val;
 use crate::{
     BUFFER_OVERFLOW, CompoundMerger, DecodeError, ENUM_NO_DEFAULT, FIELD_INDEX_OUT_OF_BOUNDS,
     INVALID_VARINT, MESSAGE_NON_RECORD, MergeFn, Merger, MessageMerger, NON_EXPLICIT_ONEOF_VARIANT,
-    REPEATED_NON_LIST, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
-    decode_tag, explicit_scalar, read_length_check_overflow, skip,
+    REPEATED_NON_LIST, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT, decode_tag,
+    explicit_scalar, read_length_check_overflow, skip,
 };
 use metadata_proto::vimana::runtime::field::{Coding, CompoundCoding, ScalarCoding};
 use metadata_proto::vimana::runtime::{Field, ProtoMessage};

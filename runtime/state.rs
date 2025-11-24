@@ -289,17 +289,15 @@ impl WorkRuntime {
                         {
                             let mut pod = pod.clone();
                             pod.state = PodState::Created;
-                            let pod_initialization_failed =
-                                pod.routes.as_ref().is_none_or(|routes| {
-                                    routes.peek().is_none_or(StdResult::is_err)
-                                });
+                            let pod_initialization_failed = pod
+                                .routes
+                                .as_ref()
+                                .is_none_or(|routes| routes.peek().is_none_or(StdResult::is_err));
                             let subsequent_attempt =
                                 container_metadata.as_ref().is_some_and(|new_metadata| {
-                                    pod.container_metadata
-                                        .as_ref()
-                                        .is_some_and(|old_metadata| {
-                                            new_metadata.attempt > old_metadata.attempt
-                                        })
+                                    pod.container_metadata.as_ref().is_some_and(|old_metadata| {
+                                        new_metadata.attempt > old_metadata.attempt
+                                    })
                                 });
                             if pod_initialization_failed && subsequent_attempt {
                                 // `StartContainer` failed because initializing the gRPC pod failed.

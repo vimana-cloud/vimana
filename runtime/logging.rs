@@ -5,7 +5,7 @@
 //! so the logs can be filtered for tenant privacy.
 
 #[doc(hidden)]
-pub use tracing::{event, Level};
+pub use tracing::{Level, event};
 
 /// The most basic requirements for emitting a log:
 /// - Log level.

@@ -18,7 +18,7 @@ mod state;
 
 use std::collections::HashSet;
 use std::error::Error as StdError;
-use std::fs::{create_dir_all, remove_file, File};
+use std::fs::{File, create_dir_all, remove_file};
 use std::io::BufReader;
 use std::path::Path;
 use std::result::Result as StdResult;
@@ -34,7 +34,7 @@ use serde::Deserialize;
 use serde_json::from_reader;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::select;
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Endpoint, Server};
@@ -50,7 +50,7 @@ use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
 use containers::ContainerStore;
 use cri::image::ProxyingImageService;
-use cri::runtime::{ProxyingRuntimeService, CONTAINER_RUNTIME_NAME, CONTAINER_RUNTIME_VERSION};
+use cri::runtime::{CONTAINER_RUNTIME_NAME, CONTAINER_RUNTIME_VERSION, ProxyingRuntimeService};
 use ipam::Ipam;
 use state::WorkRuntime;
 
@@ -118,10 +118,9 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     // falling back on the JSON configuration file for unset fields.
     let args = VimanadConfig::parse();
     let config = args.config.map_or(VimanadConfig::default(), |config_path| {
-        from_reader(BufReader::new(
-            File::open(&config_path)
-                .unwrap_or_else(|_| panic!("Error opening config file '{}'", config_path)),
-        ))
+        from_reader(BufReader::new(File::open(&config_path).unwrap_or_else(
+            |_| panic!("Error opening config file '{}'", config_path),
+        )))
         .unwrap_or_else(|_| panic!("Error parsing config file '{}'", config_path))
     });
 
@@ -225,8 +224,8 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     // because any failures that occur after this should cause the socket to be unlinked
     // so the service can be restarted successfully.
     create_dir_all(Path::new(&incoming).parent().unwrap())?;
-    let cri_listener =
-        UnixListener::bind(&incoming).unwrap_or_else(|_| panic!("Cannot bind Unix socket '{}'", &incoming));
+    let cri_listener = UnixListener::bind(&incoming)
+        .unwrap_or_else(|_| panic!("Cannot bind Unix socket '{}'", &incoming));
 
     let result = Server::builder()
         .add_service(RuntimeServiceServer::new(

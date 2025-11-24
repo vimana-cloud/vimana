@@ -10,9 +10,9 @@ use tonic::codec::DecodeBuf;
 use wasmtime::component::Val;
 
 use crate::{
-    read_length_check_overflow, read_varint, CompoundMerger, DecodeError, MergeFn, Merger,
-    BUFFER_UNDERFLOW, INVALID_PERMISSIVE_STRING, INVALID_UTF8, INVALID_VARINT, REPEATED_NON_LIST,
-    WIRETYPE_NON_32BIT, WIRETYPE_NON_64BIT, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
+    BUFFER_UNDERFLOW, CompoundMerger, DecodeError, INVALID_PERMISSIVE_STRING, INVALID_UTF8,
+    INVALID_VARINT, MergeFn, Merger, REPEATED_NON_LIST, WIRETYPE_NON_32BIT, WIRETYPE_NON_64BIT,
+    WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT, read_length_check_overflow, read_varint,
 };
 use metadata_proto::vimana::runtime::field::ScalarCoding;
 

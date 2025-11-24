@@ -1,19 +1,19 @@
 //! Logic to encode protobuf messages directly from Wasm component values.
 
 use std::collections::HashMap;
-use std::mem::{forget, ManuallyDrop};
+use std::mem::{ManuallyDrop, forget};
 use std::result::Result as StdResult;
 
-use anyhow::{anyhow, bail, Context, Result};
-use prost::encoding::{encode_varint, encoded_len_varint, WireType};
+use anyhow::{Context, Result, anyhow, bail};
+use prost::encoding::{WireType, encode_varint, encoded_len_varint};
 use tonic::codec::EncodeBuf;
 use wasmtime::component::Val;
 
 use crate::{
-    explicit_scalar, tag, CompoundEncoder, EncodeError, Encoder, MessageEncoder, ENUM_NON_ENUM,
-    ENUM_VARIANT_UNRECOGNIZED, EXPLICIT_NON_OPTION, LENGTH_INCONSISTENCY, MESSAGE_NON_OPTIONAL,
-    MESSAGE_NON_RECORD, NO_ENCODER_FOR_FIELD, ONEOF_NON_OPTIONAL, ONEOF_NON_VARIANT,
-    ONEOF_VARIANT_NO_PAYLOAD, ONEOF_VARIANT_UNRECOGNIZED, REPEATED_NON_LIST,
+    CompoundEncoder, ENUM_NON_ENUM, ENUM_VARIANT_UNRECOGNIZED, EXPLICIT_NON_OPTION, EncodeError,
+    Encoder, LENGTH_INCONSISTENCY, MESSAGE_NON_OPTIONAL, MESSAGE_NON_RECORD, MessageEncoder,
+    NO_ENCODER_FOR_FIELD, ONEOF_NON_OPTIONAL, ONEOF_NON_VARIANT, ONEOF_VARIANT_NO_PAYLOAD,
+    ONEOF_VARIANT_UNRECOGNIZED, REPEATED_NON_LIST, explicit_scalar, tag,
 };
 use metadata_proto::vimana::runtime::field::{Coding, CompoundCoding, ScalarCoding};
 use metadata_proto::vimana::runtime::{Field, ProtoMessage};

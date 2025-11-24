@@ -6,11 +6,11 @@ use std::pin::Pin;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Error, Result};
+use anyhow::{Context, Error, Result, anyhow};
 use axum::body::Body as AxumBody;
 use axum::routing::method_routing::post;
-use futures::future::Shared;
 use futures::FutureExt;
+use futures::future::Shared;
 use http::{Request as HttpRequest, Response as HttpResponse};
 use tokio::task::spawn;
 use tonic::body::BoxBody;
@@ -23,7 +23,7 @@ use wasmtime::component::{ComponentExportIndex, InstancePre, Val};
 use wasmtime::{Engine as WasmEngine, Store};
 
 use crate::containers::ContainerStore;
-use crate::host::{grpc_linker, HostState};
+use crate::host::{HostState, grpc_linker};
 use crate::state::SingleUse;
 use decode::RequestDecoder;
 use encode::ResponseEncoder;

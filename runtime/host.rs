@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use wasmtime::component::Linker;
 use wasmtime::Engine as WasmEngine;
+use wasmtime::component::Linker;
 
 /// State available to host-defined functions.
 pub(crate) struct HostState {}

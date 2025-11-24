@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::io::{Error as IoError, ErrorKind};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_client::ImageServiceClient;
 use api_proto::runtime::v1::image_service_server::ImageService;
@@ -18,11 +18,11 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use tokio::sync::Mutex as AsyncMutex;
 use tonic::transport::channel::Channel;
-use tonic::{async_trait, Request, Response};
+use tonic::{Request, Response, async_trait};
 
 use crate::containers::ContainerStore;
 use crate::cri::runtime::CONTAINER_RUNTIME_HANDLER;
-use crate::cri::{component_name_from_labels, GlobalLogs, LogErrorToStatus, TonicResult};
+use crate::cri::{GlobalLogs, LogErrorToStatus, TonicResult, component_name_from_labels};
 use crate::state::now;
 use names::{ComponentName, DomainUuid};
 
