@@ -120,9 +120,9 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     let config = args.config.map_or(VimanadConfig::default(), |config_path| {
         from_reader(BufReader::new(
             File::open(&config_path)
-                .expect(&format!("Error opening config file '{}'", config_path)),
+                .unwrap_or_else(|_| panic!("Error opening config file '{}'", config_path)),
         ))
-        .expect(&format!("Error parsing config file '{}'", config_path))
+        .unwrap_or_else(|_| panic!("Error parsing config file '{}'", config_path))
     });
 
     // Select all options from command-line first, config file second, default value third.
@@ -226,7 +226,7 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     // so the service can be restarted successfully.
     create_dir_all(Path::new(&incoming).parent().unwrap())?;
     let cri_listener =
-        UnixListener::bind(&incoming).expect(&format!("Cannot bind Unix socket '{}'", &incoming));
+        UnixListener::bind(&incoming).unwrap_or_else(|_| panic!("Cannot bind Unix socket '{}'", &incoming));
 
     let result = Server::builder()
         .add_service(RuntimeServiceServer::new(

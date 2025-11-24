@@ -323,7 +323,7 @@ pub(crate) fn message_inner_encode(
         for (name, value) in fields.iter() {
             // Look up the encoder for the subfield by name.
             if let Some(encoder) = field_encoders.get(name) {
-                (encoder.encode)(&encoder, value, lengths, buf)
+                (encoder.encode)(encoder, value, lengths, buf)
                     .map_err(|e| e.with_field(name.clone()))?;
             } else {
                 // Mismatch between the component implementation and its container metadata.
@@ -357,7 +357,7 @@ pub(crate) fn message_inner_length(
         // how they are later popped during encoding.
         for (name, value) in fields.iter().rev() {
             if let Some(encoder) = field_encoders.get(name) {
-                let sublength = (encoder.length)(&encoder, value, lengths)
+                let sublength = (encoder.length)(encoder, value, lengths)
                     .map_err(|e| e.with_field(name.clone()))?;
                 total = u32::saturating_add(total, sublength);
             } else {
@@ -521,7 +521,7 @@ pub(crate) fn oneof_encode(
                             Box::from_raw(Box::as_ptr(value) as *mut Val)
                         }));
                         let result = (subfield_encoder.encode)(
-                            &subfield_encoder,
+                            subfield_encoder,
                             &wrapped_value,
                             lengths,
                             buf,
@@ -572,7 +572,7 @@ fn oneof_length(
                             Box::from_raw(Box::as_ptr(value) as *mut Val)
                         }));
                         let result =
-                            (subfield_encoder.length)(&subfield_encoder, &wrapped_value, lengths)
+                            (subfield_encoder.length)(subfield_encoder, &wrapped_value, lengths)
                                 .map_err(|e| e.with_field(name.clone()));
                         // Forget the wrapped value so it doesn't double-drop the box.
                         forget(wrapped_value);
@@ -716,7 +716,7 @@ pub(crate) fn enum_packed_encode(
     buf: &mut EncodeBuf<'_>,
 ) -> StdResult<(), EncodeError> {
     if let Val::List(items) = value {
-        if items.len() > 0 {
+        if !items.is_empty() {
             if let Some(length) = lengths.pop() {
                 encode_varint(encoder.tag, buf);
                 encode_varint(length as u64, buf);
@@ -750,7 +750,7 @@ fn enum_packed_length(
     lengths: &mut Vec<u32>,
 ) -> StdResult<u32, EncodeError> {
     if let Val::List(items) = value {
-        Ok(if items.len() > 0 {
+        Ok(if !items.is_empty() {
             let mut total = 0;
             for (index, value) in items.iter().enumerate() {
                 if let Val::Enum(name) = value {

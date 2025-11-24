@@ -243,7 +243,7 @@ impl UnaryService<Val> for Method {
                 .instantiator
                 .instantiate_async(&mut store)
                 .await
-                .map_err(|error| {
+                .map_err(|_error| {
                     // TODO: Log these errors.
                     let _component = method.0.component.as_ref();
                     Status::internal("Module instantiation error")
@@ -257,7 +257,7 @@ impl UnaryService<Val> for Method {
                     Status::internal("Function selection error")
                 })?;
 
-            let (metadata, extensions, request) = request.into_parts();
+            let (metadata, _extensions, request) = request.into_parts();
 
             let mut headers = Vec::with_capacity(metadata.len());
             for header in metadata.iter() {
@@ -297,7 +297,7 @@ impl UnaryService<Val> for Method {
             function
                 .call_async(&mut store, &parameters, &mut results)
                 .await
-                .map_err(|error| {
+                .map_err(|_error| {
                     // TODO: Log these errors.
                     let _component = method.0.component.as_ref();
                     Status::internal("Function invocation error")

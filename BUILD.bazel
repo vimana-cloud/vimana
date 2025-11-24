@@ -1,7 +1,22 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@gazelle//:def.bzl", "gazelle", "gazelle_test")
 load("@rules_python//python:pip.bzl", "compile_pip_requirements")
-load("@rules_rust//rust:defs.bzl", "rust_library_group")
+load("@rules_rust//rust:defs.bzl", "rust_clippy", "rust_library_group")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_toolchain")
+
+build_test(
+    name = "clippy-test",
+    targets = [":clippy"],
+)
+
+rust_clippy(
+    name = "clippy",
+    testonly = True,
+    deps = [
+        "//compiler",
+        "//runtime",
+    ],
+)
 
 # gazelle:prefix vimana.host
 # gazelle:exclude compiler
@@ -10,8 +25,8 @@ gazelle(name = "gazelle")
 
 # Verify that all BUILD files are up to date.
 gazelle_test(
-    name = "gazelle_test",
-    workspace = "//:BUILD.bazel",  # Marker file indicating workspace root.
+    name = "gazelle-test",
+    workspace = "//:MODULE.bazel",  # Marker file indicating workspace root.
 )
 
 compile_pip_requirements(

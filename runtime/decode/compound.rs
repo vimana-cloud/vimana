@@ -14,7 +14,7 @@ use wasmtime::component::Val;
 use crate::{
     BUFFER_OVERFLOW, CompoundMerger, DecodeError, ENUM_NO_DEFAULT, FIELD_INDEX_OUT_OF_BOUNDS,
     INVALID_VARINT, MESSAGE_NON_RECORD, MergeFn, Merger, MessageMerger, NON_EXPLICIT_ONEOF_VARIANT,
-    REPEATED_NON_LIST, UNMATCHED_END_GROUP, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
+    REPEATED_NON_LIST, WIRETYPE_NON_LENGTH_DELIMITED, WIRETYPE_NON_VARINT,
     decode_tag, explicit_scalar, read_length_check_overflow, skip,
 };
 use metadata_proto::vimana::runtime::field::{Coding, CompoundCoding, ScalarCoding};
@@ -357,7 +357,7 @@ pub(crate) fn message_inner_merge(
                 // Get a mutable pointer to the relevant subvalue within this record.
                 if let Some(subdst) = fields.get_mut(*index as usize) {
                     // Call the field's merge function into that subvalue.
-                    (subfield_merger.merge)(&subfield_merger, wire_type, limit, src, &mut subdst.1)
+                    (subfield_merger.merge)(subfield_merger, wire_type, limit, src, &mut subdst.1)
                         .map_err(|e| e.with_field(field_number))?;
                 } else {
                     // The index calculated during compilation is out of bounds.
@@ -469,7 +469,7 @@ pub(crate) fn oneof_variant_merge(
         && existing_name == &variant_name
     {
         cold_path();
-        Val::Option(existing_value.as_ref().map(|v| v.clone()))
+        Val::Option(existing_value.clone())
     } else {
         Val::Option(None)
     };
@@ -559,7 +559,7 @@ pub(crate) fn enum_repeated_merge(
             }
             Ok(())
         } else if wire_type == WireType::Varint {
-            items.push(enum_inner(&merger, limit, src).map_err(|e| e.with_index(items.len()))?);
+            items.push(enum_inner(merger, limit, src).map_err(|e| e.with_index(items.len()))?);
             Ok(())
         } else {
             Err(DecodeError::new(WIRETYPE_NON_VARINT))

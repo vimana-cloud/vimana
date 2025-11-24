@@ -138,13 +138,10 @@ impl<'a> WitFile<'a> {
         let mut service = Interface::new(service_descriptor.name().to_kebab_case());
 
         for method_descriptor in &service_descriptor.method {
-            match method_descriptor.options.as_ref() {
-                Some(options) => {
-                    for option in &options.uninterpreted_option {
-                        // TODO: Interpret method-level options like JSON transcoding.
-                    }
+            if let Some(options) = method_descriptor.options.as_ref() {
+                for _option in &options.uninterpreted_option {
+                    // TODO: Interpret method-level options like JSON transcoding.
                 }
-                None => (),
             }
 
             let client_streaming = method_descriptor.client_streaming.unwrap_or(false);

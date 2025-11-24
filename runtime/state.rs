@@ -3,17 +3,17 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::result::Result as StdResult;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{Error, Result, anyhow};
 use futures::future::Shared;
 use papaya::{Compute, HashMap as LockFreeConcurrentHashMap, Operation};
 use tokio::select;
 use tokio::sync::oneshot;
-use tokio::task::{spawn, JoinHandle};
+use tokio::task::{JoinHandle, spawn};
 use tokio::time::timeout;
 use tonic::service::Routes;
 use tonic::transport::server::TcpIncoming;
@@ -22,12 +22,10 @@ use wasmtime::Engine as WasmEngine;
 
 use crate::containers::ContainerStore;
 use crate::ipam::{IpAddress, Ipam};
-use crate::pods::{PodInitializer, SharedResultFuture, GRPC_PORT};
+use crate::pods::{GRPC_PORT, PodInitializer, SharedResultFuture};
 use api_proto::runtime::v1::{ContainerMetadata, ImageSpec, PodSandboxMetadata};
 use logging::{log_info, log_warn};
 use names::{ComponentName, PodId, PodName};
-
-const VIMANA_LABEL_PREFIX: &str = "vimana.host/";
 
 const K8S_CONTAINER_RESTART_COUNT_ANNOTATION: &str = "io.kubernetes.container.restartCount";
 
@@ -292,14 +290,14 @@ impl WorkRuntime {
                             let mut pod = pod.clone();
                             pod.state = PodState::Created;
                             let pod_initialization_failed =
-                                pod.routes.as_ref().map_or(true, |routes| {
-                                    routes.peek().map_or(true, StdResult::is_err)
+                                pod.routes.as_ref().is_none_or(|routes| {
+                                    routes.peek().is_none_or(StdResult::is_err)
                                 });
                             let subsequent_attempt =
-                                container_metadata.as_ref().map_or(false, |new_metadata| {
+                                container_metadata.as_ref().is_some_and(|new_metadata| {
                                     pod.container_metadata
                                         .as_ref()
-                                        .map_or(false, |old_metadata| {
+                                        .is_some_and(|old_metadata| {
                                             new_metadata.attempt > old_metadata.attempt
                                         })
                                 });
@@ -560,13 +558,17 @@ impl WorkRuntime {
                             Compute::Aborted(error) => {
                                 // If there was some sort of synchronization error,
                                 // kill the server; it shouldn't have received any traffic yet.
-                                pod.killer.take().map(ContainerKiller::forcefully_abort);
+                                if let Some(killer) = pod.killer.take() {
+                                    ContainerKiller::forcefully_abort(killer);
+                                }
                                 Err(error)
                             }
                             _ => {
                                 // Logically impossible (all possible compute outcomes are handled).
                                 // Might as well clean up if this happens, though.
-                                pod.killer.take().map(ContainerKiller::forcefully_abort);
+                                if let Some(killer) = pod.killer.take() {
+                                    ContainerKiller::forcefully_abort(killer);
+                                }
                                 Err(anyhow!(
                                     "State machine logical impossibility (finalizing start)",
                                 ))
@@ -589,14 +591,14 @@ impl WorkRuntime {
     /// Attempts graceful server shutdown at first,
     /// waiting at most `timeout` before forcefully aborting.
     pub(crate) async fn stop_container(&self, name: &PodName, timeout: Duration) -> Result<()> {
-        if let Some(killer) = self.stop_container_without_wait(name)? {
-            if !killer.kill_with_timeout(timeout).await {
-                log_warn!(
-                    pod: name,
-                    "Container stopped forcefully after {} seconds",
-                    timeout.as_secs(),
-                );
-            }
+        if let Some(killer) = self.stop_container_without_wait(name)?
+            && !killer.kill_with_timeout(timeout).await
+        {
+            log_warn!(
+                pod: name,
+                "Container stopped forcefully after {} seconds",
+                timeout.as_secs(),
+            );
         }
         Ok(())
     }
@@ -863,7 +865,7 @@ impl WorkRuntime {
         F: Fn(&PodName, &Pod) -> T,
     {
         // If readiness is unspecified, all states match.
-        if readiness.map_or(true, |ready| {
+        if readiness.is_none_or(|ready| {
             // Either readiness must be desired, or the pod must be killed (but not both).
             ready ^ (pod.state == PodState::Killed)
         }) && Self::match_labels(&pod.pod_labels, labels)
@@ -938,32 +940,32 @@ impl WorkRuntime {
     fn match_labels(actual: &HashMap<String, String>, expected: &Vec<(&String, &String)>) -> bool {
         expected.iter().all(|(key, value)| {
             // Look up each key, which must be present, and check that the value matches.
-            actual.get(*key).map_or(false, |actual| actual == *value)
+            actual.get(*key) == Some(*value)
         })
     }
 }
 
-/// If `left` contains any entries
-/// where the key starts with [`VIMANA_LABEL_PREFIX`]
-/// and the entry does not exist with the same value in `right`,
-/// log that difference as an error with `error_tag` and return [`Err`].
-/// Otherwise, return [`Ok`].
-fn check_vimana_labels(
-    left: &HashMap<String, String>,
-    right: &HashMap<String, String>,
-) -> Result<()> {
-    let unmatched: Vec<(&String, &String)> = left
-        .iter()
-        .filter(|(key, value)| {
-            key.starts_with(VIMANA_LABEL_PREFIX) && right.get(*key) != Some(value)
-        })
-        .collect();
-    if unmatched.is_empty() {
-        Ok(())
-    } else {
-        Err(anyhow!("TODO"))
-    }
-}
+// /// If `left` contains any entries
+// /// where the key starts with [`VIMANA_LABEL_PREFIX`]
+// /// and the entry does not exist with the same value in `right`,
+// /// log that difference as an error with `error_tag` and return [`Err`].
+// /// Otherwise, return [`Ok`].
+// fn check_vimana_labels(
+//     left: &HashMap<String, String>,
+//     right: &HashMap<String, String>,
+// ) -> Result<()> {
+//     let unmatched: Vec<(&String, &String)> = left
+//         .iter()
+//         .filter(|(key, value)| {
+//             key.starts_with(VIMANA_LABEL_PREFIX) && right.get(*key) != Some(value)
+//         })
+//         .collect();
+//     if unmatched.is_empty() {
+//         Ok(())
+//     } else {
+//         Err(anyhow!("TODO"))
+//     }
+// }
 
 /// Kubelet may invoke `CreateContainer` under one of three circumstances,
 /// affecting how `CreateContainer` should behave.

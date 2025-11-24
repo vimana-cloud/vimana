@@ -21,7 +21,7 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use api_proto::runtime::v1;
 use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
 use api_proto::runtime::v1::runtime_service_server::RuntimeService;
@@ -29,11 +29,11 @@ use papaya::HashSet as LockFreeConcurrentHashSet;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::channel::Channel;
-use tonic::{async_trait, Request, Response, Status};
+use tonic::{Request, Response, Status, async_trait};
 
-use crate::cri::{component_name_from_labels, GlobalLogs, LogErrorToStatus, TonicResult};
-use crate::state::{now, Pod, PodState};
 use crate::WorkRuntime;
+use crate::cri::{GlobalLogs, LogErrorToStatus, TonicResult, component_name_from_labels};
+use crate::state::{Pod, PodState, now};
 use names::{Name, PodName};
 
 /// "For now it expects 0.1.0." - https://github.com/cri-o/cri-o/blob/v1.31.3/server/version.go.
@@ -71,7 +71,9 @@ const POD_STATES_CONTAINER_UNKNOWN: [PodState; 0] = [];
 
 // Required conditions for [`v1::StatusResponse`]:
 
+#[allow(dead_code)]
 const CONDITION_RUNTIME_READY: &str = "RuntimeReady";
+#[allow(dead_code)]
 const CONDITION_NETWORK_READY: &str = "NetworkReady";
 
 /// Wrapper around [WorkRuntime] that implements [RuntimeService]
@@ -632,7 +634,7 @@ impl RuntimeService for ProxyingRuntimeService {
             .downstream
             .lock()
             .await
-            .status(Request::new(request.get_ref().clone()))
+            .status(Request::new(*request.get_ref()))
             .await
         {
             Ok(downstream_response) => {
@@ -678,7 +680,7 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn get_container_events(
         &self,
-        request: Request<v1::GetEventsRequest>,
+        _request: Request<v1::GetEventsRequest>,
     ) -> TonicResult<Self::GetContainerEventsStream> {
         // TODO: Figure out how streaming works.
         return Err(Status::internal("GetContainerEvents TODO"));
@@ -718,7 +720,7 @@ impl RuntimeService for ProxyingRuntimeService {
 
     async fn update_pod_sandbox_resources(
         &self,
-        r: Request<v1::UpdatePodSandboxResourcesRequest>,
+        _request: Request<v1::UpdatePodSandboxResourcesRequest>,
     ) -> TonicResult<v1::UpdatePodSandboxResourcesResponse> {
         todo!()
     }
@@ -770,6 +772,7 @@ impl ProxyingRuntimeService {
     }
 
     /// Perform sandbox listing in the Vimana runtime.
+    #[allow(clippy::result_large_err)]
     fn list_pod_sandbox_upstream(
         &self,
         request: v1::ListPodSandboxRequest,
@@ -786,7 +789,7 @@ impl ProxyingRuntimeService {
             .map(|state| state.state == v1::PodSandboxState::SandboxReady as i32);
 
         // Filter ID, if present, can speed things up a lot.
-        if filter.id.len() > 0 {
+        if !filter.id.is_empty() {
             // I believe the ID must match exactly,
             // but that's not entirely clear from the documentation,
             // which just says "ID of the sandbox".
@@ -814,6 +817,7 @@ impl ProxyingRuntimeService {
     }
 
     /// Perform sandbox listing in the Vimana runtime.
+    #[allow(clippy::result_large_err)]
     fn list_containers_upstream(
         &self,
         request: v1::ListContainersRequest,
@@ -830,7 +834,7 @@ impl ProxyingRuntimeService {
             .map_or(&POD_STATES_CONTAINER_ALL, cri_container_state_to_pod_states);
 
         // Filter ID, if present, can speed things up a lot.
-        if filter.id.len() > 0 {
+        if !filter.id.is_empty() {
             // I believe the ID must match exactly,
             // but that's not entirely clear from the documentation,
             // which just says "ID of the container".

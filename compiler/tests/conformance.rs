@@ -21,7 +21,7 @@ use conformance_proto::conformance::{ConformanceRequest, ConformanceResponse, Wi
 use prost::Message;
 use prost::bytes::Bytes;
 use tonic::Status;
-use tonic::codec::{Decoder, Encoder};
+use tonic::codec::{DecodeBuf, Decoder, EncodeBuf, Encoder};
 
 use decode::RequestDecoder;
 use encode::ResponseEncoder;
@@ -49,12 +49,14 @@ struct Codec {
     encoder: ResponseEncoder,
 }
 
-struct DecodeBufStandIn<'a> {
+#[allow(dead_code)]
+struct DecodeBufClone<'a> {
     buf: &'a mut BytesMut,
     len: usize,
 }
 
-pub struct EncodeBufStandIn<'a> {
+#[allow(dead_code)]
+pub struct EncodeBufClone<'a> {
     buf: &'a mut BytesMut,
 }
 
@@ -109,7 +111,7 @@ impl Harness {
 
         self.codecs
             .get_mut(&request.message_type)
-            .expect(format!("Unexpected message type: {:?}", request.message_type).as_str())
+            .unwrap_or_else(|| panic!("Unexpected message type: {:?}", request.message_type))
             .round_trip(BytesMut::from(bytes))
             .map_or_else(result_parse_error, result_protobuf_encoded)
     }
@@ -130,7 +132,7 @@ impl Harness {
         let bytes = response.encode_to_vec();
         let length = bytes.len() as u32;
         self.stdout.write_all(&length.to_le_bytes()).unwrap();
-        self.stdout.write(bytes.as_slice()).unwrap();
+        self.stdout.write_all(bytes.as_slice()).unwrap();
         self.stdout.flush().unwrap();
     }
 
@@ -161,19 +163,19 @@ impl Codec {
         Self { decoder, encoder }
     }
 
-    fn round_trip(&mut self, mut input: BytesMut) -> StdResult<Vec<u8>, Status> {
+    fn round_trip(&mut self, mut input: BytesMut) -> StdResult<Vec<u8>, Box<Status>> {
         let input_length = input.len();
-        let buffer = DecodeBufStandIn {
+        let buffer = DecodeBufClone {
             buf: &mut input,
             len: input_length,
         };
-        let mut buffer = unsafe { transmute(buffer) };
+        let mut buffer = unsafe { transmute::<DecodeBufClone<'_>, DecodeBuf<'_>>(buffer) };
 
-        let value = self.decoder.decode(&mut buffer)?.unwrap();
+        let value = self.decoder.decode(&mut buffer).map_err(Box::new)?.unwrap();
 
         let mut output = BytesMut::new();
-        let buffer = EncodeBufStandIn { buf: &mut output };
-        let mut buffer = unsafe { transmute(buffer) };
+        let buffer = EncodeBufClone { buf: &mut output };
+        let mut buffer = unsafe { transmute::<EncodeBufClone<'_>, EncodeBuf<'_>>(buffer) };
 
         self.encoder.encode(value, &mut buffer).unwrap();
 
@@ -193,7 +195,7 @@ fn result_skipped<T: Into<String>>(message: T) -> ConformanceResponse {
     }
 }
 
-fn result_parse_error(error: Status) -> ConformanceResponse {
+fn result_parse_error(error: Box<Status>) -> ConformanceResponse {
     ConformanceResponse {
         result: Some(ConformanceResult::ParseError(error.to_string())),
     }

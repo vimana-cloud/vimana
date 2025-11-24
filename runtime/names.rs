@@ -20,7 +20,7 @@ use std::simd::{simd_swizzle, u8x16, u8x32};
 use std::slice::from_ref;
 use std::str;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use lazy_static::lazy_static;
 use regex::Regex;
 
@@ -66,7 +66,7 @@ impl<'a> Name<'a> {
 
         // Look for a domain or version separator.
         // A pod ID separator can only be present if there is a version.
-        if let Some(index) = full.find(&[DOMAIN_SEPARATOR, VERSION_SEPARATOR]) {
+        if let Some(index) = full.find([DOMAIN_SEPARATOR, VERSION_SEPARATOR]) {
             if full[index..].starts_with(DOMAIN_SEPARATOR) {
                 // There's an explicit domain.
                 domain = Some(&full[..index]);
@@ -96,31 +96,30 @@ impl<'a> Name<'a> {
     /// but the pod ID is absent,
     /// consume self and return an equivalent [`ComponentName`].
     pub fn component(self) -> Result<ComponentName> {
-        if let Some(domain) = self.domain {
-            if let Some(version) = self.version {
-                if self.pod.is_none() {
-                    return ComponentName::new(DomainUuid::parse(domain)?, self.server, version);
-                }
-            }
+        if let Some(domain) = self.domain
+            && let Some(version) = self.version
+            && self.pod.is_none()
+        {
+            ComponentName::new(DomainUuid::parse(domain)?, self.server, version)
+        } else {
+            Err(anyhow!("Invalid component name: {:?}", self))
         }
-        Err(anyhow!("Invalid component name: {:?}", self))
     }
 
     /// If the domain, version, and pod ID are all explicitly present and valid,
     /// consume self and return an equivalent [`PodName`].
     /// Pod names are always fully-qualified.
     pub fn pod(self) -> Result<PodName> {
-        if let Some(domain) = self.domain {
-            if let Some(version) = self.version {
-                if let Some(pod) = self.pod {
-                    let component =
-                        ComponentName::new(DomainUuid::parse(domain)?, self.server, version)?;
-                    let pod = usize::from_str_radix(pod, 16).context("Invalid pod ID")?;
-                    return Ok(PodName::new(component, pod));
-                }
-            }
+        if let Some(domain) = self.domain
+            && let Some(version) = self.version
+            && let Some(pod) = self.pod
+        {
+            let component = ComponentName::new(DomainUuid::parse(domain)?, self.server, version)?;
+            let pod = usize::from_str_radix(pod, 16).context("Invalid pod ID")?;
+            Ok(PodName::new(component, pod))
+        } else {
+            Err(anyhow!("Invalid pod name: {:?}", self))
         }
-        Err(anyhow!("Invalid pod name: {:?}", self))
     }
 }
 
@@ -268,7 +267,7 @@ pub struct PodName {
 impl PodName {
     pub fn new(component: ComponentName, pod_id: PodId) -> Self {
         Self {
-            component: component,
+            component,
             pod: pod_id,
         }
     }
@@ -410,7 +409,7 @@ pub fn hexify_string(string: &str) -> String {
 /// This is the inverse of [hexify_string].
 pub fn unhexify_string(hex_string: &str) -> Result<String> {
     let hex_length = hex_string.len();
-    if hex_length % 2 != 0 {
+    if !hex_length.is_multiple_of(2) {
         return Err(anyhow!("Odd-length hex string"));
     }
     let mut output = Vec::with_capacity(hex_length / 2);
@@ -424,14 +423,14 @@ pub fn unhexify_string(hex_string: &str) -> Result<String> {
         output.push(unhexify_nibble(byte[0])? + (unhexify_nibble(byte[1])? << 4));
     }
 
-    Ok(String::from_utf8(output).context("Hex string represents invalid UTF-8")?)
+    String::from_utf8(output).context("Hex string represents invalid UTF-8")
 }
 
 #[inline(always)]
 fn unhexify_nibble(hex_nibble: u8) -> Result<u8> {
-    if hex_nibble >= b'0' && hex_nibble <= b'9' {
+    if hex_nibble.is_ascii_digit() {
         Ok(hex_nibble - b'0')
-    } else if hex_nibble >= b'a' && hex_nibble <= b'f' {
+    } else if (b'a'..=b'f').contains(&hex_nibble) {
         Ok(hex_nibble - (b'a' - 10))
     } else {
         Err(anyhow!(
@@ -454,11 +453,8 @@ mod tests {
     const GOOD_DOMAIN: &str = "1234567890abcdef0f9ed8c7654b32a1";
     const GOOD_SERVER: &str = "some-server-id";
     const GOOD_VERSION: &str = "10.0.456-pre-release5";
-    const GOOD_POD_ID: &str = "a10f0";
     const GOOD_COMPONENT: &str =
         "1234567890abcdef0f9ed8c7654b32a1:some-server-id@10.0.456-pre-release5";
-    const GOOD_POD: &str =
-        "1234567890abcdef0f9ed8c7654b32a1:some-server-id@10.0.456-pre-release5#a10f0";
 
     #[test]
     fn parse_component() {
@@ -477,7 +473,7 @@ mod tests {
 
     #[test]
     fn parse_pod_ids_good() {
-        let good_pod_ids = vec![
+        let good_pod_ids = [
             ("1a2f", 0x1a2fusize),
             ("abcdefff", 0xabcdefff),
             ("0", 0x0),
@@ -504,7 +500,7 @@ mod tests {
 
     #[test]
     fn parse_pod_ids_bad() {
-        let bad_pod_ids = vec!["abcdefg", "-1", "10000000000000000"];
+        let bad_pod_ids = ["abcdefg", "-1", "10000000000000000"];
 
         for pod_id in bad_pod_ids.iter() {
             let name = format!("{GOOD_DOMAIN}:{GOOD_SERVER}@{GOOD_VERSION}#{pod_id}");
@@ -518,7 +514,7 @@ mod tests {
 
     #[test]
     fn parse_versions_good() {
-        let good_versions = vec![
+        let good_versions = [
             "1.0.0",
             "1.2.3-pre-release",
             "1.2.3-0",
@@ -545,11 +541,11 @@ mod tests {
 
     #[test]
     fn parse_versions_bad() {
-        let bad_versions = vec![
-            "1.0.00",            // Double zero goes against spec.
-            "1.2.3+build",       // Can't handle '+'.
-            "1.2.3-ends-dash-",  // Can't end with a dash.
-            "1.2.3-00",          // Can't have double-zero in the pre-release either.
+        let bad_versions = [
+            "1.0.00",           // Double zero goes against spec.
+            "1.2.3+build",      // Can't handle '+'.
+            "1.2.3-ends-dash-", // Can't end with a dash.
+            "1.2.3-00",         // Can't have double-zero in the pre-release either.
             // Too long:
             "1234567890.1234567890.1234567890-ABCDEFGHIJKLMNOPQRSTUVWXYZ-abcdefghijklmnopqrstuvwxyz",
         ];
@@ -568,7 +564,7 @@ mod tests {
 
     #[test]
     fn parse_server_good() {
-        let good_servers = vec!["simple", "contains-dash", "ends-with-digit-1"];
+        let good_servers = ["simple", "contains-dash", "ends-with-digit-1"];
 
         for server in good_servers.iter() {
             let name = format!("{GOOD_DOMAIN}:{server}@{GOOD_VERSION}");
@@ -589,7 +585,7 @@ mod tests {
 
     #[test]
     fn parse_server_bad() {
-        let bad_servers = vec![
+        let bad_servers = [
             "",
             "contains.period",
             "contains-Capital",

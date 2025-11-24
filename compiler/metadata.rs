@@ -206,9 +206,11 @@ impl<'a> MetadataFile<'a> {
         server_qualifier: &TypeNameQualifier<'a>,
         syntax: ProtoSyntax,
     ) -> Result<Option<Field>> {
-        let mut field = Field::default();
-        field.number = field_descriptor.number() as u32;
-        field.name = field_descriptor.name().to_kebab_case();
+        let mut field = Field {
+            number: field_descriptor.number() as u32,
+            name: field_descriptor.name().to_kebab_case(),
+            ..Default::default()
+        };
 
         let scalar_type_offset = match field_descriptor.r#type() {
             Type::Double => CODING_SCALAR_DOUBLE,
@@ -282,7 +284,7 @@ impl<'a> MetadataFile<'a> {
                 bail!("Protobuf groups are not supported; use nested messages instead")
             }
         };
-        return Ok(
+        Ok(
             if let Some(coding_offset) =
                 field_coding_offset(field_descriptor, syntax, self.parameters)?
             {
@@ -291,7 +293,7 @@ impl<'a> MetadataFile<'a> {
             } else {
                 None
             },
-        );
+        )
     }
 
     fn compile_enum_variants(&mut self, name: QualifiedTypeName<'a>) -> Result<Vec<Field>> {
@@ -343,10 +345,11 @@ fn qualified_service_name(name: &str, package: &ProtoPackage) -> String {
 }
 
 fn oneof_field(oneof: &OneofDescriptorProto) -> Field {
-    let mut field = Field::default();
-    field.name = oneof.name().to_kebab_case();
-    field.coding = Some(Coding::CompoundCoding(CODING_COMPOUND_ONEOF));
-    field
+    Field {
+        name: oneof.name().to_kebab_case(),
+        coding: Some(Coding::CompoundCoding(CODING_COMPOUND_ONEOF)),
+        ..Default::default()
+    }
 }
 
 fn force_explicit_coding(field: &mut Field) {
@@ -361,14 +364,15 @@ fn force_explicit_coding(field: &mut Field) {
 }
 
 fn force_explicit_coding_offset(offset: i32) -> i32 {
-    return (offset / CODING_CATEGORIES) * CODING_CATEGORIES + CODING_CATEGORY_EXPLICIT;
+    (offset / CODING_CATEGORIES) * CODING_CATEGORIES + CODING_CATEGORY_EXPLICIT
 }
 
 fn enum_variant_field(variant: &EnumValueDescriptorProto) -> Field {
-    let mut field = Field::default();
-    field.name = variant.name().to_kebab_case();
-    field.number = variant.number() as u32;
-    field
+    Field {
+        name: variant.name().to_kebab_case(),
+        number: variant.number() as u32,
+        ..Default::default()
+    }
 }
 
 fn field_coding_offset<'a>(

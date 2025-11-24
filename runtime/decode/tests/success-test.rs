@@ -2,7 +2,7 @@ use std::mem::{drop, transmute};
 use std::sync::Arc;
 
 use bytes::BytesMut;
-use tonic::codec::Decoder;
+use tonic::codec::{DecodeBuf, Decoder};
 use wasmtime::component::Val;
 
 use decode::RequestDecoder;
@@ -42,7 +42,11 @@ macro_rules! test_success {
             ).unwrap();
             let mut buffer = BytesMut::from(&$buffer[..]);
             let length = buffer.len();
-            let mut decode_buffer = unsafe { transmute(DecodeBufClone { buf: &mut buffer, len: length }) };
+            let mut decode_buffer = unsafe {
+                transmute::<DecodeBufClone<'_>, DecodeBuf<'_>>(
+                    DecodeBufClone { buf: &mut buffer, len: length },
+                )
+            };
 
             let result = decoder.decode(&mut decode_buffer).unwrap();
 
@@ -146,6 +150,7 @@ macro_rules! variant {
 ///
 /// https://github.com/hyperium/tonic/blob/v0.12.3/tonic/src/codec/buffer.rs#L13
 #[derive(Debug)]
+#[allow(dead_code)]
 struct DecodeBufClone<'a> {
     buf: &'a mut BytesMut,
     len: usize,

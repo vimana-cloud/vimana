@@ -34,12 +34,6 @@ use names::ComponentName;
 #[derive(Clone)]
 pub struct RequestDecoder(Arc<RequestDecoderInner>);
 
-// Safe because the raw pointers in the decoder always point
-// into the Vec within RequestDecoderInner,
-// which is protected by an Arc and never modified after initialization.
-unsafe impl Send for RequestDecoder {}
-unsafe impl Sync for RequestDecoder {}
-
 /// See [`RequestDecoder`].
 struct RequestDecoderInner {
     /// Array of mergers for all messages that may appear within the request.
@@ -54,7 +48,7 @@ struct RequestDecoderInner {
 
     /// Component name used for error logging only,
     /// shared among all encoders / decoders of a single component.
-    component: Arc<ComponentName>,
+    _component: Arc<ComponentName>,
 }
 
 pub(crate) struct MessageMerger {
@@ -153,7 +147,7 @@ impl RequestDecoder {
 
         Ok(Self(Arc::new(RequestDecoderInner {
             messages: message_mergers,
-            component,
+            _component: component,
         })))
     }
 }
@@ -184,6 +178,16 @@ impl TonicDecoder for RequestDecoder {
         Ok(Some(value))
     }
 }
+
+/// Safe because the raw pointers in the decoder always point
+/// into the attached [vector](RequestDecoderInner::messages),
+/// which is never modified or re-allocated after initialization.
+unsafe impl Send for RequestDecoderInner {}
+
+/// Safe because the raw pointers in the decoder always point
+/// into the attached [vector](RequestDecoderInner::messages),
+/// which is never modified or re-allocated after initialization.
+unsafe impl Sync for RequestDecoderInner {}
 
 /// [`Merger`] uses a union internally which must be dropped manually.
 impl Drop for Merger {
@@ -261,7 +265,9 @@ fn decode_tag(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<(u32, WireT
     if wire_type >= 6 {
         return Err(DecodeError::new(INVALID_WIRE_TYPE).with_field(field_number));
     }
-    Ok((field_number, unsafe { transmute(wire_type) }))
+    Ok((field_number, unsafe {
+        transmute::<u8, WireType>(wire_type)
+    }))
 }
 
 /// Read a varint from the source buffer,
@@ -367,7 +373,7 @@ impl Display for DecodeError {
         formatter.write_str("Malformed request (")?;
         format_decode_error_trace(self, formatter)?;
         formatter.write_str("): ")?;
-        formatter.write_str(&self.message)
+        formatter.write_str(self.message)
     }
 }
 

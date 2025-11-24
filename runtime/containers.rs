@@ -3,8 +3,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{
-    create_dir_all as sync_create_dir_all, metadata as sync_metadata,
-    remove_dir as sync_remove_dir, remove_file as sync_remove_file, File as SyncFile,
+    File as SyncFile, create_dir_all as sync_create_dir_all, metadata as sync_metadata,
+    remove_dir as sync_remove_dir, remove_file as sync_remove_file,
 };
 use std::io::{Read, Write};
 use std::mem::{drop, size_of};
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
 
-use anyhow::{anyhow, Context, Error, Result};
+use anyhow::{Context, Error, Result, anyhow};
 use api_proto::runtime::v1;
 use bytes::Bytes;
 use prost::Message;
@@ -20,8 +20,8 @@ use reqwest::header::ACCEPT;
 use reqwest::{Client, StatusCode as HttpStatusCode};
 use serde::Deserialize;
 use tokio::task::{spawn, spawn_blocking};
-use wasmtime::component::Component;
 use wasmtime::Engine as WasmEngine;
+use wasmtime::component::Component;
 
 use logging::log_info;
 use metadata_proto::vimana::runtime::Metadata;
@@ -226,8 +226,12 @@ impl ContainerStore {
                 .read_exact(&mut component_size_bytes)
                 .context("Failed reading length from container file")?;
             let component_size = u64::from_le_bytes(component_size_bytes);
+
             let mut serialized_component = Vec::with_capacity(component_size as usize);
-            unsafe { serialized_component.set_len(component_size as usize) };
+            #[allow(clippy::uninit_vec)]
+            unsafe {
+                serialized_component.set_len(component_size as usize)
+            };
             container_file
                 .read_exact(&mut serialized_component)
                 .context("Failed reading component from container file")?;
@@ -449,7 +453,7 @@ impl ContainerClient {
                 // Fetch the layers in parallel.
                 let component_fetch = spawn(self.clone().fetch_component(format!(
                     "{server_url}/blobs/{}",
-                    manifest.layers.get(0).unwrap().digest,
+                    manifest.layers.first().unwrap().digest,
                 )));
                 let metadata_result = self
                     .fetch_metadata(format!(

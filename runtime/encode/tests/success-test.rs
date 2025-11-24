@@ -2,7 +2,7 @@ use std::mem::{drop, transmute};
 use std::sync::Arc;
 
 use bytes::BytesMut;
-use tonic::codec::Encoder;
+use tonic::codec::{EncodeBuf, Encoder};
 use wasmtime::component::Val;
 
 use encode::ResponseEncoder;
@@ -41,7 +41,7 @@ macro_rules! test_success {
                 Arc::new(Name::parse(COMPONENT_NAME).component().unwrap()),
             ).unwrap();
             let mut buffer = BytesMut::new();
-            let mut encode_buffer = unsafe { transmute(EncodeBufClone { buf: &mut buffer }) };
+            let mut encode_buffer = unsafe { transmute::<EncodeBufClone<'_>, EncodeBuf<'_>>(EncodeBufClone { buf: &mut buffer }) };
 
             encoder.encode($value, &mut encode_buffer).unwrap();
 
@@ -138,13 +138,14 @@ macro_rules! oneof_variant {
     };
 }
 
-/// This has to be an exact clone of [`tonic::codec::EncodeBuf`],
+/// This has to be an exact clone of [`EncodeBuf`],
 /// which has a private constructor that prevents instantiation here.
 /// We get around that by unsafely transmuting a structurally-equivalent clone.
 /// This is technically undefined behavior, but it works well enough for this test.
 ///
 /// https://github.com/hyperium/tonic/blob/v0.12.3/tonic/src/codec/buffer.rs#L13
 #[derive(Debug)]
+#[allow(dead_code)]
 struct EncodeBufClone<'a> {
     buf: &'a mut BytesMut,
 }

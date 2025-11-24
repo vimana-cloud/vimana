@@ -1,0 +1,6 @@
+{
+    "warningsList": [
+        "-function-docstring-args",
+        "-function-docstring-header"
+    ]
+}

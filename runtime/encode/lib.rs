@@ -14,8 +14,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use metadata_proto::vimana::runtime::ProtoMessage;
 use prost::encoding::WireType;
-use tonic::codec::{EncodeBuf, Encoder as TonicEncoder};
 use tonic::Status;
+use tonic::codec::{EncodeBuf, Encoder as TonicEncoder};
 use wasmtime::component::Val;
 
 use compound::{
@@ -31,12 +31,6 @@ use names::ComponentName;
 #[derive(Clone)]
 pub struct ResponseEncoder(Arc<ResponseEncoderInner>);
 
-// Safe because the raw pointers in the encoder always point
-// into the Vec within ResponseEncoderInner,
-// which is protected by an Arc and never modified after initialization.
-unsafe impl Send for ResponseEncoder {}
-unsafe impl Sync for ResponseEncoder {}
-
 /// See [`ResponseEncoder`].
 struct ResponseEncoderInner {
     /// Array of encoders for all messages that may appear within the response.
@@ -51,7 +45,7 @@ struct ResponseEncoderInner {
 
     /// Component name used for error logging only,
     /// shared among all encoders / decoders of a single component.
-    component: Arc<ComponentName>,
+    _component: Arc<ComponentName>,
 }
 
 struct MessageEncoder {
@@ -153,7 +147,7 @@ impl ResponseEncoder {
 
         Ok(Self(Arc::new(ResponseEncoderInner {
             messages: message_encoders,
-            component,
+            _component: component,
         })))
     }
 }
@@ -181,6 +175,16 @@ impl TonicEncoder for ResponseEncoder {
         result
     }
 }
+
+/// Safe because the raw pointers in the encoder always point
+/// into the attached [vector](ResponseEncoderInner::messages),
+/// which is never modified or re-allocated after initialization.
+unsafe impl Send for ResponseEncoderInner {}
+
+/// Safe because the raw pointers in the encoder always point
+/// into the attached [vector](ResponseEncoderInner::messages),
+/// which is never modified or re-allocated after initialization.
+unsafe impl Sync for ResponseEncoderInner {}
 
 /// [`Encoder`] uses a union internally,
 /// which requires the hash maps to be dropped manually.
@@ -261,7 +265,7 @@ impl Debug for EncodeError {
         formatter.write_str("EncodeError(")?;
         format_encode_error_trace(self, formatter)?;
         formatter.write_str("): ")?;
-        formatter.write_str(&self.message)
+        formatter.write_str(self.message)
     }
 }
 

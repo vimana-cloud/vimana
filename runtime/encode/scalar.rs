@@ -4,16 +4,16 @@
 use std::result::Result as StdResult;
 
 use prost::bytes::BufMut;
-use prost::encoding::{encode_varint, encoded_len_varint, WireType};
+use prost::encoding::{WireType, encode_varint, encoded_len_varint};
 use tonic::codec::EncodeBuf;
 use wasmtime::component::Val;
 
 use crate::{
-    tag, CompoundEncoder, EncodeError, EncodeFn, Encoder, LengthFn, BOOL_NON_BOOL, BYTES_NON_LIST,
-    BYTE_NON_BYTE, DOUBLE_NON_DOUBLE, EXPLICIT_NON_OPTION, FIXED32_NON_FIXED32,
-    FIXED64_NON_FIXED64, FLOAT_NON_FLOAT, INT32_NON_INT32, INT64_NON_INT64, LENGTH_INCONSISTENCY,
+    BOOL_NON_BOOL, BYTE_NON_BYTE, BYTES_NON_LIST, CompoundEncoder, DOUBLE_NON_DOUBLE,
+    EXPLICIT_NON_OPTION, EncodeError, EncodeFn, Encoder, FIXED32_NON_FIXED32, FIXED64_NON_FIXED64,
+    FLOAT_NON_FLOAT, INT32_NON_INT32, INT64_NON_INT64, LENGTH_INCONSISTENCY, LengthFn,
     REPEATED_NON_LIST, SFIXED32_NON_SFIXED32, SFIXED64_NON_SFIXED64, SINT32_NON_SINT32,
-    SINT64_NON_SINT64, STRING_NON_STRING, UINT32_NON_UINT32, UINT64_NON_UINT64,
+    SINT64_NON_SINT64, STRING_NON_STRING, UINT32_NON_UINT32, UINT64_NON_UINT64, tag,
 };
 use metadata_proto::vimana::runtime::field::ScalarCoding;
 
@@ -583,7 +583,7 @@ macro_rules! scalar_var_length_fns {
 }
 
 #[inline(always)]
-fn bytes_encode_inner(value: &Vec<Val>, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
+fn bytes_encode_inner(value: &[Val], buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     encode_varint(value.len() as u64, buf);
     for item in value.iter() {
         if let Val::U8(byte) = item {
@@ -595,14 +595,14 @@ fn bytes_encode_inner(value: &Vec<Val>, buf: &mut EncodeBuf<'_>) -> StdResult<()
     Ok(())
 }
 #[inline(always)]
-fn bytes_length_inner(value: &Vec<Val>) -> StdResult<u32, EncodeError> {
+fn bytes_length_inner(value: &[Val]) -> StdResult<u32, EncodeError> {
     Ok(u32::saturating_add(
         encoded_len_varint(value.len() as u64) as u32,
         u32::try_from(value.len()).unwrap_or(u32::MAX),
     ))
 }
 #[inline(always)]
-fn bytes_default(value: &Vec<Val>) -> bool {
+fn bytes_default(value: &[Val]) -> bool {
     value.is_empty()
 }
 scalar_encode_fns!(
@@ -629,20 +629,20 @@ scalar_var_length_fns!(
 );
 
 #[inline(always)]
-fn string_encode_inner(value: &String, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
+fn string_encode_inner(value: &str, buf: &mut EncodeBuf<'_>) -> StdResult<(), EncodeError> {
     encode_varint(value.len() as u64, buf);
     buf.put_slice(value.as_bytes());
     Ok(())
 }
 #[inline(always)]
-fn string_length_inner(value: &String) -> StdResult<u32, EncodeError> {
+fn string_length_inner(value: &str) -> StdResult<u32, EncodeError> {
     Ok(u32::saturating_add(
         encoded_len_varint(value.len() as u64) as u32,
         u32::try_from(value.len()).unwrap_or(u32::MAX),
     ))
 }
 #[inline(always)]
-fn string_default(value: &String) -> bool {
+fn string_default(value: &str) -> bool {
     value.is_empty()
 }
 scalar_encode_fns!(

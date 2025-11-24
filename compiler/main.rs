@@ -36,7 +36,7 @@ pub(crate) struct PluginParameters {
 pub(crate) enum ProtoSyntax {
     Proto2,
     Proto3,
-    Editions,
+    // TODO: Add support for editions.
 }
 
 /// A fully-qualified type name for either a message or enum type.
@@ -120,7 +120,7 @@ fn main() -> Result<()> {
     }
 
     // Write the response to stdout.
-    return Ok(stdout().write_all(response.encode_to_vec().as_slice())?);
+    Ok(stdout().write_all(response.encode_to_vec().as_slice())?)
 }
 
 fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
@@ -145,7 +145,7 @@ fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
         }
 
         for message_descriptor in &file_descriptor.message_type {
-            wit_file.compile_message(message_descriptor, &package_qualifier, syntax.clone())?;
+            wit_file.compile_message(message_descriptor, &package_qualifier, syntax)?;
         }
     }
 
@@ -178,7 +178,7 @@ impl<'a> DescriptorMap<'a> {
         for file_descriptor in file_descriptors {
             let file_name = file_descriptor.name();
 
-            let syntax = match file_descriptor.syntax.as_ref().map(String::as_str) {
+            let syntax = match file_descriptor.syntax.as_deref() {
                 None | Some("proto2") => ProtoSyntax::Proto2,
                 Some("proto3") => ProtoSyntax::Proto3,
                 Some("editions") => bail!("Editions syntax is not yet supported"),
@@ -236,7 +236,7 @@ impl<'a> DescriptorMap<'a> {
     fn get_file(&self, filename: &String) -> Result<(&'a FileDescriptorProto, ProtoSyntax)> {
         self.files
             .get(filename)
-            .map(|value| value.clone())
+            .copied()
             .ok_or_else(|| anyhow!("Malformed request contains unknown file '{filename}"))
     }
 
@@ -244,11 +244,11 @@ impl<'a> DescriptorMap<'a> {
         &self,
         name: &QualifiedTypeName<'a>,
     ) -> Option<(&'a DescriptorProto, ProtoSyntax)> {
-        self.messages.get(name).map(|value| value.clone())
+        self.messages.get(name).copied()
     }
 
     pub(crate) fn get_enum(&self, name: &QualifiedTypeName<'a>) -> Option<&'a EnumDescriptorProto> {
-        self.enums.get(name).map(|value| *value)
+        self.enums.get(name).copied()
     }
 }
 
@@ -271,7 +271,7 @@ impl<'a> QualifiedTypeName<'a> {
             // based on the capitalization of the first character
             // (packages start with a lowercase character, messages uppercase).
             let mut package: Vec<&'a str> = Vec::new();
-            while let Some(part) = parts.next() {
+            for part in parts.by_ref() {
                 // Unwrapping is safe because Protobuf does not allow empty parts in a type path.
                 if part.chars().next().unwrap().is_lowercase() {
                     package.push(part);

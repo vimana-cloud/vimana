@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::result::Result as StdResult;
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{Error, Result, anyhow};
 use tonic::{Response, Status};
 
 use logging::{log_error, log_error_globally};
@@ -45,6 +45,7 @@ fn component_name_from_labels(labels: &HashMap<String, String>) -> Result<Compon
 
 trait LogErrorToStatus<T> {
     #[track_caller]
+    #[allow(clippy::result_large_err)]
     fn log_error(self, context: impl ErrorLoggingContext) -> StdResult<T, Status>;
 }
 
