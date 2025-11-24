@@ -13,7 +13,8 @@ use wit_encoder::{
 
 use crate::{
     DescriptorMap, PluginParameters, ProtoPackage, ProtoSyntax, QualifiedTypeName,
-    TypeNameQualifier, VIMANA_API_VERSION, WASI_API_VERSION, sorted_map_entries, sorted_set_values,
+    TypeNameQualifier, VIMANA_API_VERSION, WASI_API_VERSION, into_sorted_map_entries,
+    into_sorted_set_values, sorted_set_values,
 };
 
 /// Name of the generated WIT file in the output directory.
@@ -190,7 +191,7 @@ impl<'a> WitFile<'a> {
             if let Some((types_interface, oneofs_interface)) =
                 message_definition(message_descriptor, &type_name, syntax, self.parameters)?
             {
-                for type_used in &types_interface.types_used {
+                for type_used in sorted_set_values(&types_interface.types_used) {
                     // Check if it's a message type first
                     if let Some((depended_descriptor, depended_syntax)) =
                         self.descriptors.get_message(type_used)
@@ -282,7 +283,7 @@ impl<'a> WitFile<'a> {
         }
         wit_contents.push_str(server_package.to_string().as_str());
 
-        for (name_qualifier, types_interface) in sorted_map_entries(self.types_interfaces) {
+        for (name_qualifier, types_interface) in into_sorted_map_entries(self.types_interfaces) {
             wit_contents.push('\n');
             wit_contents.push_str(
                 types_interface
@@ -466,7 +467,7 @@ impl<'a> ServerWorld<'a> {
         world.include(Include::new(format!(
             "vimana:grpc/imports@{VIMANA_API_VERSION}"
         )));
-        for used_type in sorted_set_values(self.types_used) {
+        for used_type in into_sorted_set_values(self.types_used) {
             world.use_type(used_type.use_type_target(), used_type.use_item(), None);
         }
         for service in self.services {
@@ -520,7 +521,7 @@ impl<'a> TypesInterface<'a> {
 
     fn into_interface(self, qualifier: &TypeNameQualifier<'a>) -> Interface {
         let mut interface = Interface::new(TYPES_INTERFACE_NAME);
-        for used_type in sorted_set_values(self.types_used) {
+        for used_type in into_sorted_set_values(self.types_used) {
             // Only add use statements for types from different qualifiers.
             if &used_type.qualifier != qualifier {
                 interface.use_type(used_type.use_type_target(), used_type.use_item(), None);
@@ -558,7 +559,7 @@ impl<'a> OneofsInterface<'a> {
 
     fn into_interface(self) -> Interface {
         let mut interface = Interface::new(ONEOFS_INTERFACE_NAME);
-        for used_type in sorted_set_values(self.types_used) {
+        for used_type in into_sorted_set_values(self.types_used) {
             interface.use_type(used_type.use_type_target(), used_type.use_item(), None);
         }
         for defined_oneof in self.oneofs_defined {

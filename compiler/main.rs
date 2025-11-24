@@ -374,15 +374,22 @@ impl<'a> Display for ProtoPackage<'a> {
 }
 
 /// Convert a map into a vector of entry doubles, sorted by key.
-pub(crate) fn sorted_map_entries<K: Ord, V>(map: HashMap<K, V>) -> Vec<(K, V)> {
+pub(crate) fn into_sorted_map_entries<K: Ord, V>(map: HashMap<K, V>) -> Vec<(K, V)> {
     let mut entries: Vec<(K, V)> = map.into_iter().collect();
     entries.sort_by(|(left, _), (right, _)| left.cmp(right));
     entries
 }
 
 /// Convert a set into a sorted vector of values.
-pub(crate) fn sorted_set_values<V: Ord>(set: HashSet<V>) -> Vec<V> {
+pub(crate) fn into_sorted_set_values<V: Ord>(set: HashSet<V>) -> Vec<V> {
     let mut values: Vec<V> = set.into_iter().collect();
+    values.sort();
+    values
+}
+
+/// Convert a set into a sorted vector of values (borrowed version).
+pub(crate) fn sorted_set_values<V: Ord>(set: &HashSet<V>) -> Vec<&V> {
+    let mut values: Vec<&V> = set.iter().collect();
     values.sort();
     values
 }
