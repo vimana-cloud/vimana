@@ -47,4 +47,5 @@ tower-service = "0.3.3"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["json"] }
 wasmtime = "39.0.1"
+wasmtime-wasi = "39.0.1"
 wit-encoder = "0.241.2"

@@ -1,0 +1,12 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "host",
+    srcs = ["lib.rs"],
+    visibility = ["//runtime:__pkg__"],
+    deps = [
+        "@crates//:anyhow",
+        "@crates//:wasmtime",
+        "@crates//:wasmtime-wasi",
+    ],
+)

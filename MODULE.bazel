@@ -27,7 +27,7 @@ bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "rules_rust", version = "0.67.0")
 bazel_dep(name = "rules_rust_prost", version = "0.67.0")
 bazel_dep(name = "rules_shell", version = "0.6.1")
-bazel_dep(name = "rules_wasm", version = "1.1.1")
+bazel_dep(name = "rules_wasm", version = "2.0.2")
 bazel_dep(name = "cri-api")
 git_override(
     module_name = "cri-api",
@@ -74,6 +74,7 @@ rust.toolchain(
         "{}/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "6f8fa84ec41cda902e5575edcbaec93f8a43b51932d63d1597dc01dc32ee1368",
         "{}/llvm-tools-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "f0976321dd6bb6e1aca474fe743b55ec176414850ea2f0cda1732f208fc97bd5",
         "{}/rust-std-nightly-x86_64-unknown-linux-musl.tar.xz".format(RUST_NIGHTLY_DATE): "ebb31c22602ca92731efdf78d0d440d68d06d02f527fd6426badec498cad22a5",
+        "{}/rust-std-nightly-wasm32-wasip2.tar.xz".format(RUST_NIGHTLY_DATE): "17bbc247c9f980ca7e9e8257d7f30f7d15bdcff14ab8265366a765dacc3420e6",
     },
     versions = [RUST_VERSION],
 )
@@ -122,6 +123,13 @@ rust.repository_set(
     target_triple = "x86_64-unknown-linux-musl",
     versions = [RUST_VERSION],
 )
+rust.repository_set(
+    name = "rust_wasm32_wasip2",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-unknown-linux-gnu",
+    target_triple = "wasm32-wasip2",
+    versions = [RUST_VERSION],
+)
 use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
@@ -141,9 +149,7 @@ crate.from_cargo(
     supported_platform_triples = [
         "aarch64-unknown-linux-gnu",
         "aarch64-apple-darwin",
-        # TODO: Updgrade to wasip2 when there's an available platform
-        #       (`@platforms//os:wasi` is only supported by wasip1).
-        "wasm32-wasip1",
+        "wasm32-wasip2",
         "x86_64-unknown-linux-gnu",
         "x86_64-apple-darwin",
     ],
@@ -234,7 +240,7 @@ pip.parse(
 )
 use_repo(pip, "pypi")
 
-# Docker setup (for build and running the API server):
+# Docker setup
 
 oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 
@@ -255,6 +261,7 @@ oci.pull(
     image = "gcr.io/k8s-minikube/kicbase@sha256:6ed579c9292b4370177b7ef3c42cc4b4a6dcd0735a1814916cbc22c8bf38412b",
     platforms = ["linux/amd64"],
 )
+
 use_repo(
     oci,
     "distroless-static",

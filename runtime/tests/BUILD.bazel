@@ -8,8 +8,8 @@ py_test(
     name = "success-test",
     srcs = ["success-test.py"],
     data = [
-        "//runtime/tests/components:adder-c",
         "//runtime/tests/components:adder-metadata",
+        "//runtime/tests/components:adder-rust",
     ],
     # Verbosely log wasmtime errors.
     env = {"WASMTIME_BACKTRACE_DETAILS": "1"},
@@ -30,8 +30,8 @@ py_test(
     name = "list-test",
     srcs = ["list-test.py"],
     data = [
-        "//runtime/tests/components:adder-c",
         "//runtime/tests/components:adder-metadata",
+        "//runtime/tests/components:adder-rust",
     ],
     tags = [
         # https://github.com/bazelbuild/bazel/discussions/25543

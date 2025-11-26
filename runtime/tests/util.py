@@ -13,7 +13,8 @@ from ipaddress import IPv4Address, IPv6Address
 from itertools import chain, repeat
 from json import loads as parseJson
 from os import chmod, getpid, stat, walk
-from os.path import exists, join
+from os.path import exists
+from os.path import join as joinPath
 from queue import Empty, Queue, ShutDown
 from random import randrange
 from re import Match
@@ -294,7 +295,7 @@ class VimanadTester:
                 inodesUsed += 1
             for filename in filenames:
                 inodesUsed += 1
-                usedBytes += stat(join(directory, filename)).st_size
+                usedBytes += stat(joinPath(directory, filename)).st_size
 
         testCase.assertEqual(reportedUsage.used_bytes.value, usedBytes)
         testCase.assertEqual(reportedUsage.inodes_used.value, inodesUsed)

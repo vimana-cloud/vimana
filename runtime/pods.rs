@@ -23,10 +23,10 @@ use wasmtime::component::{ComponentExportIndex, InstancePre, Val};
 use wasmtime::{Engine as WasmEngine, Store};
 
 use crate::containers::ContainerStore;
-use crate::host::{HostState, grpc_linker};
 use crate::state::SingleUse;
 use decode::RequestDecoder;
 use encode::ResponseEncoder;
+use host::{HostState, grpc_linker};
 use logging::log_warn;
 use metadata_proto::vimana::runtime::ProtoMessage;
 use names::ComponentName;
@@ -118,7 +118,6 @@ async fn initialize_grpc(
                 function: export_index,
                 instantiator: instantiator.clone(),
                 wasmtime: wasmtime.clone(),
-                state: Arc::new(HostState::new()),
                 component: name.clone(),
             }));
 
@@ -185,13 +184,10 @@ struct MethodInner {
     function: ComponentExportIndex,
 
     /// An efficient means of instantiating new instances.
-    instantiator: InstancePre<Arc<HostState>>,
+    instantiator: InstancePre<HostState>,
 
     /// Global Wasm engine to run hosted services.
     wasmtime: WasmEngine,
-
-    /// Shared host state used by every method in this pod.
-    state: Arc<HostState>,
 
     /// Name of the component this method is a part of, for error logging.
     component: Arc<ComponentName>,
@@ -237,7 +233,9 @@ impl UnaryService<Val> for Method {
         let method = self.clone();
         Box::pin(async move {
             // TODO: See if we can pool instances somehow.
-            let mut store = Store::new(&method.0.wasmtime, method.0.state.clone());
+            // TODO: Use a shared version of [`HostState`] among all instances,
+            //   once that's possible with wasip3.
+            let mut store = Store::new(&method.0.wasmtime, HostState::new());
             let instance = method
                 .0
                 .instantiator

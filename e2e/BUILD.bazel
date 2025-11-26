@@ -5,7 +5,7 @@ load("//cluster/bootstrap:bootstrap.bzl", "self_signed_tls", "vimana_image_push"
 
 vimana_image_push(
     name = "adder-push-local",
-    component = "//runtime/tests/components:adder-c",
+    component = "//runtime/tests/components:adder-rust",
     domain_id = "00000000000000000000000000000001",
     metadata = "//runtime/tests/components:adder-metadata",
     registry = "http://{}:5000".format(localhost),

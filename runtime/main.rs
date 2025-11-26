@@ -11,7 +11,6 @@
 
 mod containers;
 mod cri;
-mod host;
 mod ipam;
 mod pods;
 mod state;

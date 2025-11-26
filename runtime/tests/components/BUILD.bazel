@@ -1,7 +1,7 @@
 load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
-load("@rules_wasm//:c.bzl", "c_component")
-load("@rules_wasm//:wasm.bzl", "wit_package")
+load("@rules_wasm//rust:defs.bzl", "rust_component")
+load("@rules_wasm//wasm:defs.bzl", "wit_package")
 
 package(
     default_visibility = [
@@ -13,12 +13,13 @@ package(
 wit_package(
     name = "adder-wit",
     srcs = ["adder.wit"],
+    package = "foo:bar",
     deps = ["//compiler/wit:grpc"],
 )
 
-c_component(
-    name = "adder-c",
-    srcs = ["adder.c"],
+rust_component(
+    name = "adder-rust",
+    srcs = ["adder.rs"],
     wit = ":adder-wit",
     world = "adder-service",
 )

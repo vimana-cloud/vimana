@@ -3,6 +3,7 @@
 from enum import Enum, auto
 from functools import partial
 from os import getenv
+from os.path import join as joinPath
 from time import time_ns
 from unittest import main
 
@@ -39,6 +40,11 @@ from runtime.tests.util import RUNTIME_HANDLER, VimanadTestCase, hexUuid
 # https://bazel.build/reference/test-encyclopedia#initial-conditions
 TEST_TIMEOUT_NANOSECONDS = int(getenv('TEST_TIMEOUT')) * 1000 * 1000 * 1000
 
+ADDER_RUST_COMPONENT_PATH = joinPath(
+    'runtime', 'tests', 'components', 'adder_service.wasm'
+)
+ADDER_METADATA_PATH = joinPath('runtime', 'tests', 'components', 'adder.binpb')
+
 
 class Phase(Enum):
     """Each possible phase of the lifecycle of a pod / container pair,
@@ -73,8 +79,8 @@ class ListTest(VimanadTestCase):
         ) = cls.setupImage(
             server='adder-server',
             version='1.2.3',
-            module='runtime/tests/components/adder-c.component.wasm',
-            metadata='runtime/tests/components/adder.binpb',
+            module=ADDER_RUST_COMPONENT_PATH,
+            metadata=ADDER_METADATA_PATH,
         )
         (
             cls.barDomain,
@@ -86,8 +92,8 @@ class ListTest(VimanadTestCase):
         ) = cls.setupImage(
             server='another-adder-server',
             version='0.0.0',
-            module='runtime/tests/components/adder-c.component.wasm',
-            metadata='runtime/tests/components/adder.binpb',
+            module=ADDER_RUST_COMPONENT_PATH,
+            metadata=ADDER_METADATA_PATH,
         )
 
         # Set up a pod / container in every possible state for the 'foo' labels.

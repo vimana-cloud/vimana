@@ -1,8 +1,9 @@
-load("@rules_wasm//:wasm.bzl", "wit_package")
+load("@rules_wasm//wasm:defs.bzl", "wit_package")
 
 package(default_visibility = ["//visibility:public"])
 
 wit_package(
     name = "grpc",
     srcs = ["grpc.wit"],
+    package = "vimana:grpc",
 )

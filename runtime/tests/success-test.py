@@ -1,6 +1,7 @@
 """'Happy path' unit tests."""
 
 from ipaddress import ip_address
+from os.path import join as joinPath
 from unittest import main
 
 from grpc import RpcError, StatusCode, insecure_channel
@@ -38,6 +39,11 @@ from runtime.tests.util import (
     VimanadTestCase,
     ipHostName,
 )
+
+ADDER_RUST_COMPONENT_PATH = joinPath(
+    'runtime', 'tests', 'components', 'adder_service.wasm'
+)
+ADDER_METADATA_PATH = joinPath('runtime', 'tests', 'components', 'adder.binpb')
 
 
 class SuccessTest(VimanadTestCase):
@@ -94,8 +100,8 @@ class SuccessTest(VimanadTestCase):
         domain, _, _, _, _, firstImageSpec = self.setupImage(
             server='just-some-image',
             version='1.2.3',
-            module='runtime/tests/components/adder-c.component.wasm',
-            metadata='runtime/tests/components/adder.binpb',
+            module=ADDER_RUST_COMPONENT_PATH,
+            metadata=ADDER_METADATA_PATH,
         )
 
         singleUsedBytes, singleInodesUsed = self.verifyFsUsage()
@@ -106,8 +112,8 @@ class SuccessTest(VimanadTestCase):
         _, _, _, _, _, secondImageSpec = self.setupImage(
             server='just-some-image',
             version='4.5.6',
-            module='runtime/tests/components/adder-c.component.wasm',
-            metadata='runtime/tests/components/adder.binpb',
+            module=ADDER_RUST_COMPONENT_PATH,
+            metadata=ADDER_METADATA_PATH,
             domain=domain,
         )
 
@@ -136,8 +142,8 @@ class SuccessTest(VimanadTestCase):
         domain, server, version, componentName, labels, imageSpec = self.setupImage(
             server='servur',
             version='1.2.3-fureal',
-            module='runtime/tests/components/adder-c.component.wasm',
-            metadata='runtime/tests/components/adder.binpb',
+            module=ADDER_RUST_COMPONENT_PATH,
+            metadata=ADDER_METADATA_PATH,
         )
 
         response = self.runtimeService.RunPodSandbox(
@@ -233,8 +239,8 @@ class SuccessTest(VimanadTestCase):
         domain, server, version, componentName, labels, imageSpec = self.setupImage(
             server='some-server',
             version='1.2.3',
-            module='runtime/tests/components/adder-c.component.wasm',
-            metadata='runtime/tests/components/adder.binpb',
+            module=ADDER_RUST_COMPONENT_PATH,
+            metadata=ADDER_METADATA_PATH,
         )
         # Set different labels on the pod vs. the container
         # so we can verify that the correct set is returned.
