@@ -106,7 +106,7 @@ func envoyProxyResource(name string) *envoygateway.EnvoyProxy {
 		},
 		Spec: envoygateway.EnvoyProxySpec{
 			Provider: &envoygateway.EnvoyProxyProvider{
-				Type: envoygateway.ProviderTypeKubernetes,
+				Type: envoygateway.EnvoyProxyProviderTypeKubernetes,
 				Kubernetes: &envoygateway.EnvoyProxyKubernetesProvider{
 					EnvoyService: &envoygateway.KubernetesServiceSpec{
 						Patch: &envoygateway.KubernetesPatchSpec{
@@ -278,7 +278,7 @@ func listener(domain string, namespace *gwapi.Namespace, allowedRoutes *gwapi.Al
 		Protocol: gwapi.HTTPSProtocolType,
 		Port:     443,
 		Hostname: (*gwapi.Hostname)(ptr.To(domain)),
-		TLS: &gwapi.GatewayTLSConfig{
+		TLS: &gwapi.ListenerTLSConfig{
 			CertificateRefs: []gwapi.SecretObjectReference{
 				{
 					Kind:      secretKind,

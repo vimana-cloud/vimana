@@ -182,7 +182,7 @@ var _ = Describe("Vimana Controller", func() {
 							Hostname: (*gwapi.Hostname)(ptr.To(domainId + ".app.vimana.host")),
 							Port:     443,
 							Protocol: "HTTPS",
-							TLS: &gwapi.GatewayTLSConfig{
+							TLS: &gwapi.ListenerTLSConfig{
 								Mode: (*gwapi.TLSModeType)(ptr.To("Terminate")),
 								CertificateRefs: []gwapi.SecretObjectReference{
 									{
@@ -212,7 +212,7 @@ var _ = Describe("Vimana Controller", func() {
 							Hostname: (*gwapi.Hostname)(ptr.To("example.com")),
 							Port:     443,
 							Protocol: "HTTPS",
-							TLS: &gwapi.GatewayTLSConfig{
+							TLS: &gwapi.ListenerTLSConfig{
 								Mode: (*gwapi.TLSModeType)(ptr.To("Terminate")),
 								CertificateRefs: []gwapi.SecretObjectReference{
 									{
@@ -242,7 +242,7 @@ var _ = Describe("Vimana Controller", func() {
 							Hostname: (*gwapi.Hostname)(ptr.To("foo.bar.whatsittoyouz.net")),
 							Port:     443,
 							Protocol: "HTTPS",
-							TLS: &gwapi.GatewayTLSConfig{
+							TLS: &gwapi.ListenerTLSConfig{
 								Mode: (*gwapi.TLSModeType)(ptr.To("Terminate")),
 								CertificateRefs: []gwapi.SecretObjectReference{
 									{

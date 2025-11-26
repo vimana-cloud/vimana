@@ -12,16 +12,16 @@ path = "runtime"
 [dependencies]
 anyhow = "1.0.100"
 axum = "0.7.9"
-bytes = "1.10.1"
-clap = { version = "4.5.51", features = ["derive"] }
+bytes = "1.11.0"
+clap = { version = "4.5.53", features = ["derive"] }
 futures = "0.3.31"
 heck = "0.5.0"
-http = "1.3.1"
+http = "1.4.0"
 http-body = "1.0.1"
 http-body-util = "0.1.3"
 httpdate = "1.0.3"
-hyper = { version = "1.7.0", features = ["server", "http1"] }
-hyper-util = { version = "0.1.17", features = ["tokio"] }
+hyper = { version = "1.8.1", features = ["server", "http1"] }
+hyper-util = { version = "0.1.18", features = ["tokio"] }
 lazy_static = "1.5.0"
 opentelemetry = "0.31.0"
 opentelemetry-appender-tracing = "0.31.1"
@@ -46,5 +46,5 @@ tower = "0.5.2"
 tower-service = "0.3.3"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["json"] }
-wasmtime = "37.0.2"
-wit-encoder = "0.240.0"
+wasmtime = "39.0.1"
+wit-encoder = "0.241.2"

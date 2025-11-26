@@ -83,7 +83,7 @@ _minikube addons enable metrics-server
 "$helm" install \
   --set=config.envoyGateway.provider.kubernetes.deploy.type=GatewayNamespace \
   envoy-gateway 'oci://docker.io/envoyproxy/gateway-helm' \
-  --version=v1.4.2 \
+  --version=v1.6.0 \
   --namespace=envoy-gateway-system \
   --create-namespace
 
