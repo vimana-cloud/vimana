@@ -1,13 +1,15 @@
-use adder_service::{AddFloatsRequest, AddFloatsResponse, Context, Guest};
+use server::exports::adder_service::Guest;
+use server::foo::proto::types::{AddFloatsRequest, AddFloatsResponse};
+use server::vimana::grpc::types::Context;
 
 struct AdderImpl;
 
 impl Guest for AdderImpl {
-    fn add_floats(_ctx: Context, request: AddFloatsRequest) -> AddFloatsResponse {
+    fn add_floats(request: AddFloatsRequest, _context: Context) -> AddFloatsResponse {
         AddFloatsResponse {
             result: request.x + request.y,
         }
     }
 }
 
-adder_service::export!(AdderImpl with_types_in adder_service);
+server::export!(AdderImpl with_types_in server);

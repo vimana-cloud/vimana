@@ -1,10 +1,11 @@
 services {
   key: "foo.bar.AllScalarsService"
   value {
+    interface: "all-scalars-service"
     methods {
       key: "DoSomething"
       value {
-        function: "do-something"
+        method: "do-something"
       }
     }
   }

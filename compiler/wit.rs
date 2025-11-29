@@ -7,18 +7,24 @@ use prost_types::compiler::code_generator_response::File;
 use prost_types::field_descriptor_proto::{Label, Type as ProtoType};
 use prost_types::{DescriptorProto, EnumDescriptorProto, ServiceDescriptorProto};
 use wit_encoder::{
-    Enum, Field, Ident, Include, Interface, NestedPackage, Package, PackageName, Record,
+    Enum, Field, Ident, Interface, NestedPackage, Package, PackageName, Params, Record,
     StandaloneFunc, Type, TypeDef, TypeDefKind, Variant, VariantCase, World, WorldItem,
 };
 
 use crate::{
     DescriptorMap, PluginParameters, ProtoPackage, ProtoSyntax, QualifiedTypeName,
-    TypeNameQualifier, VIMANA_API_VERSION, WASI_API_VERSION, into_sorted_map_entries,
-    into_sorted_set_values, sorted_set_values,
+    TypeNameQualifier, into_sorted_map_entries, into_sorted_set_values, sorted_set_values,
 };
 
-/// Name of the generated WIT file in the output directory.
-const FILENAME: &str = "server.wit";
+/// Subdirectory within the output directory in which to generate the WIT package.
+/// This package will have the standard WIT package directory layout,
+/// with a single source wit file,
+/// and a `deps/` directory containing the Vimana-specific dependencies,
+/// which are hardcoded into the compiler binary.
+const DIRECTORY: &str = "wit";
+/// Static contents of Vimana's gRPC dependency WIT file.
+const DEPENDENCY_GRPC: &str = include_str!("wit/grpc/grpc.wit");
+
 /// WIT has separate concepts of package namespaces and package names.
 /// Protobuf only has one such analogous concept; the package.
 /// We're choosing to map the Protobuf package concept to the WIT package namespace,
@@ -33,7 +39,14 @@ const TYPES_INTERFACE_NAME: &str = "types";
 /// One-ofs are compiled into an interface called `oneofs`.
 const ONEOFS_INTERFACE_NAME: &str = "oneofs";
 
-/// The name of the single parameter of each method handler function.
+/// The fully-qualified (and versioned) interface name for Vimana gRPC types.
+/// This must exactly match the values in `grpc.wit`.
+const VIMANA_GRPC_TYPES_TARGET: &str = "vimana:grpc/types@0.0.0";
+/// The name of the context type within the interface identified by [`VIMANA_GRPC_TYPES_TARGET`].
+const VIMANA_GRPC_TYPES_CONTEXT_ITEM: &str = "context";
+/// The name of the context parameter of each method handler function.
+const CONTEXT_PARAMETER_NAME: &str = "context";
+/// The name of the request parameter of each method handler function.
 const REQUEST_PARAMETER_NAME: &str = "request";
 
 /// An incrementally-built model of a Vimana server WIT file,
@@ -160,10 +173,20 @@ impl<'a> WitFile<'a> {
                 QualifiedTypeName::from_path(method_descriptor.output_type(), package_qualifier);
 
             let mut function = StandaloneFunc::new(method_descriptor.name().to_kebab_case(), false);
-            function.set_params((
-                REQUEST_PARAMETER_NAME,
-                Type::Named(Ident::from(request_type.name.to_kebab_case())),
-            ));
+            function.set_params(
+                [
+                    (
+                        Ident::from(REQUEST_PARAMETER_NAME),
+                        Type::Named(Ident::from(request_type.name.to_kebab_case())),
+                    ),
+                    (
+                        Ident::from(CONTEXT_PARAMETER_NAME),
+                        Type::Named(Ident::from(VIMANA_GRPC_TYPES_CONTEXT_ITEM)),
+                    ),
+                ]
+                .into_iter()
+                .collect::<Params>(),
+            );
             function.set_result(Some(Type::Named(Ident::from(
                 response_type.name.to_kebab_case(),
             ))));
@@ -172,6 +195,12 @@ impl<'a> WitFile<'a> {
             types_used.insert(request_type);
             types_used.insert(response_type);
         }
+
+        service.use_type(
+            VIMANA_GRPC_TYPES_TARGET,
+            VIMANA_GRPC_TYPES_CONTEXT_ITEM,
+            None,
+        );
 
         for used_type in into_sorted_set_values(types_used) {
             service.use_type(
@@ -275,7 +304,7 @@ impl<'a> WitFile<'a> {
         }
     }
 
-    pub(crate) fn generate(mut self, server_package: &ProtoPackage<'a>) -> Result<File> {
+    pub(crate) fn generate(mut self, server_package: &ProtoPackage<'a>) -> Result<Vec<File>> {
         let mut wit_contents = String::new();
 
         let server_package_qualifier = server_package.top_level_qualifier();
@@ -300,13 +329,21 @@ impl<'a> WitFile<'a> {
             );
         }
 
-        Ok(File {
-            name: Some(String::from(FILENAME)),
-            insertion_point: None,
-            content: Some(wit_contents),
-            // TODO: Add generated code info to help with debugging.
-            generated_code_info: None,
-        })
+        Ok(vec![
+            File {
+                name: Some(format!("{}/server.wit", DIRECTORY)),
+                insertion_point: None,
+                content: Some(wit_contents),
+                // TODO: Add generated code info to help with debugging.
+                generated_code_info: None,
+            },
+            File {
+                name: Some(format!("{}/deps/vimana:grpc/interface.wit", DIRECTORY)),
+                insertion_point: None,
+                content: Some(String::from(DEPENDENCY_GRPC)),
+                generated_code_info: None,
+            },
+        ])
     }
 }
 
@@ -470,10 +507,6 @@ fn enum_type_definition<'a>(enum_descriptor: &'a EnumDescriptorProto, name: &'a 
 impl ServerWorld {
     fn into_world(self) -> World {
         let mut world = World::new(WORLD_NAME);
-        world.include(Include::new(format!("wasi:cli/imports@{WASI_API_VERSION}")));
-        world.include(Include::new(format!(
-            "vimana:grpc/imports@{VIMANA_API_VERSION}"
-        )));
         for service in self.services {
             world.item(WorldItem::InlineInterfaceExport(service));
         }
@@ -564,7 +597,7 @@ impl<'a> OneofsInterface<'a> {
     fn into_interface(self) -> Interface {
         let mut interface = Interface::new(ONEOFS_INTERFACE_NAME);
         for used_type in into_sorted_set_values(self.types_used) {
-            // Types are always defined in external interfaces,
+            // Types are always defined in separate interfaces from one-ofs,
             // so they can never use a relative import (`use` statement).
             interface.use_type(used_type.use_type_target(false), used_type.use_item(), None);
         }

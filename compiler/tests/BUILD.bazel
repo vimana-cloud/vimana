@@ -74,6 +74,7 @@ rust_prost_library(
 
 vimana_protoc(
     name = "test-messages-proto3-vimana",
+    package = "protobuf_test_messages.proto3",
     proto = ":test-messages-proto3-proto",
 )
 
@@ -95,6 +96,7 @@ dummy_service(
 vimana_protoc(
     name = "test-messages-proto2-vimana",
     ignore_unsupported_features = True,
+    package = "protobuf_test_messages.proto2",
     proto = ":test-messages-proto2-proto",
 )
 

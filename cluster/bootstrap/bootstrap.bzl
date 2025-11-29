@@ -1,5 +1,6 @@
 load("@bazel_skylib//lib:shell.bzl", "shell")
 load("@rules_k8s//:resource.bzl", "K8sResources")
+load("//compiler:defs.bzl", "MetadataInfo")
 
 VIMANA_IMAGE_PUSH_SCRIPT_TEMPLATE = (
     "#!/usr/bin/env bash\n" +
@@ -7,6 +8,8 @@ VIMANA_IMAGE_PUSH_SCRIPT_TEMPLATE = (
 )
 
 def _vimana_image_push_impl(ctx):
+    metadata_file = ctx.attr.metadata[MetadataInfo].file
+
     runner = ctx.actions.declare_file(ctx.label.name)
     ctx.actions.write(
         output = runner,
@@ -17,12 +20,12 @@ def _vimana_image_push_impl(ctx):
             shell.quote(ctx.attr.server_id),
             shell.quote(ctx.attr.version),
             shell.quote(ctx.file.component.short_path),
-            shell.quote(ctx.file.metadata.short_path),
+            shell.quote(metadata_file.short_path),
         ),
         is_executable = True,
     )
     runfiles = ctx.runfiles(
-        files = [ctx.file.component, ctx.file.metadata],
+        files = [ctx.file.component, metadata_file],
     ).merge(
         ctx.attr._push_image_bin[DefaultInfo].default_runfiles,
     )
@@ -41,8 +44,8 @@ vimana_image_push = rule(
             allow_single_file = [".wasm"],
         ),
         "metadata": attr.label(
-            doc = "Serialized metadata.",
-            allow_single_file = [".binpb"],
+            doc = "Serialized metadata. This must be the output of a `vimana_protoc` rule.",
+            providers = [MetadataInfo],
         ),
         "domain_id": attr.string(
             doc = "Domain ID, e.g. `1234567890abcdef1234567890abcdef`.",

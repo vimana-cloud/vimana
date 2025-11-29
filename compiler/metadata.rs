@@ -106,7 +106,10 @@ impl<'a> MetadataFile<'a> {
 
         self.metadata.services.insert(
             qualified_service_name(service_descriptor.name(), &server_qualifier.package),
-            GrpcService { methods },
+            GrpcService {
+                interface: service_descriptor.name().to_kebab_case(),
+                methods,
+            },
         );
 
         Ok(())
@@ -118,7 +121,7 @@ impl<'a> MetadataFile<'a> {
         server_qualifier: &TypeNameQualifier<'a>,
     ) -> Result<GrpcMethod> {
         Ok(GrpcMethod {
-            function: method_descriptor.name().to_kebab_case(),
+            method: method_descriptor.name().to_kebab_case(),
             arity: if method_descriptor.client_streaming() {
                 if method_descriptor.server_streaming() {
                     GrpcArity::BidiStreaming as i32

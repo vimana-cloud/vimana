@@ -40,10 +40,10 @@ from runtime.tests.util import (
     ipHostName,
 )
 
-ADDER_RUST_COMPONENT_PATH = joinPath(
-    'runtime', 'tests', 'components', 'adder_service.wasm'
+ADDER_RUST_COMPONENT_PATH = joinPath('runtime', 'tests', 'components', 'server.wasm')
+ADDER_METADATA_PATH = joinPath(
+    'runtime', 'tests', 'components', 'adder-vimana', 'metadata.binpb'
 )
-ADDER_METADATA_PATH = joinPath('runtime', 'tests', 'components', 'adder.binpb')
 
 
 class SuccessTest(VimanadTestCase):

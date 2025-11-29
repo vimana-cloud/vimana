@@ -1,10 +1,11 @@
 services {
   key: "foo.bar_baz.quux.CompoundTypesService"
   value {
+    interface: "compound-types-service"
     methods {
       key: "DoAThing"
       value {
-        function: "do-a-thing"
+        method: "do-a-thing"
         response: 1
       }
     }

@@ -15,11 +15,6 @@ use prost_types::{DescriptorProto, EnumDescriptorProto, FileDescriptorProto};
 use metadata::MetadataFile;
 use wit::WitFile;
 
-/// Version of the Vimana API to import in generated WIT files.
-pub(crate) const VIMANA_API_VERSION: &str = "0.0.0";
-/// Version of the WASI API to import in generated WIT files.
-pub(crate) const WASI_API_VERSION: &str = "0.2.0";
-
 /// Bitwise union of supported features.
 /// https://github.com/protocolbuffers/protobuf/blob/v31.1/src/google/protobuf/compiler/code_generator.h#L96
 const SUPPORTED_FEATURES: u64 = Feature::Proto3Optional as u64;
@@ -150,7 +145,9 @@ fn compile(request: CodeGeneratorRequest) -> Result<Vec<File>> {
     }
 
     Ok(if let Some(package) = main_package.get() {
-        vec![wit_file.generate(package)?, metadata_file.generate()?]
+        let mut results = wit_file.generate(package)?;
+        results.push(metadata_file.generate()?);
+        results
     } else {
         Vec::default()
     })

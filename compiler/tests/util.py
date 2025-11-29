@@ -8,7 +8,7 @@ PROTOC_PATH = joinPath('..', 'protobuf+', 'protoc')
 PLUGIN_PATH = joinPath('compiler', 'protoc-gen-vimana')
 METADATA_PROTO_PATH = joinPath('runtime', 'metadata.proto')
 
-WIT_FILENAME = 'server.wit'
+WIT_FILENAME = joinPath('wit', 'server.wit')
 METADATA_FILENAME = 'metadata.binpb'
 METADATA_MESSAGE_NAME = 'vimana.runtime.Metadata'
 

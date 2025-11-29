@@ -109,13 +109,24 @@ async fn initialize_grpc(
                 &name,
             )?;
 
-            let export_index = container
+            let interface_index = container
                 .component
-                .get_export_index(None, &method.function)
-                .ok_or_else(|| anyhow!("Function not found: {:?}", method.function))?;
+                .get_export_index(None, &service.interface)
+                .ok_or_else(|| anyhow!("Interface not found: {:?}", service.interface))?;
+
+            let method_index = container
+                .component
+                .get_export_index(Some(&interface_index), &method.method)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Method not found: {:?}.{:?}",
+                        service.interface,
+                        method.method
+                    )
+                })?;
 
             let method = Method(Arc::new(MethodInner {
-                function: export_index,
+                function: method_index,
                 instantiator: instantiator.clone(),
                 wasmtime: wasmtime.clone(),
                 component: name.clone(),
@@ -286,7 +297,7 @@ impl UnaryService<Val> for Method {
             }
 
             let context = Val::Record(vec![("headers".into(), Val::List(headers))]);
-            let parameters = vec![context, request];
+            let parameters = vec![request, context];
 
             // The results slice just has to have the right size.
             // Contents are ignored and overridden during invocation.

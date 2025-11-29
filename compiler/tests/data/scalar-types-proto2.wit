@@ -1,11 +1,10 @@
 package foo:bar:proto;
 
 world server {
-  include wasi:cli/imports@0.2.0;
-  include vimana:grpc/imports@0.0.0;
   export all-scalars-service: interface {
+    use vimana:grpc/types@0.0.0.{ context };
     use types.{ all-scalars-type };
-    do-something: func(request: all-scalars-type) -> all-scalars-type;
+    do-something: func(request: all-scalars-type, context: context) -> all-scalars-type;
   }
 }
 

@@ -1,7 +1,7 @@
 load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_wasm//rust:defs.bzl", "rust_component")
-load("@rules_wasm//wasm:defs.bzl", "wit_package")
+load("//compiler:defs.bzl", "vimana_protoc")
 
 package(
     default_visibility = [
@@ -10,35 +10,17 @@ package(
     ],
 )
 
-wit_package(
-    name = "adder-wit",
-    srcs = ["adder.wit"],
-    package = "foo:proto",
-    deps = ["//compiler/wit:grpc"],
-)
-
 rust_component(
     name = "adder-rust",
     srcs = ["adder.rs"],
-    wit = ":adder-wit",
-    world = "adder-service",
+    wit = ":adder-vimana",
+    world = "server",
 )
 
-# Compile text protobuf to binary protobuf.
-genrule(
-    name = "adder-metadata",
-    srcs = ["adder.txtpb"],
-    outs = ["adder.binpb"],
-    cmd = "cat $(SRCS)" +
-          " | ./$(location @protobuf//:protoc)" +
-          " --encode=vimana.runtime.Metadata" +
-          " --proto_path=`dirname $(location //runtime:metadata.proto)`" +
-          " $(location //runtime:metadata.proto)" +
-          " > $@",
-    tools = [
-        "//runtime:metadata.proto",
-        "@protobuf//:protoc",
-    ],
+vimana_protoc(
+    name = "adder-vimana",
+    package = "foo",
+    proto = ":adder-proto",
 )
 
 proto_library(

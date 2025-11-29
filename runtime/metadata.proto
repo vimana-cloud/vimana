@@ -23,6 +23,10 @@ message Metadata {
 // All information necessary to operate a single gRPC service.
 message GrpcService {
 
+  // Name of the interface exported by the server world
+  // that corresponds to this service (e.g. `service-name`).
+  string interface = 1;
+
   // Mapping from gRPC method short names (e.g. `MethodName`)
   // to method metadata.
   map<string, GrpcMethod> methods = 2;
@@ -31,8 +35,8 @@ message GrpcService {
 // gRPC method handler descriptor.
 message GrpcMethod {
 
-  // Name of the Wasm function to invoke (e.g. `function-name`).
-  string function = 1;
+  // Name of the Wasm method to invoke (e.g. `method-name`).
+  string method = 1;
 
   // Streaming / unarity classification.
   GrpcArity arity = 2;

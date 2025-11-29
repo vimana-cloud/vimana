@@ -2,20 +2,27 @@
 
 load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@rules_proto//proto:defs.bzl", "ProtoInfo")
+load("@rules_wasm//wasm:defs.bzl", "WitPackageInfo")
 
-VimanaMetadataInfo = provider(
+MetadataInfo = provider(
     "Serialized metadata output from the Vimana Protobuf compiler plugin.",
     fields = {
         "file": "File object containing the serialized Vimana metadata.",
     },
 )
 
-WitFileInfo = provider(
-    "WIT file output from the Vimana Protobuf compiler plugin.",
-    fields = {
-        "file": "File object containing the WIT interface.",
-    },
-)
+def _snake_to_kebab_case(snake_case):
+    return snake_case.replace("_", "-")
+
+def _proto_to_wit_package_name(proto_name):
+    """
+    Re-implementation in Starlark
+    of the Protobuf-to-WIT package name conversion logic from the compiler.
+    """
+    return ":".join(
+        [_snake_to_kebab_case(part) for part in proto_name.split(".")] +
+        ["proto"],
+    )
 
 def _vimana_protoc_impl(ctx):
     parameters = []
@@ -24,16 +31,15 @@ def _vimana_protoc_impl(ctx):
 
     proto_info = ctx.attr.proto[ProtoInfo]
 
-    wit_file = ctx.actions.declare_file(paths.join(ctx.label.name, "server.wit"))
-    metadata_file = ctx.actions.declare_file("metadata.binpb", sibling = wit_file)
-
+    wit_package = ctx.actions.declare_directory(paths.join(ctx.label.name, "wit"))
+    metadata_file = ctx.actions.declare_file("metadata.binpb", sibling = wit_package)
     ctx.actions.run(
         executable = ctx.executable._protoc_bin,
         inputs = proto_info.transitive_sources.to_list(),
-        outputs = [wit_file, metadata_file],
+        outputs = [wit_package, metadata_file],
         arguments = [
             "--plugin={}".format(ctx.executable._protoc_gen_vimana_bin.path),
-            "--vimana_out={}".format(wit_file.dirname),
+            "--vimana_out={}".format(metadata_file.dirname),
         ] + [
             "--proto_path={}".format(path)
             for path in proto_info.transitive_proto_path.to_list()
@@ -45,9 +51,19 @@ def _vimana_protoc_impl(ctx):
     )
 
     return [
-        DefaultInfo(files = depset([wit_file, metadata_file])),
-        WitFileInfo(file = wit_file),
-        VimanaMetadataInfo(file = metadata_file),
+        DefaultInfo(files = depset([wit_package, metadata_file])),
+        WitPackageInfo(
+            package = _proto_to_wit_package_name(ctx.attr.package),
+            directory = wit_package,
+            # Don't bother listing the Vimana dependencies.
+            # That means the transitive dependencies will be broken
+            # if this is used as a dependency of a downstream WIT package,
+            # but that's not an intended use-case,
+            # so this is considered acceptable for the sake of simplicity.
+            # It should always be compiled directly into a component.
+            deps = depset(),
+        ),
+        MetadataInfo(file = metadata_file),
     ]
 
 vimana_protoc = rule(
@@ -58,6 +74,10 @@ vimana_protoc = rule(
             doc = "A proto_library target containing the Protobuf definitions to compile.",
             mandatory = True,
             providers = [ProtoInfo],
+        ),
+        "package": attr.string(
+            doc = "The Protobuf package name of the services being compiled.",
+            mandatory = True,
         ),
         "ignore_unsupported_features": attr.bool(
             doc = "Rather than failing with an error for unsupported field types," +
@@ -79,5 +99,5 @@ vimana_protoc = rule(
             allow_single_file = True,
         ),
     },
-    provides = [VimanaMetadataInfo, WitFileInfo],
+    provides = [MetadataInfo, WitPackageInfo],
 )

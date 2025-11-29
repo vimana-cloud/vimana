@@ -1,11 +1,10 @@
 package foo:bar-baz:quux:proto;
 
 world server {
-  include wasi:cli/imports@0.2.0;
-  include vimana:grpc/imports@0.0.0;
   export compound-types-service: interface {
+    use vimana:grpc/types@0.0.0.{ context };
     use types.{ inner-message, outer-message };
-    do-a-thing: func(request: outer-message) -> inner-message;
+    do-a-thing: func(request: outer-message, context: context) -> inner-message;
   }
 }
 

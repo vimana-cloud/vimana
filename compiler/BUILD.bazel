@@ -8,6 +8,7 @@ rust_binary(
         "wit.rs",
     ],
     binary_name = "protoc-gen-vimana",
+    compile_data = ["//compiler/wit:grpc"],
     visibility = ["//visibility:public"],
     deps = [
         "//runtime:metadata-prost",

@@ -1,6 +1,6 @@
-package vimana:grpc@1.0.0;
+package vimana:grpc@0.0.0;
 
-interface imports {
+interface types {
   // Context passed into each RPC invocation.
   record context {
     headers: list<tuple<string, string>>,
