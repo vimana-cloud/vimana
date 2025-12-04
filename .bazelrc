@@ -1,5 +1,8 @@
-# Prevent bazel from creating noisy `bazel-out/` etc. symlinks.
-build --experimental_convenience_symlinks=ignore
-
 # Ensure a sane C++ standard on all platforms.
 build --cxxopt='-std=c++17' --host_cxxopt='-std=c++17'
+
+# Use `--config=release` for optimized builds, without debugging symbols,
+# and with build information embedded ("stamped") in the resulting binary.
+build:release --compilation_mode=opt
+build:release --strip=always
+build:release --stamp

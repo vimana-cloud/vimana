@@ -4,6 +4,8 @@ from ipaddress import ip_address
 from os.path import join as joinPath
 from unittest import main
 
+from cluster.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
+from cluster.tests.components.adder_pb2_grpc import AdderServiceStub
 from grpc import RpcError, StatusCode, insecure_channel
 from runtime.tests.api_pb2 import (
     ContainerConfig,
@@ -30,8 +32,6 @@ from runtime.tests.api_pb2 import (
     StopPodSandboxRequest,
     VersionRequest,
 )
-from runtime.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
-from runtime.tests.components.adder_pb2_grpc import AdderServiceStub
 
 from runtime.tests.util import (
     RUNTIME_HANDLER,
@@ -40,9 +40,9 @@ from runtime.tests.util import (
     ipHostName,
 )
 
-ADDER_RUST_COMPONENT_PATH = joinPath('runtime', 'tests', 'components', 'server.wasm')
+ADDER_RUST_COMPONENT_PATH = joinPath('cluster', 'tests', 'components', 'server.wasm')
 ADDER_METADATA_PATH = joinPath(
-    'runtime', 'tests', 'components', 'adder-vimana', 'metadata.binpb'
+    'cluster', 'tests', 'components', 'adder-vimana', 'metadata.binpb'
 )
 
 

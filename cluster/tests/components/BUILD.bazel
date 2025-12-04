@@ -1,5 +1,6 @@
 load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@rules_wasm//c:defs.bzl", "c_component")
 load("@rules_wasm//rust:defs.bzl", "rust_component")
 load("//compiler:defs.bzl", "vimana_protoc")
 
@@ -37,4 +38,22 @@ py_grpc_library(
     name = "adder-py-grpc",
     srcs = [":adder-proto"],
     deps = ["adder-py-pb2"],
+)
+
+c_component(
+    name = "helloworld",
+    srcs = ["helloworld.c"],
+    wit = ":helloworld-vimana",
+    world = "server",
+)
+
+vimana_protoc(
+    name = "helloworld-vimana",
+    package = "foo",
+    proto = ":helloworld-proto",
+)
+
+proto_library(
+    name = "helloworld-proto",
+    srcs = ["helloworld.proto"],
 )

@@ -19,6 +19,7 @@ rust_clippy(
 )
 
 # gazelle:prefix vimana.host
+# gazelle:exclude cluster
 # gazelle:exclude compiler
 # gazelle:exclude runtime
 gazelle(name = "gazelle")

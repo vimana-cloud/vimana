@@ -46,7 +46,7 @@ docker image rm --force "$kicbase_repo" 2> /dev/null || true
 
 # Push the most up-to-date versions of locally-built images to the local registry.
 # This includes Vimana-enabled Kicbase and the operator image.
-# This should be the command for `bazel run //dev/minikube:kicbase-image-push-local`
+# This should be the command for `bazel run //dev/minikube:kicbase-image-push`
 # and it should push to the same registry as `$kicbase_repo`.
 "$push_kicbase_image" --insecure || {
   log-error "Failed to push ${bold}${kicbase_repo}${reset}"

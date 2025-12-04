@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from os import getenv
 from os.path import basename
 from os.path import join as joinPath
-from subprocess import DEVNULL, PIPE, run
+from subprocess import DEVNULL, run
 from typing import Any, Optional
 
 from fabric import Connection

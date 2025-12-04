@@ -5,9 +5,9 @@ load("//cluster/bootstrap:bootstrap.bzl", "self_signed_tls", "vimana_image_push"
 
 vimana_image_push(
     name = "adder-push-local",
-    component = "//runtime/tests/components:adder-rust",
+    component = "//cluster/tests/components:adder-rust",
     domain_id = "00000000000000000000000000000001",
-    metadata = "//runtime/tests/components:adder-vimana",
+    metadata = "//cluster/tests/components:adder-vimana",
     registry = "http://{}:5000".format(localhost),
     server_id = "the-adder-server",
     version = "1.0.0",
@@ -48,7 +48,7 @@ py_binary(
         ":mvp-certificates",
     ],
     deps = [
-        "//runtime/tests/components:adder-py-grpc",
-        "//runtime/tests/components:adder-py-pb2",
+        "//cluster/tests/components:adder-py-grpc",
+        "//cluster/tests/components:adder-py-pb2",
     ],
 )

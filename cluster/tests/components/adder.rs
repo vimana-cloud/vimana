@@ -12,4 +12,4 @@ impl Guest for AdderImpl {
     }
 }
 
-server::export!(AdderImpl with_types_in server);
+server::export!(AdderImpl);
