@@ -53,12 +53,12 @@ jobs:
           # so it can be uploaded as an artifact in case of failure.
           echo "bazel-testlogs=$(bazel info bazel-testlogs)" >> "$GITHUB_OUTPUT"
 
-          # Run all tests except for the ones located under `e2e/`.
+          # Run all tests except for the end-to-end tests.
           bazel test \
             --cache_test_results=no \
             --remote_cache='https://storage.googleapis.com/vimana-remote-builds-public' \
             --google_credentials='.remote-build-credentials.json' \
-            -- //... -//e2e/...
+            -- //... -//cluster/tests/...
 
       - name: Upload test logs
         if: ${{ failure() }}

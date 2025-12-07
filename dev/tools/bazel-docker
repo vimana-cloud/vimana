@@ -89,7 +89,7 @@ function start-bazel {
   #   which manage IP addresses on the network device,
   #   can function.
   # - Enable the `SYS_ADMIN` capability and disable secure computing mode
-  #   so that end-to-end K8s tests (those under `//e2e`),
+  #   so that end-to-end K8s tests (those under `//cluster/tests`),
   #   which use `unshare` to bind-mount `/etc/hosts` for the life of the test,
   #   can function.
   # - Use as many CPU cores as the system can provide.

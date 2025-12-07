@@ -43,7 +43,7 @@ For simple examples of each resource, see [`mvp.yaml`]
 
 [custom resource definitions]: https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/
 [`operator/config/crd/bases/`]: /operator/config/crd/bases/
-[`mvp.yaml`]: /e2e/mvp.yaml
+[`mvp.yaml`]: /cluster/tests/mvp.yaml
 
 ### Domains
 

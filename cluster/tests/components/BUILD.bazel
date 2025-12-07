@@ -6,7 +6,7 @@ load("//compiler:defs.bzl", "vimana_protoc")
 
 package(
     default_visibility = [
-        "//e2e:__pkg__",
+        "//cluster/tests:__pkg__",
         "//runtime/tests:__pkg__",
     ],
 )
