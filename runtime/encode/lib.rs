@@ -22,6 +22,7 @@ use compound::{
     compile_response_encoder, count_response_encoder_messages, message_inner_encode,
     message_inner_length,
 };
+use logging::log_error;
 use names::ComponentName;
 
 /// Encodes a top-level response message (*without* tag or length).
@@ -45,7 +46,7 @@ struct ResponseEncoderInner {
 
     /// Component name used for error logging only,
     /// shared among all encoders / decoders of a single component.
-    _component: Arc<ComponentName>,
+    component: Arc<ComponentName>,
 }
 
 struct MessageEncoder {
@@ -147,7 +148,7 @@ impl ResponseEncoder {
 
         Ok(Self(Arc::new(ResponseEncoderInner {
             messages: message_encoders,
-            _component: component,
+            component,
         })))
     }
 }
@@ -167,7 +168,9 @@ impl TonicEncoder for ResponseEncoder {
                 // An encoding error indicates that the Wasm component returned an invalid value.
                 // Report this as an INTERNAL status to the caller and log it,
                 // because the implementation should have been checked for type correctness.
-                // TODO: log this.
+                // The debug format includes details.
+                log_error!(component: self.0.component.as_ref(), "{:?}", error);
+                // The display format does *not* include details.
                 Status::internal(error.to_string())
             });
         // In tests, make sure we used all the pre-computed lengths as expected.

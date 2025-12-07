@@ -1,0 +1,13 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "wasi",
+    srcs = ["lib.rs"],
+    visibility = ["//runtime/host:__pkg__"],
+    deps = [
+        "//runtime/host:provide",
+        "//runtime/host/wasi/io",
+        "@crates//:anyhow",
+        "@crates//:wasmtime",
+    ],
+)

@@ -12,6 +12,7 @@ rust_library(
         "//runtime:__subpackages__",
     ],
     deps = [
+        "//runtime:logging",
         "//runtime:metadata-prost",
         "//runtime:names",
         "@crates//:anyhow",

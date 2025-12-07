@@ -201,7 +201,7 @@ func (r *DomainReconciler) serverReconciliationRequest(ctx context.Context, obj 
 	// rather than the erroneous state where a server outlives its domain,
 	// which is what it actually is.
 	domainNamespacedName := types.NamespacedName{
-		Name:      domainId, // TODO: Is this always a valid K8s resource name?
+		Name:      domainId,
 		Namespace: server.Namespace,
 	}
 	domain := &apiv1alpha1.Domain{}

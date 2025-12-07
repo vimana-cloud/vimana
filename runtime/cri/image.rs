@@ -52,7 +52,7 @@ impl ImageService for ProxyingImageService {
         // Unless `vimanad` is explicitly chosen,
         // forward all requests to the downstream OCI runtime.
         // This supports running K8s control plane pods like `kube-controller-manager` etc.
-        if handler != "TODO-this-should-be-something-else-but-what?" {
+        if handler != CONTAINER_RUNTIME_HANDLER {
             return self
                 .oci_image
                 .lock()

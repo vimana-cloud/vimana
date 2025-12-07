@@ -76,6 +76,7 @@ rust_test(
 rust_library(
     name = "logging",
     srcs = ["logging.rs"],
+    visibility = [":__subpackages__"],
     deps = [
         ":names",
         "@crates//:tracing",

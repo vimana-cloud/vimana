@@ -1,0 +1,35 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_proc_macro")
+
+rust_library(
+    name = "host",
+    srcs = ["lib.rs"],
+    visibility = ["//runtime:__pkg__"],
+    deps = [
+        ":provide",
+        "//runtime/host/wasi",
+        "@crates//:anyhow",
+        "@crates//:wasmtime",
+    ],
+)
+
+rust_library(
+    name = "provide",
+    srcs = ["provide.rs"],
+    proc_macro_deps = [":provide-macro"],
+    visibility = [":__subpackages__"],
+    deps = [
+        "@crates//:anyhow",
+        "@crates//:wasmtime",
+    ],
+)
+
+# TODO: Consolidate this with `:provide`
+#   when a single crate is allowed to export both proc macros and normal Rust types.
+rust_proc_macro(
+    name = "provide-macro",
+    srcs = ["provide-macro.rs"],
+    deps = [
+        "@crates//:quote",
+        "@crates//:syn",
+    ],
+)
