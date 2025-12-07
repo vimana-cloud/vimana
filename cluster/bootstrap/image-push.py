@@ -15,16 +15,19 @@ from dev.lib.util import console, requestOrDie
 
 
 def main(
-    registry: str,
-    domain: str,
-    server: str,
+    repository: str,
     version: str,
     component: bytes,
     metadata: bytes,
 ):
+    # Parse the repository URL to extract registry (scheme + host) and namespace (path).
+    parsed = urlparse(repository)
+    registry = f'{parsed.scheme}://{parsed.netloc}'
+    namespace = parsed.path.lstrip('/')
+
     # Push the component and metadata blobs.
-    componentDigest = pushBlob(registry, domain, server, component)
-    metadataDigest = pushBlob(registry, domain, server, metadata)
+    componentDigest = pushBlob(registry, namespace, component)
+    metadataDigest = pushBlob(registry, namespace, metadata)
 
     # Create and push the image config blob,
     # adhering as closely to the Wasm OCI artifact spec as we can.
@@ -43,7 +46,7 @@ def main(
         'component': {},
     }
     imageConfig = serializeJson(imageConfig)
-    imageConfigDigest = pushBlob(registry, domain, server, imageConfig)
+    imageConfigDigest = pushBlob(registry, namespace, imageConfig)
 
     # Build the manifest.
     # https://tag-runtime.cncf.io/wgs/wasm/deliverables/wasm-oci-artifact/#manifest-format
@@ -73,7 +76,7 @@ def main(
 
     # Push the manifest.
     # https://specs.opencontainers.org/distribution-spec/#pushing-manifests
-    tagUrl = f'{registry}/v2/{domain}/{server}/manifests/{version}'
+    tagUrl = f'{registry}/v2/{namespace}/manifests/{version}'
     requestOrDie(
         'PUT',
         tagUrl,
@@ -81,18 +84,16 @@ def main(
         data=serializeJson(manifest),
     )
 
-    console.print(
-        f'Pushed [blue]{domain}[/blue]:[yellow]{server}[/yellow]@[magenta]{version}[/magenta]'
-    )
+    console.print(f'Pushed {repository}:{version}')
 
 
-def pushBlob(registry: str, domain: str, server: str, content: bytes) -> str:
+def pushBlob(registry: str, namespace: str, content: bytes) -> str:
     """
-    Push a blob to an OCI registry and return its digest.
+    Push a blob to an OCI repository and return its digest.
 
     Args:
-        registry: Registry URL (e.g. 'http://localhost:5000').
-        domain: Domain ID (e.g. '1234567890abcdef1234567890abcdef').
+        registry: Registry hostname and scheme (e.g. 'http://localhost:5000').
+        namespace: Repository namespace (e.g. 'path/to/image').
         server: Server ID (e.g. 'some-server').
         content: Binary content of the blob to push.
 
@@ -100,7 +101,7 @@ def pushBlob(registry: str, domain: str, server: str, content: bytes) -> str:
         The digest of the pushed blob (e.g. 'sha256:...').
     """
     # https://specs.opencontainers.org/distribution-spec/#pushing-blobs
-    postUrl = f'{registry}/v2/{domain}/{server}/blobs/uploads/'
+    postUrl = f'{registry}/v2/{namespace}/blobs/uploads/'
 
     # Follow redirects, fail on non-200-range status code,
     # and extract the value of the `Location` header.
@@ -155,22 +156,10 @@ def serializeJson(json: Dict[str, any]) -> bytes:
 if __name__ == '__main__':
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
-        '--registry',
+        '--repository',
         required=True,
         metavar='URL',
-        help="Registry URL (e.g. 'http://localhost:5000')",
-    )
-    parser.add_argument(
-        '--domain',
-        required=True,
-        metavar='ID',
-        help="Domain ID (e.g. '1234567890abcdef1234567890abcdef')",
-    )
-    parser.add_argument(
-        '--server',
-        required=True,
-        metavar='ID',
-        help="Server ID (e.g. 'some-server')",
+        help="Repository URL including scheme (e.g. 'https://docker.io/path/to/image')",
     )
     parser.add_argument(
         '--version',
@@ -198,9 +187,7 @@ if __name__ == '__main__':
         metadata = metadataFile.read()
 
     main(
-        registry=args.registry,
-        domain=args.domain,
-        server=args.server,
+        repository=args.repository,
         version=args.version,
         component=component,
         metadata=metadata,

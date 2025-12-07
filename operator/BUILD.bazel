@@ -31,8 +31,6 @@ oci_image(
 )
 
 # Equivalent of `make docker-push` in a normal Operator SDK project.
-# TODO: Support the `:image-name` flag if possible so that this can be more than local-only:
-#   https://github.com/bazel-contrib/rules_oci/issues/866
 oci_push(
     name = "image-push",
     image = ":image",

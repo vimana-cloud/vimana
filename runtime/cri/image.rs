@@ -127,28 +127,15 @@ impl ImageService for ProxyingImageService {
             }
         }
 
-        let image_spec = request.image.unwrap_or_default();
-        let (registry, name_from_image) = registry_and_component_from_image_spec(&image_spec.image)
-            .with_context(|| format!("Invalid image ID: {:?}", image_spec.image))
-            .log_error(GlobalLogs)?;
-
-        // Invariant check:
-        // make sure the component name from the image ID matches that from the pod's labels.
         let pod_labels = &request.sandbox_config.unwrap_or_default().labels;
         let name = component_name_from_labels(pod_labels)
             .with_context(|| format!("Invalid pod labels: {:?}", pod_labels))
-            .log_error(&name_from_image)?;
-        if name_from_image != name {
-            return Err(anyhow!(
-                "Pod label mismatch: {:?} vs. {:?}",
-                name_from_image,
-                name,
-            ))
-            .log_error(&name);
-        }
+            .log_error(GlobalLogs)?;
+
+        let image_spec = request.image.unwrap_or_default();
 
         self.containers
-            .pull(&registry, &name, &image_spec)
+            .pull(&name, &image_spec)
             .await
             .with_context(|| format!("Error pulling image: {:?}", image_spec.image))
             .log_error(&name)?;

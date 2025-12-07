@@ -4,20 +4,19 @@ load("//compiler:defs.bzl", "MetadataInfo")
 
 VIMANA_IMAGE_PUSH_SCRIPT_TEMPLATE = (
     "#!/usr/bin/env bash\n" +
-    "{} --registry={} --domain={} --server={} --version={} --component={} --metadata={}\n"
+    "{} --repository={} --version={} --component={} --metadata={}\n"
 )
 
 def _vimana_image_push_impl(ctx):
     metadata_file = ctx.attr.metadata[MetadataInfo].file
+    repository = "{}/{}/{}".format(ctx.attr.registry, ctx.attr.domain_id, ctx.attr.server_id)
 
     runner = ctx.actions.declare_file(ctx.label.name)
     ctx.actions.write(
         output = runner,
         content = VIMANA_IMAGE_PUSH_SCRIPT_TEMPLATE.format(
             shell.quote(ctx.executable._push_image_bin.short_path),
-            shell.quote(ctx.attr.registry),
-            shell.quote(ctx.attr.domain_id),
-            shell.quote(ctx.attr.server_id),
+            shell.quote(repository),
             shell.quote(ctx.attr.version),
             shell.quote(ctx.file.component.short_path),
             shell.quote(metadata_file.short_path),

@@ -198,9 +198,7 @@ Vimana provides an easy script for that:
 
 ```bash
 bazel run //cluster/bootstrap:push-image -- \
-  --registry=http://localhost:5000 \
-  --domain=00000000000000000000000000000000 \
-  --server=hello-world-example \
+  --repository=http://localhost:5000/hello-world-example \
   --version=1.0.0 \
   --component="$(pwd)/tmp/component.wasm" \
   --metadata="$(pwd)/tmp/metadata.binpb"

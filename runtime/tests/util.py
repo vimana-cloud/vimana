@@ -226,9 +226,7 @@ class VimanadTester:
         """
         command = [
             PUSH_IMAGE_PATH,
-            f'--registry=http://localhost:{self._imageRegistryPort}',
-            f'--domain={domain}',
-            f'--server={server}',
+            f'--repository=http://localhost:{self._imageRegistryPort}/{domain}/{server}',
             f'--version={version}',
             f'--component={module}',
             f'--metadata={metadata}',

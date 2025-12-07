@@ -109,12 +109,11 @@ impl ContainerStore {
     /// Subsequent calls to `get` should succeed for that container.
     pub(crate) async fn pull(
         &self,
-        registry: &str,
         name: &ComponentName,
         image_spec: &v1::ImageSpec,
     ) -> Result<()> {
-        let container = self.client.fetch(registry, name).await?;
-        // TODO: Prefer to use wasmtime's `Engine::precompile_component`.
+        let container = self.client.fetch(&image_spec.image, name).await?;
+        // TODO: Prefer to use wasmtime's `Engine::precompile_component` before serializing.
         let serialized_component = container.component.serialize()?;
         let serialized_metadata = container.metadata.encode_to_vec();
         let serialized_image_spec = image_spec.encode_to_vec();
@@ -414,26 +413,33 @@ impl ContainerClient {
         }
     }
 
-    async fn fetch(&self, registry: &str, name: &ComponentName) -> Result<Arc<Container>> {
+    async fn fetch(&self, image: &str, name: &ComponentName) -> Result<Arc<Container>> {
+        let first_slash_index = image
+            .find('/')
+            .ok_or_else(|| anyhow!("Image spec missing path: {image:?}"))?;
+        let last_colon_index = image
+            .rfind(':')
+            .ok_or_else(|| anyhow!("Image spec missing tag: {image:?}"))?;
+        let registry = &image[..first_slash_index];
+        let namespace = &image[first_slash_index + 1..last_colon_index];
+        let tag = &image[last_colon_index + 1..];
+
         log_info!(component: name, "Fetching image from {:?}", registry);
 
-        // Any URL path for `1234567890abcdef1234567890abcdef:server-id`
-        // would begin with `/v2/1234567890abcdef1234567890abcdef/server-id/`.
-        let server_url = format!(
-            "{}://{}/v2/{}/{}",
+        // Any URL for e.g. `docker.io/path/to/image`
+        // would begin with `http(s)://docker.io/v2/path/to/image/`.
+        let url_root = format!(
+            "{}://{registry}/v2/{namespace}",
             if self.insecure_registries.contains(registry) {
                 "http"
             } else {
                 "https"
             },
-            registry,
-            name.server.domain,
-            name.server.server,
         );
 
         // Pull the manifest:
         // https://specs.opencontainers.org/distribution-spec/#pulling-manifests.
-        let manifest_url = format!("{server_url}/manifests/{}", name.version);
+        let manifest_url = format!("{url_root}/manifests/{tag}");
         let response = self
             .http
             .get(&manifest_url)
@@ -452,12 +458,12 @@ impl ContainerClient {
             if manifest.layers.len() == 2 {
                 // Fetch the layers in parallel.
                 let component_fetch = spawn(self.clone().fetch_component(format!(
-                    "{server_url}/blobs/{}",
+                    "{url_root}/blobs/{}",
                     manifest.layers.first().unwrap().digest,
                 )));
                 let metadata_result = self
                     .fetch_metadata(format!(
-                        "{server_url}/blobs/{}",
+                        "{url_root}/blobs/{}",
                         manifest.layers.get(1).unwrap().digest,
                     ))
                     .await;
