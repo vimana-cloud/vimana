@@ -7,6 +7,11 @@ set -e
 source 'dev/lib/util.sh'
 assert-bazel-run
 
+# Make sure that subscripts (i.e. the image push scripts)
+# have access to the Bash runfiles library.
+# https://github.com/bazelbuild/rules_shell/blob/v0.6.1/shell/runfiles/runfiles.bash
+[ -z "$RUNFILES_DIR" ] && export RUNFILES_DIR="${BASH_SOURCE[0]}.runfiles"
+
 # Standard K8s tool binaries:
 kubectl="$1"
 helm="$2"
@@ -25,7 +30,9 @@ kicbase_repo="$7"
 cluster_registry="$8"
 # Path to an executable that will install the Vimana APIs and operator in our cluster.
 deploy_operator="$9"
-shift 9
+# Path to a local directory containing the Envoy Gateway helm chart.
+envoy_gateway_helm_chart="${10}/gateway-helm"
+shift 10
 
 function _minikube {
   # Leaky abstraction :(
@@ -81,9 +88,8 @@ _minikube addons enable metrics-server
 # https://gateway.envoyproxy.io/docs/tasks/operations/gateway-namespace-mode/.
 # TODO: Use `rules_oci` to download the chart and re-use the exact same version in prod.
 "$helm" install \
+  envoy-gateway "$envoy_gateway_helm_chart" \
   --set=config.envoyGateway.provider.kubernetes.deploy.type=GatewayNamespace \
-  envoy-gateway 'oci://docker.io/envoyproxy/gateway-helm' \
-  --version=v1.6.0 \
   --namespace=envoy-gateway-system \
   --create-namespace
 

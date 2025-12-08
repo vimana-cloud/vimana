@@ -12,16 +12,21 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "protobuf", version = "33.1")
 single_version_override(
     module_name = "protobuf",
-    # TODO: Remove this patch once these issues are closed:
+    # TODO: Remove this patch once `protobuf` moves past 33.2.
     #   https://github.com/protocolbuffers/protobuf/issues/24486
     #   https://github.com/protocolbuffers/protobuf/issues/24508
     patches = ["//dev/patches:protobuf-conformance-visibility.patch"],
 )
-
 bazel_dep(name = "toolchains_musl", version = "0.1.27")
 bazel_dep(name = "rules_go", version = "0.59.0")
 bazel_dep(name = "rules_nodejs", version = "6.6.2")
-bazel_dep(name = "rules_oci", version = "2.2.6")
+bazel_dep(name = "rules_oci", version = "2.2.7")
+single_version_override(
+    module_name = "rules_oci",
+    # TODO: Remove this patch once `rules_oci` moves past 2.2.7.
+    #   https://github.com/bazel-contrib/rules_oci/pull/868
+    patches = ["//dev/patches:rules-oci-implicit-mediatype.patch"],
+)
 bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "rules_proto", version = "7.1.0")

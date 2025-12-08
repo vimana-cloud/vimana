@@ -32,11 +32,13 @@ sh_binary(
         "{}:latest".format(kicbase_local_image_name),
         cluster_registry,
         "$(location :operator-deploy-minikube)",
+        "$(location @rules_k8s//:envoy-gateway-helm-export)",
     ],
     data = [
         ":kicbase-image-push",
         ":operator-deploy-minikube",
         "//operator:image-push",
+        "@rules_k8s//:envoy-gateway-helm-export",
         "@rules_k8s//:helm",
         "@rules_k8s//:kubectl",
         "@rules_k8s//:minikube",
@@ -48,7 +50,10 @@ sh_binary(
         "KUBECONFIG",
         "HOME",
     ],
-    deps = ["//dev/lib:util-bash"],
+    deps = [
+        "//dev/lib:util-bash",
+        "@rules_shell//shell/runfiles",
+    ],
 )
 
 # If there's a running minikube cluster started by `:restart`,

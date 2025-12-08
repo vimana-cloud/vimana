@@ -22,6 +22,9 @@ from dev.lib.util import console, runWithStderr, step, waitFor
 RUNFILES_DIR = getenv('RUNFILES_DIR', '..')
 KOPS_PATH = joinPath(RUNFILES_DIR, 'rules_k8s+', 'kops.exe')
 HELM_PATH = joinPath(RUNFILES_DIR, 'rules_k8s+', 'helm.exe')
+ENVOY_GATEWAY_HELM_CHART = joinPath(
+    RUNFILES_DIR, 'rules_k8s+', 'envoy-gateway-helm-export', 'gateway-helm'
+)
 
 # Path to the executable to deploy the Vimana operator in a cluster.
 OPERATOR_DEPLOY_PATH = joinPath('operator', 'deploy')
@@ -131,14 +134,13 @@ def create(name: str, profile: Dict[str, object], *args):
                 HELM_PATH,
                 'install',
                 'envoy-gateway',
-                'oci://docker.io/envoyproxy/gateway-helm',
-                '--version=v1.4.2',
-                '--namespace=envoy-gateway-system',
-                '--create-namespace',
+                ENVOY_GATEWAY_HELM_CHART,
                 # Use gateway namespace mode
                 # to create load balancer services in the same namespace as the Gateway resource.
                 # https://gateway.envoyproxy.io/docs/tasks/operations/gateway-namespace-mode/
                 '--set=config.envoyGateway.provider.kubernetes.deploy.type=GatewayNamespace',
+                '--namespace=envoy-gateway-system',
+                '--create-namespace',
             )
 
         with step('Installing the Vimana operator'):
