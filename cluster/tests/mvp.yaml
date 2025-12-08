@@ -15,19 +15,19 @@ spec:
   id: '00000000000000000000000000000001'
   vimana: the-vimana
   aliases:
-    - 'api.vimana.host'
+    - 'mvp.test'
 ---
 apiVersion: api.vimana.host/v1alpha1
 kind: Server
 metadata:
-  name: 'the-adder-server'
+  name: 'the-mvp-server'
   labels:
     vimana.host/domain: '00000000000000000000000000000001'
-    vimana.host/server: 'the-adder-server'
+    vimana.host/server: 'the-mvp-server'
 spec:
-  id: 'the-adder-server'
+  id: 'the-mvp-server'
   domain: '00000000000000000000000000000001'
-  services: ["foo.AdderService"]
+  services: ["foo.ThisOldTrope"]
   versionWeights:
     "1.0.0": 1
 ---
@@ -37,10 +37,10 @@ metadata:
   name: 'baz-component'
   labels:
     vimana.host/domain: '00000000000000000000000000000001'
-    vimana.host/server: 'the-adder-server'
+    vimana.host/server: 'the-mvp-server'
     vimana.host/version: '1.0.0'
 spec:
   version: "1.0.0"
-  server: "the-adder-server"
+  server: "the-mvp-server"
   domain: "00000000000000000000000000000001"
-  image: "host.minikube.internal:5000/00000000000000000000000000000001/the-adder-server:1.0.0"
+  image: "host.minikube.internal:5000/hello-world-example:1.0.0"

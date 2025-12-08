@@ -14,7 +14,7 @@
       ```
 
 [core utilities]: https://formulae.brew.sh/formula/coreutils
-[Xcode]: https://apps.apple.com/app/xcode/
+[Xcode]: https://developer.apple.com/xcode/
 [developer permission]: https://developer.apple.com/register/
 [Bazelisk]: https://github.com/bazelbuild/bazelisk
 [Docker]: https://docs.docker.com/
@@ -31,14 +31,17 @@ The following tool aliases are provided:
 
 - `crane`
 - `crictl`
-- `istioctl`
+- `grpcurl`
+- `helm`
 - `kops`
 - `kubectl`
 - `kustomize`
-- `minikube` (only on x86-64)
+- `minikube` (customized to support Vimana)
 - `openssl`
+- `operator-sdk`
 - `wasmtime`
 - `wasm-tools`
+- `wit-bindgen`
 
 [`direnv`]: https://direnv.net/
 [tool aliases]: dev/tools/

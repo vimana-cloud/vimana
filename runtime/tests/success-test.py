@@ -4,8 +4,8 @@ from ipaddress import ip_address
 from os.path import join as joinPath
 from unittest import main
 
-from cluster.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
-from cluster.tests.components.adder_pb2_grpc import AdderServiceStub
+from cluster.tests.components.mvp_pb2 import HelloRequest, HelloResponse
+from cluster.tests.components.mvp_pb2_grpc import ThisOldTropeStub
 from grpc import RpcError, StatusCode, insecure_channel
 from runtime.tests.api_pb2 import (
     ContainerConfig,
@@ -40,9 +40,9 @@ from runtime.tests.util import (
     ipHostName,
 )
 
-ADDER_RUST_COMPONENT_PATH = joinPath('cluster', 'tests', 'components', 'server.wasm')
-ADDER_METADATA_PATH = joinPath(
-    'cluster', 'tests', 'components', 'adder-vimana', 'metadata.binpb'
+MVP_COMPONENT_PATH = joinPath('cluster', 'tests', 'components', 'mvp.component.wasm')
+MVP_METADATA_PATH = joinPath(
+    'cluster', 'tests', 'components', 'mvp-vimana', 'metadata.binpb'
 )
 
 
@@ -100,8 +100,8 @@ class SuccessTest(VimanadTestCase):
         domain, _, _, _, _, firstImageSpec = self.setupImage(
             server='just-some-image',
             version='1.2.3',
-            module=ADDER_RUST_COMPONENT_PATH,
-            metadata=ADDER_METADATA_PATH,
+            module=MVP_COMPONENT_PATH,
+            metadata=MVP_METADATA_PATH,
         )
 
         singleUsedBytes, singleInodesUsed = self.verifyFsUsage()
@@ -112,8 +112,8 @@ class SuccessTest(VimanadTestCase):
         _, _, _, _, _, secondImageSpec = self.setupImage(
             server='just-some-image',
             version='4.5.6',
-            module=ADDER_RUST_COMPONENT_PATH,
-            metadata=ADDER_METADATA_PATH,
+            module=MVP_COMPONENT_PATH,
+            metadata=MVP_METADATA_PATH,
             domain=domain,
         )
 
@@ -142,8 +142,8 @@ class SuccessTest(VimanadTestCase):
         domain, server, version, componentName, labels, imageSpec = self.setupImage(
             server='servur',
             version='1.2.3-fureal',
-            module=ADDER_RUST_COMPONENT_PATH,
-            metadata=ADDER_METADATA_PATH,
+            module=MVP_COMPONENT_PATH,
+            metadata=MVP_METADATA_PATH,
         )
 
         response = self.runtimeService.RunPodSandbox(
@@ -200,17 +200,17 @@ class SuccessTest(VimanadTestCase):
         )
 
         # Finally, try exercising the data plane.
-        client = AdderServiceStub(insecure_channel(f'{ipHostName(ipAddress)}:80'))
-        response = client.AddFloats(AddFloatsRequest(x=3.5, y=-1.2))
+        client = ThisOldTropeStub(insecure_channel(f'{ipHostName(ipAddress)}:80'))
+        response = client.HelloWorld(HelloRequest(name='Unit Tests'))
 
-        self.assertEqual(response, AddFloatsResponse(result=2.3))
+        self.assertEqual(response, HelloResponse(message='Hello, Unit Tests!'))
 
         self.runtimeService.StopContainer(
             StopContainerRequest(container_id=containerId, timeout=1),
         )
 
         try:
-            client.AddFloats(AddFloatsRequest(x=3.5, y=-1.2))
+            client.HelloWorld(HelloRequest(name='Unit Tests'))
         except RpcError as error:
             self.assertEqual(error.code(), StatusCode.UNAVAILABLE)
         else:
@@ -239,8 +239,8 @@ class SuccessTest(VimanadTestCase):
         domain, server, version, componentName, labels, imageSpec = self.setupImage(
             server='some-server',
             version='1.2.3',
-            module=ADDER_RUST_COMPONENT_PATH,
-            metadata=ADDER_METADATA_PATH,
+            module=MVP_COMPONENT_PATH,
+            metadata=MVP_METADATA_PATH,
         )
         # Set different labels on the pod vs. the container
         # so we can verify that the correct set is returned.

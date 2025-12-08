@@ -12,4 +12,12 @@ py_binary(
 sh_binary(
     name = "self-signed-tls",
     srcs = ["self-signed-tls.sh"],
+    args = [
+        "$(location @rules_k8s//:tls-generate)",
+        "$(location @openssl)",
+    ],
+    data = [
+        "@openssl",
+        "@rules_k8s//:tls-generate",
+    ],
 )

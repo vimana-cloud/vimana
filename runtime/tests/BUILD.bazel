@@ -8,8 +8,8 @@ py_test(
     name = "success-test",
     srcs = ["success-test.py"],
     data = [
-        "//cluster/tests/components:adder-rust",
-        "//cluster/tests/components:adder-vimana",
+        "//cluster/tests/components:mvp",
+        "//cluster/tests/components:mvp-vimana",
     ],
     # Verbosely log wasmtime errors.
     env = {"WASMTIME_BACKTRACE_DETAILS": "1"},
@@ -21,8 +21,8 @@ py_test(
     deps = [
         ":cri-api-py-pb2",
         ":util",
-        "//cluster/tests/components:adder-py-grpc",
-        "//cluster/tests/components:adder-py-pb2",
+        "//cluster/tests/components:mvp-py-grpc",
+        "//cluster/tests/components:mvp-py-pb2",
     ],
 )
 
@@ -30,8 +30,8 @@ py_test(
     name = "list-test",
     srcs = ["list-test.py"],
     data = [
-        "//cluster/tests/components:adder-rust",
-        "//cluster/tests/components:adder-vimana",
+        "//cluster/tests/components:mvp",
+        "//cluster/tests/components:mvp-vimana",
     ],
     tags = [
         # https://github.com/bazelbuild/bazel/discussions/25543

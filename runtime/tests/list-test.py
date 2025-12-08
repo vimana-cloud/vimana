@@ -40,9 +40,9 @@ from runtime.tests.util import RUNTIME_HANDLER, VimanadTestCase, hexUuid
 # https://bazel.build/reference/test-encyclopedia#initial-conditions
 TEST_TIMEOUT_NANOSECONDS = int(getenv('TEST_TIMEOUT')) * 1000 * 1000 * 1000
 
-ADDER_RUST_COMPONENT_PATH = joinPath('cluster', 'tests', 'components', 'server.wasm')
-ADDER_METADATA_PATH = joinPath(
-    'cluster', 'tests', 'components', 'adder-vimana', 'metadata.binpb'
+MVP_COMPONENT_PATH = joinPath('cluster', 'tests', 'components', 'mvp.component.wasm')
+MVP_METADATA_PATH = joinPath(
+    'cluster', 'tests', 'components', 'mvp-vimana', 'metadata.binpb'
 )
 
 
@@ -77,10 +77,10 @@ class ListTest(VimanadTestCase):
             cls.fooLabels,
             cls.fooImageSpec,
         ) = cls.setupImage(
-            server='adder-server',
+            server='mvp-server',
             version='1.2.3',
-            module=ADDER_RUST_COMPONENT_PATH,
-            metadata=ADDER_METADATA_PATH,
+            module=MVP_COMPONENT_PATH,
+            metadata=MVP_METADATA_PATH,
         )
         (
             cls.barDomain,
@@ -90,10 +90,10 @@ class ListTest(VimanadTestCase):
             cls.barLabels,
             cls.barImageSpec,
         ) = cls.setupImage(
-            server='another-adder-server',
+            server='another-mvp-server',
             version='0.0.0',
-            module=ADDER_RUST_COMPONENT_PATH,
-            metadata=ADDER_METADATA_PATH,
+            module=MVP_COMPONENT_PATH,
+            metadata=MVP_METADATA_PATH,
         )
 
         # Set up a pod / container in every possible state for the 'foo' labels.

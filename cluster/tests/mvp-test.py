@@ -4,8 +4,8 @@ from os import environ
 from unittest import TestCase, main
 
 import grpc
-from cluster.tests.components.adder_pb2 import AddFloatsRequest, AddFloatsResponse
-from cluster.tests.components.adder_pb2_grpc import AdderServiceStub
+from cluster.tests.components.mvp_pb2 import HelloRequest, HelloResponse
+from cluster.tests.components.mvp_pb2_grpc import ThisOldTropeStub
 
 # https://github.com/grpc/grpc/blob/v1.76.0/doc/environment_variables.md
 environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'cluster/tests/mvp-certificates.root.cert'
@@ -13,13 +13,13 @@ environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'cluster/tests/mvp-certificates.ro
 
 class Walkthough(TestCase):
     def test_WIP(self):
-        adderClient = AdderServiceStub(
-            grpc.secure_channel('api.vimana.host', grpc.ssl_channel_credentials()),
+        mvpClient = ThisOldTropeStub(
+            grpc.secure_channel('mvp.test', grpc.ssl_channel_credentials()),
         )
 
-        response = adderClient.AddFloats(AddFloatsRequest(x=3.5, y=-1.2))
+        response = mvpClient.HelloWorld(HelloRequest(name='World'))
 
-        self.assertEqual(response, AddFloatsResponse(result=2.3))
+        self.assertEqual(response, HelloResponse(message='Hello, World!'))
 
 
 if __name__ == '__main__':

@@ -1,7 +1,19 @@
+#!/usr/bin/env bash
+
+# Generate root CA credentials
+# in the form of PEM-encoded private key / certificate files,
+# as well as TLS credentials for any number of domain names
+# in the form of a single JSON file containing a K8s `Secret` resource per domain.
+
+# Path to the `tls-generate` tool from `rules_k8s`.
 tls_generate="$1"
+# Path to the `openssl` binary.
 openssl="$2"
+# Output path for the root certificate private key.
 root_key="$3"
+# Output path for the root certificate.
 root_cert="$4"
+# Output path for the generated K8s `Secret` resources (JSON file).
 resources="$5"
 shift 5
 

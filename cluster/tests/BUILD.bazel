@@ -4,12 +4,12 @@ load("@rules_python//python:py_binary.bzl", "py_binary")
 load("//cluster/bootstrap:bootstrap.bzl", "self_signed_tls", "vimana_image_push")
 
 vimana_image_push(
-    name = "adder-push-local",
-    component = "//cluster/tests/components:adder-rust",
+    name = "mvp-image-push",
+    component = "//cluster/tests/components:mvp",
     domain_id = "00000000000000000000000000000001",
-    metadata = "//cluster/tests/components:adder-vimana",
+    metadata = "//cluster/tests/components:mvp-vimana",
     registry = "http://{}:5000".format(localhost),
-    server_id = "the-adder-server",
+    server_id = "the-mvp-server",
     version = "1.0.0",
 )
 
@@ -17,7 +17,7 @@ self_signed_tls(
     name = "mvp-certificates",
     domains = [
         "00000000000000000000000000000001.app.vimana.host",
-        "api.vimana.host",
+        "mvp.test",
     ],
 )
 
@@ -31,11 +31,11 @@ k8s_cluster_test(
     ],
     services = {
         "the-vimana-gateway": [
-            "api.vimana.host",
+            "mvp.test",
         ],
     },
     setup = [
-        ":adder-push-local",
+        ":mvp-image-push",
     ],
     tags = ["external"],  # Never cache test results.
     test = ":mvp",
@@ -43,12 +43,13 @@ k8s_cluster_test(
 
 py_binary(
     name = "mvp",
-    srcs = ["mvp.py"],
+    srcs = ["mvp-test.py"],
     data = [
         ":mvp-certificates",
     ],
+    main = "mvp-test.py",
     deps = [
-        "//cluster/tests/components:adder-py-grpc",
-        "//cluster/tests/components:adder-py-pb2",
+        "//cluster/tests/components:mvp-py-grpc",
+        "//cluster/tests/components:mvp-py-pb2",
     ],
 )

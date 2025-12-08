@@ -13,7 +13,7 @@ The simplest way to do this for a normal Google account is to run:
 gcloud auth application-default login
 ```
 
-[application default credentials]: https://cloud.google.com/docs/authentication/application-default-credentials
+[application default credentials]: https://docs.cloud.google.com/docs/authentication/application-default-credentials
 
 ### Node Image
 
