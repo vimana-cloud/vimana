@@ -9,14 +9,13 @@ VIMANA_IMAGE_PUSH_SCRIPT_TEMPLATE = (
 
 def _vimana_image_push_impl(ctx):
     metadata_file = ctx.attr.metadata[MetadataInfo].file
-    repository = "{}/{}/{}".format(ctx.attr.registry, ctx.attr.domain_id, ctx.attr.server_id)
 
     runner = ctx.actions.declare_file(ctx.label.name)
     ctx.actions.write(
         output = runner,
         content = VIMANA_IMAGE_PUSH_SCRIPT_TEMPLATE.format(
             shell.quote(ctx.executable._push_image_bin.short_path),
-            shell.quote(repository),
+            shell.quote(ctx.attr.repository),
             shell.quote(ctx.attr.version),
             shell.quote(ctx.file.component.short_path),
             shell.quote(metadata_file.short_path),
@@ -36,7 +35,7 @@ vimana_image_push = rule(
     doc =
         "Push a Vimana container," +
         " consisting of a component module and matching metadata," +
-        " to the given OCI container registry.",
+        " to the given OCI container repository.",
     attrs = {
         "component": attr.label(
             doc = "Compiled component module.",
@@ -46,17 +45,12 @@ vimana_image_push = rule(
             doc = "Serialized metadata. This must be the output of a `vimana_protoc` rule.",
             providers = [MetadataInfo],
         ),
-        "domain_id": attr.string(
-            doc = "Domain ID, e.g. `1234567890abcdef1234567890abcdef`.",
-        ),
-        "server_id": attr.string(
-            doc = "Server ID, e.g. `some-server`.",
+        "repository": attr.string(
+            doc = "Repository to push the image to, e.g. `http://localhost:5000/image-name`.",
         ),
         "version": attr.string(
-            doc = "Component version, e.g. `1.0.0-release`.",
-        ),
-        "registry": attr.string(
-            doc = "Image registry root, e.g. `http://localhost:5000`.",
+            doc = "Component version, e.g. `1.0.0-release`. Must be a valid SemVer." +
+                  " Used as the tag for the push.",
         ),
         "_push_image_bin": attr.label(
             default = ":push-image",
