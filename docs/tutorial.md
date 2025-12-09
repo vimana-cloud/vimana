@@ -6,7 +6,7 @@ Before starting, read the [Developer Setup].
 If you set up `direnv` as described,
 all the tools referenced in this tutorial (`wasm-tools`, `minikube`, `kubectl`, etc.)
 will be available automatically when your working directory is within the repository,
-but you can also use local installations of each if you prefer.
+but you can also use local installations of each tool if you prefer.
 
 [Developer Setup]: developer-setup.md
 
@@ -47,10 +47,11 @@ bazel build //cluster/tests/components:mvp
 If you run that, you can skip the rest of this section.
 
 But that would be super basic!
-Instead, let's walk through the process manually, for fun.
+Instead, let's walk through a build process manually,
+for old times' sake.
 
 It starts by compiling the Protobuf service definition
-into a WIT package and metadata file, using the compiler:
+into a [WIT interface] and metadata file, using the compiler:
 
 ```bash
 # Create a temporary directory to hold demo-related files.
@@ -58,7 +59,6 @@ mkdir tmp
 # Build a fresh copy of `protoc-gen-vimana` from source.
 bazel build compiler
 # Build and run `protoc` from source, with the fresh build of the plugin.
-# See the compiler documentation for more ways to use the compiler.
 bazel run @protobuf//:protoc -- \
   --plugin="$(bazel info bazel-bin)/compiler/protoc-gen-vimana" \
   --vimana_out="$(pwd)/tmp" \
@@ -80,8 +80,6 @@ mkdir -p tmp/cluster/tests/components
 
 # This step produces C-specific "bindings" to the language-agnostic WIT interface,
 # including a header file with type definitions.
-# An official binary release of `wit-bindgen` is included,
-# but a local installation would work as well.
 wit-bindgen c \
   "$(pwd)/tmp/wit" \
   --world=server \
@@ -103,8 +101,10 @@ void this_old_trope_hello_world(
     this_old_trope_hello_response_t *response
 ) {
     // "Hello, !" is 9 bytes (including the terminating NULL).
-    char * message = (char *)malloc(request->name.len + 9);
-    sprintf(message, "Hello, %s!", request->name.ptr);
+    size_t message_length = request->name.len + 9;
+    char * message = (char *)malloc(message_length);
+    snprintf(message, message_length, "Hello, %s!", request->name.ptr);
+    // This transfers "ownership" of the string, so we don't have to free it.
     server_string_set(&response->message, message);
 }
 ```
@@ -133,6 +133,7 @@ wasm-tools component new \
   --output="$(pwd)/tmp/component.wasm"
 ```
 
+[WIT interface]: https://component-model.bytecodealliance.org/design/interfaces.html
 [compiler documentation]: /compiler/
 [in various languages]: https://component-model.bytecodealliance.org/building-a-simple-component.html
 [`wit-bindgen`]: https://github.com/bytecodealliance/wit-bindgen
@@ -228,7 +229,7 @@ gateway_address="$(
 echo "${gateway_address} mvp.test" | sudo tee -a /etc/hosts
 ```
 
-## 8. Get That Sweet Greeting
+## 8. A Traditional Greeting
 
 Guess what this says!
 

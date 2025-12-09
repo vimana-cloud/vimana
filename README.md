@@ -42,7 +42,7 @@ Vimana consists of 3 principle parts:
 
 ### A New Image
 
-Vimana does not bundle a dedicated server stack into each unit of isolation.
+Vimana does *not* bundle a dedicated server stack into each unit of isolation.
 Instead, the runtime is responsible for all essential server boilerplate,
 including a single, shared gRPC / Protobuf stack.
 
@@ -52,13 +52,13 @@ each component simply exposes it's API as a set of richly-typed functions,
 and the runtime handles the rest.
 Transparent green-threading is backed by a single system thread pool.
 Cheap sandboxing is implemented in userspace.
+Optional JSON transcoding occurs at the gateway.
 
-This can significantly reduce the size of each "container" image,
+This can significantly reduce the memory footprint of each "container" image,
 especially for FaaS-style use-cases.
 
 ## Get Started
 
-Enough small talk.
-Get those hands dirty with the [tutorial].
+Make your hands dirty with the [tutorial].
 
 [tutorial]: docs/tutorial.md

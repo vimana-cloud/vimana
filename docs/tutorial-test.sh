@@ -69,10 +69,22 @@ bazel run //cluster/bootstrap:self-signed-tls -- \
   mvp.test
 
 kubectl apply -f "$(pwd)/tmp/self-signed-certificates.json"
+function cleanup-certificates {
+  kubectl delete -f "$(pwd)/tmp/self-signed-certificates.json" || true
+  cleanup-tunnel
+}
+trap cleanup-certificates EXIT
 
 # 6. Run the Service
 
 kubectl apply -f cluster/tests/mvp.yaml
+function cleanup-resources {
+  kubectl delete -f cluster/tests/mvp.yaml || true
+  cleanup-certificates
+}
+trap cleanup-resources EXIT
+
+# 7. Set up DNS
 
 # Wait for the gateway to become available.
 sleep 10s
@@ -85,9 +97,11 @@ echo "${gateway_address} mvp.test" | sudo tee -a /etc/hosts > /dev/null
 function cleanup-hosts {
   # Use the backup file trick to make this portable across Linux and MacOS.
   sudo sed -i.backup '/mvp\.test/d' /etc/hosts && sudo rm /etc/hosts.backup || true
-  cleanup-tunnel
+  cleanup-resources
 }
 trap cleanup-hosts EXIT
+
+# 8. A Traditional Greeting
 
 grpcurl \
   -insecure \
