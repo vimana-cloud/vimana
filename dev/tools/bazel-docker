@@ -80,6 +80,16 @@ function ensure-container-running {
   esac
 }
 
+# Provide a cross-platform implementation of `nproc`.
+function nproc {
+  if [[ "$(uname -s)" == 'Darwin' ]]
+  then
+    sysctl -n hw.ncpu
+  else
+    command nproc
+  fi
+}
+
 bazel_name="$(bazel-container-name)"
 function start-bazel {
   # - Persist the container indefinitely with the appropriate bind-mounts
@@ -114,17 +124,30 @@ function start-bazel {
     --volume="${HOME}/.kube":'/root/.kube':ro \
     --add-host=host.docker.internal=host-gateway \
     --entrypoint=/usr/bin/sleep \
-    gcr.io/bazel-public/bazel:latest \
+    debian:stable-slim \
     'infinity'
 
   # Install the `uuidgen` CLI tool, which is needed to run a `k8s_cluster_test`.
   # ATTOW there is no obvious pre-built toolchain for Bazel.
   # Don't bother waiting for `apt-get update`; the tool is very stable.
   docker exec \
-    --detach \
     --user=0 \
     "$bazel_name" \
-    sh -c 'apt-get install --yes uuid-runtime'
+    sh -c '
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install --yes curl jq git gcc g++ python3
+
+bazelisk_version="$(
+  curl --silent --show-error --location \
+    "https://api.github.com/repos/bazelbuild/bazelisk/releases/latest" \
+      | jq --raw-output ".tag_name"
+)"
+bazelisk_package="bazelisk-$(uname -m | sed "s/x86_64/amd64/;s/aarch64/arm64/").deb"
+curl --silent --show-error --location --remote-name \
+  "https://github.com/bazelbuild/bazelisk/releases/download/${bazelisk_version}/${bazelisk_package}"
+
+dpkg --install "${bazelisk_package}"
+'
 }
 ensure-container-running "$bazel_name" start-bazel
 

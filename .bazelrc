@@ -1,5 +1,11 @@
+# Enable `--config=macos` automatically on Mac, `--config=linux` on Linux.
+common --enable_platform_specific_config
+
 # Ensure a sane C++ standard on all platforms.
 build --cxxopt='-std=c++17' --host_cxxopt='-std=c++17'
+
+# Building `protoc` from source on Mac requires this minimum OS version.
+build:macos --host_cxxopt='-mmacosx-version-min=10.13'
 
 # Use `--config=release` for optimized builds, without debugging symbols,
 # and with build information embedded ("stamped") in the resulting binary.

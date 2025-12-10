@@ -97,7 +97,28 @@ rust.repository_set(
     versions = [RUST_VERSION],
 )
 rust.repository_set(
+    name = "rust_linux_aarch64",
+    edition = RUST_EDITION,
+    exec_triple = "aarch64-unknown-linux-gnu",
+    target_compatible_with = [
+        "//dev:unknown",
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_triple = "x86_64-unknown-linux-gnu",
+    versions = [RUST_VERSION],
+)
+rust.repository_set(
     name = "rust_linux_x86_64",
+    target_compatible_with = [
+        "//dev:musl",
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
+)
+rust.repository_set(
+    name = "rust_linux_aarch64",
     target_compatible_with = [
         "//dev:musl",
         "@platforms//cpu:x86_64",
@@ -254,10 +275,9 @@ oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 # https://console.cloud.google.com/artifacts/docker/distroless/us/gcr.io/static
 oci.pull(
     name = "distroless-static",
-    # `nonroot` tag
-    digest = "sha256:e8a4044e0b4ae4257efa45fc026c0bc30ad320d43bd4c1a7d5271bd241e386d0",
+    digest = "sha256:2b7c93f6d6648c11f0e80a48558c8f77885eb0445213b8e69a6a0d7c89fc6ae4",
     image = "gcr.io/distroless/static",
-    platforms = ["linux/amd64"],
+    platforms = ["linux/amd64", "linux/arm64/v8"],
 )
 
 # Kicbase is the base for the Minikube node image used in end-to-end tests.
@@ -265,15 +285,17 @@ oci.pull(
 oci.pull(
     name = "kicbase",
     image = "gcr.io/k8s-minikube/kicbase@sha256:6ed579c9292b4370177b7ef3c42cc4b4a6dcd0735a1814916cbc22c8bf38412b",
-    platforms = ["linux/amd64"],
+    platforms = ["linux/amd64", "linux/arm64"],
 )
 
 use_repo(
     oci,
     "distroless-static",
     "distroless-static_linux_amd64",
+    "distroless-static_linux_arm64_v8",
     "kicbase",
     "kicbase_linux_amd64",
+    "kicbase_linux_arm64",
 )
 
 # NodeJS setup (for serving documentation with VitePress):
