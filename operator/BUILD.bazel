@@ -4,11 +4,20 @@ load("@environment//:environment.bzl", "localhost")
 load("@rules_k8s//:resource.bzl", "kubectl_apply", "kubectl_delete")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("//dev/rules:platform-binary.bzl", "platform_binary")
 load("//dev/rules:sh-in-place.bzl", "sh_in_place")
 
 alias(
     name = "operator",
     actual = "//operator/cmd",
+    visibility = ["//visibility:public"],
+)
+
+# Cross-compile the operator binary to package it in a container.
+platform_binary(
+    name = "operator-x86_64-linux",
+    platform = "//dev:x86_64-linux-musl",
+    target = ":operator",
 )
 
 default_image_name = "{}:5000/vimana-operator".format(localhost)
@@ -23,7 +32,7 @@ string_flag(
 # Equivalent of `make docker-build` in a normal Operator SDK project.
 oci_image(
     name = "image",
-    base = "@distroless-static",
+    base = "@distroless-static_linux_amd64",
     entrypoint = ":image-entrypoint",
     tars = [":image-tar"],
     user = "65532:65532",
@@ -41,7 +50,10 @@ oci_push(
 
 pkg_tar(
     name = "image-tar",
-    srcs = ["//operator/cmd"],
+    srcs = [":operator-x86_64-linux"],
+    remap_paths = {
+        "/operator-x86_64-linux": "/manager",
+    },
 )
 
 write_file(

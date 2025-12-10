@@ -33,5 +33,5 @@ go_binary(
     # so the resulting binary can be deployed on the `distroless-static` base container image.
     pure = "on",
     static = "on",
-    visibility = ["//visibility:public"],
+    visibility = ["//operator:__pkg__"],
 )
