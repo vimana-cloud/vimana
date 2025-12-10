@@ -81,6 +81,25 @@ bazel-docker test //runtime/tests/...
 > subsequent invocations of `bazel-docker` should only incur modest lag (perhaps a second)
 > before output files are available.
 
+#### OOM
+
+If you encounter this error while building using `bazel-docker`:
+
+```
+Server terminated abruptly (error code: 14, error message: 'Socket closed', log file: '/private/var/tmp/_bazel__docker/.../server/jvm.out')
+```
+
+This probably means Bazel ran out of memory and became dead.
+This normally does not occur on Linux, but may occur on MacOS,
+where Docker runs in a VM with a hard memory limit.
+You can verify this with:
+
+```bash
+docker inspect "$(bazel-docker --name)" --format='{{.State.OOMKilled}}'
+```
+
+In Docker Desktop, you can increase the memory limit under Settings > Resources.
+
 [runtime]: runtime/
 [`rtnetlink`]: https://en.wikipedia.org/wiki/Netlink
 [runtime tests]: runtime/tests/
