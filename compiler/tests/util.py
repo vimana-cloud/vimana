@@ -4,7 +4,7 @@ from os.path import join as joinPath
 from subprocess import PIPE, run
 from tempfile import TemporaryDirectory
 
-PROTOC_PATH = joinPath('..', 'protobuf+', 'protoc')
+PROTOC_PATH = joinPath('compiler', 'tests', 'protoc')
 PLUGIN_PATH = joinPath('compiler', 'protoc-gen-vimana')
 METADATA_PROTO_PATH = joinPath('runtime', 'metadata.proto')
 

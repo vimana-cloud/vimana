@@ -4,7 +4,7 @@ load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("@rules_rust//rust:defs.bzl", "rust_binary")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
-load("//compiler:defs.bzl", "vimana_protoc")
+load("//compiler:defs.bzl", "prebuilt_protoc", "vimana_protoc")
 load(":dummy-service.bzl", "dummy_service")
 
 package(default_testonly = True)
@@ -56,9 +56,9 @@ py_library(
     name = "util",
     srcs = ["util.py"],
     data = [
+        ":protoc",
         "//compiler",
         "//runtime:metadata.proto",
-        "@protobuf//:protoc",
     ],
 )
 
@@ -113,4 +113,8 @@ dummy_service(
     imports = ["google/protobuf/test_messages_proto2.proto"],
     package = "protobuf_test_messages.proto2",
     type = "TestAllTypesProto2",
+)
+
+prebuilt_protoc(
+    name = "protoc",
 )

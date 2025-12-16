@@ -4,6 +4,8 @@ load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@rules_proto//proto:defs.bzl", "ProtoInfo")
 load("@rules_wasm//wasm:defs.bzl", "WitPackageInfo")
 
+PROTOC_TOOLCHAIN = "@protobuf//bazel/private:proto_toolchain_type"
+
 MetadataInfo = provider(
     "Serialized metadata output from the Vimana Protobuf compiler plugin.",
     fields = {
@@ -28,13 +30,13 @@ def _vimana_protoc_impl(ctx):
     parameters = []
     if ctx.attr.ignore_unsupported_features:
         parameters.append("--vimana_opt=ignore-groups,ignore-required")
-
+    protoc = ctx.toolchains[PROTOC_TOOLCHAIN].proto.proto_compiler
     proto_info = ctx.attr.proto[ProtoInfo]
 
     wit_package = ctx.actions.declare_directory(paths.join(ctx.label.name, "wit"))
     metadata_file = ctx.actions.declare_file("metadata.binpb", sibling = wit_package)
     ctx.actions.run(
-        executable = ctx.executable._protoc_bin,
+        executable = protoc,
         inputs = proto_info.transitive_sources.to_list(),
         outputs = [wit_package, metadata_file],
         arguments = [
@@ -86,12 +88,6 @@ vimana_protoc = rule(
                   " Useful for running the Protobuf conformance tests.",
             default = False,
         ),
-        "_protoc_bin": attr.label(
-            default = "@protobuf//:protoc",
-            executable = True,
-            cfg = "exec",
-            allow_single_file = True,
-        ),
         "_protoc_gen_vimana_bin": attr.label(
             default = ":compiler",
             executable = True,
@@ -99,5 +95,27 @@ vimana_protoc = rule(
             allow_single_file = True,
         ),
     },
+    toolchains = [PROTOC_TOOLCHAIN],
     provides = [MetadataInfo, WitPackageInfo],
+)
+
+# The only purpose of this rule is to provide a prebuilt `protoc` executable
+# for use as a data dependency in the unit tests.
+def _prebuilt_protoc_impl(ctx):
+    protoc = ctx.toolchains[PROTOC_TOOLCHAIN].proto.proto_compiler
+
+    output = ctx.actions.declare_file(ctx.label.name)
+    ctx.actions.symlink(
+        target_file = protoc.executable,
+        output = output,
+        is_executable = True,
+    )
+
+    return [DefaultInfo(executable = output)]
+
+prebuilt_protoc = rule(
+    executable = True,
+    implementation = _prebuilt_protoc_impl,
+    doc = "Provide a prebuilt protoc executable.",
+    toolchains = [PROTOC_TOOLCHAIN],
 )
