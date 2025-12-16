@@ -55,6 +55,8 @@ py_library(
     deps = [
         ":cri-api-py-grpc",
         ":cri-api-py-pb2",
+        # `typing_extensions` is required for the generated Python gRPC stub.
+        "@pypi//typing_extensions",
     ],
 )
 
