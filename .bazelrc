@@ -1,6 +1,9 @@
 # Enable `--config=macos` automatically on Mac, `--config=linux` on Linux.
 common --enable_platform_specific_config
 
+# Use a prebuilt `protoc` binary for `proto_library` rules.
+build --incompatible_enable_proto_toolchain_resolution=true --@protobuf//bazel/toolchains:prefer_prebuilt_protoc=true
+
 # Ensure a sane C++ standard on all platforms.
 build --cxxopt='-std=c++17' --host_cxxopt='-std=c++17'
 

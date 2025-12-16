@@ -251,13 +251,22 @@ fn read_varint(
 /// Decrement `limit` by the number of bytes read.
 #[inline(always)]
 fn decode_tag(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<(u32, WireType), DecodeError> {
+    let pre_limit = *limit;
     let tag = read_varint(limit, src, INVALID_TAG_VARINT)?;
+    let bytes_read = pre_limit - *limit;
+    // Reject overlong tag varint encodings, as per the spec.
+    // A tag varint using N bytes must require N bytes (i.e. tag >= 2^(7*(N-1))).
+    // The implementation of `read_varint` guarantees that `bytes_read` (N) is at least 1.
+    if tag < (1 << (7 * (bytes_read - 1))) {
+        return Err(DecodeError::new(OVERLONG_TAG_VARINT));
+    }
     let field_number = u32::try_from(tag >> 3).map_err(|_| {
         // Indicates the field number exceeded 32 bits.
         DecodeError::new(INVALID_FIELD_NUMBER)
     })?;
     // Field number 0 is reserved and invalid.
-    if field_number == 0 {
+    // Field numbers must be less than 2^29 according to spec.
+    if field_number == 0 || field_number >= (1 << 29) {
         return Err(DecodeError::new(INVALID_FIELD_NUMBER));
     }
     let wire_type = (tag as u8) & 0b111;
@@ -272,7 +281,8 @@ fn decode_tag(limit: &mut u32, src: &mut DecodeBuf<'_>) -> StdResult<(u32, WireT
 
 /// Read a varint from the source buffer,
 /// check that there are at least as many bytes left in the buffer,
-/// then return that varint.
+/// then return that varint,
+/// after having decremented the limit by it.
 #[inline(always)]
 fn read_length_check_overflow(
     limit: &mut u32,
@@ -398,6 +408,7 @@ fn format_decode_error_trace(error: &DecodeError, formatter: &mut Formatter<'_>)
 const BUFFER_UNDERFLOW: &str = "Buffer underflow";
 const BUFFER_OVERFLOW: &str = "Buffer overflow";
 const INVALID_TAG_VARINT: &str = "Invalid varint for tag";
+const OVERLONG_TAG_VARINT: &str = "Overlong varint for tag";
 const INVALID_LENGTH_VARINT: &str = "Invalid varint for length";
 const INVALID_VARINT: &str = "Invalid varint";
 const INVALID_FIELD_NUMBER: &str = "Invalid field number";

@@ -9,13 +9,23 @@ bazel_dep(name = "googleapis-go", version = "1.0.0")
 bazel_dep(name = "grpc", version = "1.76.0.bcr.1")
 bazel_dep(name = "openssl", version = "3.5.4.bcr.0")
 bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "protobuf", version = "33.1")
-single_version_override(
+bazel_dep(name = "protobuf")
+
+# TODO: Use a proper release once the prebuilt toolchain is available there.
+#   https://github.com/protocolbuffers/protobuf/issues/19558
+git_override(
     module_name = "protobuf",
-    # TODO: Remove this patch once `protobuf` moves past 33.2.
-    #   https://github.com/protocolbuffers/protobuf/issues/24486
-    #   https://github.com/protocolbuffers/protobuf/issues/24508
-    patches = ["//dev/patches:protobuf-conformance-visibility.patch"],
+    commit = "cc23698b486e690ea2eb873cc7596a87c74a3ba6",
+    remote = "https://github.com/protocolbuffers/protobuf",
+    patches = [
+        # TODO: Delete this patch once visibility is fixed.
+        #   https://github.com/protocolbuffers/protobuf/pull/24895
+        "//dev/patches:protobuf-conformance-visibility.patch",
+        # These patches patch over apparent breaking changes in protobuf at this commit.
+        # They should become obsolete with the next proper release.
+        "//dev/patches:protobuf-bzl-visibility.patch",
+        "//dev/patches:protobuf-linkarr-attr.patch",
+    ],
 )
 
 bazel_dep(name = "toolchains_musl", version = "0.1.27")

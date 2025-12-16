@@ -1,165 +1,22 @@
-diff --git conformance/BUILD conformance/BUILD
-index ec1c8de46..e4948a135 100644
---- conformance/BUILD
-+++ conformance/BUILD
-@@ -12,24 +12,22 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
- load("@rules_cc//cc:defs.bzl", "cc_binary", "objc_library")
- load("@rules_java//java:defs.bzl", "java_binary")
- load("@rules_python//python:py_binary.bzl", "py_binary")
--load("@rules_ruby//ruby:defs.bzl", "rb_binary")
- load(
-     "//:protobuf.bzl",
-     "internal_csharp_proto_library",
-     "internal_objc_proto_library",
-     "internal_php_proto_library",
-     "internal_py_proto_library",
--    "internal_ruby_proto_library",
- )
- load("//bazel:cc_proto_library.bzl", "cc_proto_library")
- load("//bazel:java_lite_proto_library.bzl", "java_lite_proto_library")
- load("//bazel:java_proto_library.bzl", "java_proto_library")
- load("//bazel:proto_library.bzl", "proto_library")
- load("//build_defs:internal_shell.bzl", "inline_sh_binary")
--load("//ruby:defs.bzl", "internal_ruby_proto_library")
- 
- exports_files([
-     "bazel_conformance_test_runner.sh",
-+    "conformance.proto",
-     "failure_list_cpp.txt",
-     "failure_list_csharp.txt",
-     "failure_list_java.txt",
-@@ -417,15 +415,6 @@ internal_php_proto_library(
-     ],
- )
- 
--internal_ruby_proto_library(
--    name = "conformance_ruby_proto",
--    srcs = ["conformance.proto"],
--    visibility = [
--        "//conformance:__pkg__",
--        "//ruby:__pkg__",
--    ],
--)
--
- cc_binary(
-     name = "conformance_cpp",
-     testonly = 1,
-@@ -610,21 +599,6 @@ cc_binary(
-     deps = [":conformance_objc_lib"],
- )
- 
--rb_binary(
--    name = "conformance_ruby",
--    testonly = True,
--    srcs = ["conformance_ruby.rb"],
--    main = "conformance_ruby.rb",
--    visibility = ["//ruby:__subpackages__"],
--    deps = [
--        ":conformance_ruby_proto",
--        "//conformance/test_protos:test_messages_edition2023_ruby_proto",
--        "//ruby:conformance_editions_test_ruby_proto",
--        "//ruby:conformance_test_ruby_proto",
--        "//ruby:protobuf",
--    ],
--)
--
- ################################################################################
- # Distribution files
- ################################################################################
-diff --git conformance/test_protos/BUILD conformance/test_protos/BUILD
-index 1e2a44397..f2eda4707 100644
---- conformance/test_protos/BUILD
-+++ conformance/test_protos/BUILD
-@@ -8,13 +8,14 @@ load("//bazel:cc_proto_library.bzl", "cc_proto_library")
- load("//bazel:java_lite_proto_library.bzl", "java_lite_proto_library")
- load("//bazel:java_proto_library.bzl", "java_proto_library")
- load("//bazel:proto_library.bzl", "proto_library")
--load("//ruby:defs.bzl", "internal_ruby_proto_library")
- 
- package(
-     default_testonly = True,
-     default_visibility = ["//conformance:__pkg__"],
- )
- 
-+exports_files(["test_messages_edition2023.proto"])
-+
- internal_csharp_proto_library(
-     name = "test_messages_edition2023_csharp_proto",
-     srcs = ["test_messages_edition2023.proto"],
-@@ -51,8 +52,3 @@ internal_objc_proto_library(
-     name = "test_messages_edition2023_objc_proto",
-     srcs = [":test_messages_edition2023.proto"],
- )
--
--internal_ruby_proto_library(
--    name = "test_messages_edition2023_ruby_proto",
--    srcs = ["test_messages_edition2023.proto"],
--)
-diff --git editions/BUILD editions/BUILD
-index be54be835..49fc559e0 100644
---- editions/BUILD
-+++ editions/BUILD
-@@ -161,7 +161,7 @@ proto_library(
-     name = "test_messages_proto2_editions_proto",
-     testonly = True,
-     srcs = ["golden/test_messages_proto2_editions.proto"],
--    visibility = ["//net/proto2/util/converter/internal/conformance:__pkg__"],
-+    visibility = ["//visibility:public"],
- )
- 
- cc_proto_library(
-@@ -219,7 +219,7 @@ proto_library(
-     name = "test_messages_proto3_editions_proto",
-     testonly = True,
-     srcs = ["golden/test_messages_proto3_editions.proto"],
--    visibility = ["//net/proto2/util/converter/internal/conformance:__pkg__"],
-+    visibility = ["//visibility:public"],
-     deps = [
-         "//:any_proto",
-         "//:duration_proto",
 diff --git src/google/protobuf/BUILD.bazel src/google/protobuf/BUILD.bazel
-index 1b8a3ec87..f639d7265 100644
+index b2490b51d..3f94314d6 100644
 --- src/google/protobuf/BUILD.bazel
 +++ src/google/protobuf/BUILD.bazel
-@@ -1276,38 +1276,21 @@ exports_files(
-         "test_messages_proto2.proto",
-         "test_messages_proto3.proto",
-     ],
--    visibility = [
--        "//:__pkg__",
--        "//python:__pkg__",
--        "//ruby:__pkg__",
--        "//upb:__pkg__",
--    ],
-+    visibility = ["//visibility:public"],
- )
- 
- proto_library(
-     name = "test_messages_proto2_proto",
-     srcs = ["test_messages_proto2.proto"],
+@@ -1353,7 +1353,7 @@ proto_library(
      strip_import_prefix = "/src",
--    visibility = [
--        "//:__pkg__",
+     visibility = [
+         "//:__pkg__",
 -        "//conformance:__pkg__",
--        "//lua:__subpackages__",
--        "//python:__subpackages__",
--        "//upb:__subpackages__",
--    ],
-+    visibility = ["//visibility:public"],
- )
- 
- proto_library(
-     name = "test_messages_proto3_proto",
-     srcs = ["test_messages_proto3.proto"],
++        "//conformance:__subpackages__",
+         "//lua:__subpackages__",
+         "//python:__subpackages__",
+         "//upb:__subpackages__",
+@@ -1366,7 +1366,7 @@ proto_library(
      strip_import_prefix = "/src",
--    visibility = [
--        "//:__pkg__",
+     visibility = [
+         "//:__pkg__",
 -        "//conformance:__pkg__",
--        "//lua:__subpackages__",
--        "//python:__subpackages__",
--        "//upb:__subpackages__",
--    ],
-+    visibility = ["//visibility:public"],
-     deps = [
-         ":any_proto",
-         ":duration_proto",
++        "//conformance:__subpackages__",
+         "//lua:__subpackages__",
+         "//python:__subpackages__",
+         "//upb:__subpackages__",

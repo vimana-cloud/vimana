@@ -1,0 +1,13 @@
+diff --git upb/port/def.inc upb/port/def.inc
+index c7327fcbf..d6d8072d7 100644
+--- upb/port/def.inc
++++ upb/port/def.inc
+@@ -574,7 +574,7 @@ Error, UINTPTR_MAX is undefined
+ //     }
+ //   }
+ 
+-#define UPB_LINKARR_ATTR
++#define UPB_LINKARR_ATTR UPB_RETAIN
+ 
+ #define UPB_LINKARR_SENTINEL UPB_RETAIN __attribute__((weak, used))
+ 
