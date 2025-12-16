@@ -44,11 +44,11 @@ The following tool aliases are provided:
 - `wit-bindgen`
 
 [`direnv`]: https://direnv.net/
-[tool aliases]: dev/tools/
+[tool aliases]: /dev/tools/
 
 ### Bazel Container
 
-Vimana builds fine on any Linux system.
+Vimana works fine on any Linux system.
 However, it relies on some Linux-specific features
 that make building or testing certain things directly on a Mac impractical:
 
@@ -59,6 +59,8 @@ that make building or testing certain things directly on a Mac impractical:
 - The [runtime tests] use Bazel's [`requires-fakeroot`] tag
   (in order to manipulate the network device using `rtnetlink`),
   and that tag is only supported by Bazel on Linux.
+- The [operator test] requires a build of `kube-apiserver`,
+  which is not available for Mac.
 
 To work around this, any Bazel command can be run in a persistent container
 dedicated to the current Git worktree.
@@ -100,11 +102,12 @@ docker inspect "$(bazel-docker --name)" --format='{{.State.OOMKilled}}'
 
 In Docker Desktop, you can increase the memory limit under Settings > Resources.
 
-[runtime]: runtime/
+[runtime]: /runtime/
 [`rtnetlink`]: https://en.wikipedia.org/wiki/Netlink
-[runtime tests]: runtime/tests/
+[runtime tests]: /runtime/tests/
 [`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
-[`bazel-docker`]: dev/tools/bazel-docker
+[operator tests]: /operator/internal/controller/suite_test.go
+[`bazel-docker`]: /dev/tools/bazel-docker
 [tools]: #tools
 
 ### VSCode

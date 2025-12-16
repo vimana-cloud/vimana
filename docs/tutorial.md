@@ -137,7 +137,7 @@ wasm-tools component new \
 [compiler documentation]: /compiler/
 [in various languages]: https://component-model.bytecodealliance.org/building-a-simple-component.html
 [`wit-bindgen`]: https://github.com/bytecodealliance/wit-bindgen
-[`cluster/tests/components/mvp.c`]: cluster/tests/components/mvp.c
+[`cluster/tests/components/mvp.c`]: /cluster/tests/components/mvp.c
 [WASI SDK]: https://github.com/WebAssembly/wasi-sdk
 [`wasm-tools`]: https://github.com/bytecodealliance/wasm-tools
 
@@ -209,7 +209,7 @@ and the TLS credentials we just created.
 kubectl apply -f cluster/tests/mvp.yaml
 ```
 
-[`cluster/tests/mvp.yaml`]: cluster/tests/mvp.yaml
+[`cluster/tests/mvp.yaml`]: /cluster/tests/mvp.yaml
 
 ## 7. Set up DNS
 

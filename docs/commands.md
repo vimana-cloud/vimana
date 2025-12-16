@@ -34,4 +34,4 @@ bazel run //dev/minikube:hotswap
 [VitePress]: https://vitepress.dev/
 [Mermaid]: https://mermaid.js.org/
 [minikube]: https://minikube.sigs.k8s.io/
-[top of the script]: dev/minikube/hotswap.sh
+[top of the script]: /dev/minikube/hotswap.sh
