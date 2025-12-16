@@ -70,5 +70,5 @@ Once you're done with it:
 bazel run //cluster:destroy -- 'my-cluster.net'
 ```
 
-[`cluster/profiles/profiles.yaml`]: cluster/profiles/profiles.yaml
+[`cluster/profiles/profiles.yaml`]: /cluster/profiles/profiles.yaml
 [kOps state store]: https://kops.sigs.k8s.io/state/

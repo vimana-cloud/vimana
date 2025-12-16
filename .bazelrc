@@ -9,6 +9,4 @@ build:macos --host_cxxopt='-mmacosx-version-min=10.13'
 
 # Use `--config=release` for optimized builds, without debugging symbols,
 # and with build information embedded ("stamped") in the resulting binary.
-build:release --compilation_mode=opt
-build:release --strip=always
-build:release --stamp
+build:release --compilation_mode=opt --strip=always --stamp

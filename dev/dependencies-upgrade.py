@@ -68,7 +68,7 @@ def upgradeBazelModules():
         # It's probably a `git_override` dependency. Just skip these.
         if currentVersion == '(missing)':
             console.print(
-                f'Skipping Bazel module [bold]{name}[/bold] with missing version'
+                f'  Skipping Bazel module [bold]{name}[/bold] with missing version'
             )
             continue
 
@@ -118,12 +118,21 @@ def upgradeRustCrate(crateName, versionObject: Dict[str, any], versionKey: str):
         else f'{crateName[0:2]}/{crateName[2:4]}'
     )
 
-    # Get the latest version from crates.io.
-    latestVersion = loadsJson(
-        requestOrDie(
-            'GET',
-            f'https://index.crates.io/{indexDirectory}/{crateName}',
-        ).content.splitlines()[-1]
+    # Get the latest non-yanked version from crates.io.
+    latestVersion = next(
+        filter(
+            lambda version: not version.get('yanked', False),
+            # Each line in the index is a JSON object representing a version.
+            map(
+                loadsJson,
+                reversed(
+                    requestOrDie(
+                        'GET',
+                        f'https://index.crates.io/{indexDirectory}/{crateName}',
+                    ).content.splitlines()
+                ),
+            ),
+        )
     )['vers']
 
     if currentVersion != latestVersion:
@@ -237,7 +246,7 @@ def printUpdate(name: str, oldVersion: str, newVersion: str, color: str):
     (green for Bazel, yellow for Rust, blue for Python, cyan for Go).
     """
     console.print(
-        f'[{color}]{name}[/{color}] [bold]{oldVersion}[/bold] ➜ [bold]{newVersion}[/bold]'
+        f'  [{color}]{name}[/{color}] [bold]{oldVersion}[/bold] ➜ [bold]{newVersion}[/bold]'
     )
 
 
