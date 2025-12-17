@@ -83,7 +83,7 @@ def imageVersion() -> tuple[str, bool]:
 def gcp(version: str, clean: bool, project: str):
     """Create a node image on, and for, Google Cloud Platform."""
     stockProject = 'debian-cloud'
-    stockFamily = 'debian-12'
+    stockFamily = 'debian-13'
     instanceName = f'image-dummy-{version}'
     instanceZone = 'us-west1-a'
     instanceType = 'e2-medium'
