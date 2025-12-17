@@ -23,7 +23,7 @@ jobs:
     #
     # Work around this by running in the container as root, with explicit `NET_ADMIN` privileges.
     container:
-      image: gcr.io/bazel-public/bazel:latest
+      image: debian:stable-slim
       env:
         REMOTE_BUILD_CREDENTIALS: ${{ secrets.REMOTE_BUILD_CREDENTIALS }}
       options: --user=0 --env=USER=0 --cap-add=NET_ADMIN
@@ -34,6 +34,9 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+
+      - name: Set up environment
+        run: ./dev/container-setup.sh
 
       - name: Build everything
         run: |
