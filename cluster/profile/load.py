@@ -3,7 +3,7 @@ from typing import Dict
 
 from yaml import safe_load as loadYaml
 
-PROFILES_PATH = joinPath('cluster', 'profiles', 'profiles.yaml')
+PROFILES_PATH = joinPath('cluster', 'profile', 'profiles.yaml')
 
 
 def load(name: str) -> Dict[str, object]:

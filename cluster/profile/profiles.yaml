@@ -10,7 +10,7 @@
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 #
 # Tell Git to ignore your local changes with:
-#   git update-index --skip-worktree cluster/profiles/profiles.yaml
+#   git update-index --skip-worktree cluster/profile/profiles.yaml
 
 gcp-example.com:
   state-store: "gs://google-storage-bucket/"

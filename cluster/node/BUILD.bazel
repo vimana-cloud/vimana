@@ -13,7 +13,7 @@ py_binary(
     ],
     main = "image-make.py",
     deps = [
-        "//cluster/profiles:load",
+        "//cluster/profile:load",
         "//dev/lib:util-python",
         "@pypi//fabric",
         "@pypi//google_cloud_compute",

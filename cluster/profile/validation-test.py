@@ -6,9 +6,9 @@ from os.path import join as joinPath
 from jsonschema import validate
 from yaml import safe_load as loadYaml
 
-from cluster.profiles.load import PROFILES_PATH, load as loadProfile
+from cluster.profile.load import PROFILES_PATH, load as loadProfile
 
-SCHEMA_PATH = joinPath('cluster', 'profiles', 'schema.yaml')
+SCHEMA_PATH = joinPath('cluster', 'profile', 'schema.yaml')
 
 
 class ProfilesValidationTest(TestCase):

@@ -40,7 +40,7 @@ and cost less than $1.
 Profiles provide a convenient way
 to keep track of the private details related to cluster management.
 
-If you haven't yet, edit [`cluster/profiles/profiles.yaml`],
+If you haven't yet, edit [`cluster/profile/profiles.yaml`],
 replacing `gcp-example-with-custom-node-image.com` with a new name,
 *e.g.* `my-cluster.net`
 (it *does not* have to be a real domain).
@@ -70,5 +70,5 @@ Once you're done with it:
 bazel run //cluster:destroy -- 'my-cluster.net'
 ```
 
-[`cluster/profiles/profiles.yaml`]: /cluster/profiles/profiles.yaml
+[`cluster/profile/profiles.yaml`]: /cluster/profile/profiles.yaml
 [kOps state store]: https://kops.sigs.k8s.io/state/

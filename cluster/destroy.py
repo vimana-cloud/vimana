@@ -7,7 +7,7 @@ from os.path import join as joinPath
 
 from rich.prompt import Confirm
 
-from cluster.profiles.load import load as loadProfile
+from cluster.profile.load import load as loadProfile
 from dev.lib.util import console, runWithStderr, step
 
 # Path to the `kops` binary.
