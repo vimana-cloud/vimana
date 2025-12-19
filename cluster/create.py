@@ -1,6 +1,5 @@
 """Create a new Vimana cluster."""
 
-from argparse import ArgumentParser
 from contextlib import ExitStack
 from datetime import datetime, timedelta
 from os import getenv
@@ -13,7 +12,8 @@ from kubernetes.config import load_kube_config
 from rich.prompt import Confirm
 from urllib3.exceptions import MaxRetryError
 
-from cluster.profile.load import load as loadProfile
+from cluster.profile.loader import load as loadProfile
+from cluster.profile.loader import name as profileName
 from dev.lib.util import console, runWithStderr, step, waitFor
 
 # Paths to tool binaries.
@@ -30,15 +30,15 @@ ENVOY_GATEWAY_HELM_CHART = joinPath(
 OPERATOR_DEPLOY_PATH = joinPath('operator', 'deploy')
 
 
-def main(name: str):
-    profile = loadProfile(name)
+def main():
+    profile = loadProfile()
 
     # TODO: Also support other cloud platforms.
     if 'gcp' in profile:
-        gcp(name, profile)
+        gcp(profile)
 
 
-def gcp(name: str, profile: Dict[str, object]):
+def gcp(profile: Dict[str, object]):
     profileGcp = profile['gcp']
     project = profileGcp['project']
     imageProject = profileGcp['image-project']
@@ -65,11 +65,12 @@ def gcp(name: str, profile: Dict[str, object]):
         f'Using image [bold]{imageName}[/bold] created at [bold]{imageCreationTime}[/bold]',
     )
 
-    create(name, profile, '--cloud=gce', f'--project={project}', f'--image={imageName}')
+    create(profile, '--cloud=gce', f'--project={project}', f'--image={imageName}')
 
 
-def create(name: str, profile: Dict[str, object], *args):
+def create(profile: Dict[str, object], *args):
     start = datetime.now()
+    name = profileName()
 
     with ExitStack() as exitStack:
         # Offer to clean up the cluster if anything fails
@@ -156,11 +157,4 @@ def create(name: str, profile: Dict[str, object], *args):
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description=__doc__)
-    parser.add_argument(
-        'profile',
-        help="Name of the profile defined in 'profiles.yaml'",
-    )
-    args = parser.parse_args()
-
-    main(args.profile)
+    main()

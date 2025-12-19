@@ -1,12 +1,14 @@
 """Validate cluster profiles against a JSON schema."""
 
-from unittest import TestCase, main
+from os import environ
 from os.path import join as joinPath
+from unittest import TestCase, main
 
 from jsonschema import validate
 from yaml import safe_load as loadYaml
 
-from cluster.profile.load import PROFILES_PATH, load as loadProfile
+from cluster.profile.loader import PROFILES_PATH
+from cluster.profile.loader import load as loadProfile
 
 SCHEMA_PATH = joinPath('cluster', 'profile', 'schema.yaml')
 
@@ -35,7 +37,8 @@ class ProfilesValidationTest(TestCase):
             rawProfiles = loadYaml(file)
 
         for name in rawProfiles.keys():
-            profiles = {name: loadProfile(name)}
+            environ['PROFILE'] = name
+            profiles = {name: loadProfile()}
             import sys
 
             print(profiles, file=sys.stderr)

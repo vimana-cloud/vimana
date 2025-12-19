@@ -12,8 +12,21 @@ genrule(
     name = "kustomization",
     srcs = ["kustomization.yaml.tmpl"],
     outs = ["kustomization.yaml"],
-    # TODO: Perhaps there can be a cleaner solution with `expand_template`:
-    #   https://github.com/bazelbuild/bazel-skylib/issues/442
-    cmd = "sed 's|{{.ImageName}}|$(IMAGE_NAME)|; s|{{.ImageTag}}|latest|' $(SRCS) > \"$@\"",
-    toolchains = ["//operator:image-name"],
+    cmd = " && ".join([
+        # Work around Bazel's leaky abstractions
+        # by configuring the same environment as that used by the `load` executable rule.
+        "export PROFILE='$(PROFILE)'",
+        # Prefer the `operator-uri` of the profile specified by the `--//cluster/profile` flag,
+        # otherwise use the image name specified by the `--//operator:image-name` flag
+        # with the `latest` tag.
+        "uri=\"$$($(location //cluster/profile:load) --path='operator-uri' --raw --silent || echo '$(IMAGE_NAME):latest')\"",
+        # Split the URI into a name and tag along the final colon
+        # and use those values to expand the template.
+        "sed \"s|{{.ImageName}}|$${uri%:*}|; s|{{.ImageTag}}|$${uri##*:}|\" $(SRCS) > \"$@\"",
+    ]),
+    toolchains = [
+        "//operator:image-name",
+        "//cluster/profile",
+    ],
+    tools = ["//cluster/profile:load"],
 )

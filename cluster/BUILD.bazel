@@ -11,8 +11,10 @@ py_binary(
         "@rules_k8s//:helm",
         "@rules_k8s//:kops",
     ],
+    env = {"PROFILE": "$(PROFILE)"},
+    toolchains = ["//cluster/profile"],
     deps = [
-        "//cluster/profile:load",
+        "//cluster/profile:loader",
         "//dev/lib:util-python",
         "@pypi//google_cloud_compute",
         "@pypi//kubernetes",
@@ -24,8 +26,10 @@ py_binary(
     name = "destroy",
     srcs = ["destroy.py"],
     data = ["@rules_k8s//:kops"],
+    env = {"PROFILE": "$(PROFILE)"},
+    toolchains = ["//cluster/profile"],
     deps = [
-        "//cluster/profile:load",
+        "//cluster/profile:loader",
         "//dev/lib:util-python",
         "@pypi//rich",
     ],

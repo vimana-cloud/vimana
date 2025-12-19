@@ -1,11 +1,37 @@
-load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
-py_library(
+package(
+    default_visibility = [
+        "//cluster:__subpackages__",
+        "//operator/config/manager:__pkg__",
+    ],
+)
+
+exports_files(["profiles.yaml"])
+
+string_flag(
+    name = "profile",
+    build_setting_default = "",
+    make_variable = "PROFILE",
+)
+
+py_binary(
     name = "load",
     srcs = ["load.py"],
+    env = {"PROFILE": "$(PROFILE)"},
+    toolchains = [":profile"],
+    deps = [":loader"],
+)
+
+py_library(
+    name = "loader",
+    srcs = ["loader.py"],
     data = [":profiles.yaml"],
-    visibility = ["//cluster:__subpackages__"],
-    deps = ["@pypi//pyyaml"],
+    deps = [
+        "@pypi//pyyaml",
+        "@rules_python//python/runfiles",
+    ],
 )
 
 py_test(
@@ -16,7 +42,7 @@ py_test(
         ":schema.yaml",
     ],
     deps = [
-        ":load",
+        ":loader",
         "@pypi//jsonschema",
         "@pypi//pyyaml",
     ],

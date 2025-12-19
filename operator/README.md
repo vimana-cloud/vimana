@@ -112,12 +112,15 @@ If `--repository` is not specified, `localhost:5000/vimana-operator` is used by 
 ### Deploy the CRDs and Manager to a Cluster
 
 ```bash
-[KUBECONFIG=PATH] bazel run //operator:deploy [--//operator:image-name=docker.io/example/vimana-operator]
+[KUBECONFIG=PATH] bazel run //operator:deploy [--//cluster/profile=NAME] [--//operator:image-name=IMAGE]
 ```
 
 The value of `--//operator:image-name`
 should match the value of `--repository` used to push the image.
 `localhost:5000/vimana-operator` is used by default.
+
+Alternatively, by configuring `--//cluster/profile`,
+push to the repository / tag specified by the `operator-uri` field of the named profile.
 
 If [`KUBECONFIG`] is unset, `${HOME}/.kube/config` is used by default.
 

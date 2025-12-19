@@ -20,6 +20,9 @@ patternProperties:
       machine-type:
         type: string
         description: Name of the machine types to provision for nodes.
+      operator-uri:
+        type: string
+        description: URI of the operator container image to deploy.
       gcp:
         type: object
         properties:

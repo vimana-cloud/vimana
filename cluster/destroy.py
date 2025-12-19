@@ -1,13 +1,13 @@
 """Shut down a Vimana cluster."""
 
-from argparse import ArgumentParser
 from datetime import datetime
 from os import getenv
 from os.path import join as joinPath
 
 from rich.prompt import Confirm
 
-from cluster.profile.load import load as loadProfile
+from cluster.profile.loader import load as loadProfile
+from cluster.profile.loader import name as profileName
 from dev.lib.util import console, runWithStderr, step
 
 # Path to the `kops` binary.
@@ -17,8 +17,9 @@ RUNFILES_DIR = getenv('RUNFILES_DIR', '..')
 KOPS_PATH = joinPath(RUNFILES_DIR, 'rules_k8s+', 'kops.exe')
 
 
-def main(name: str):
-    profile = loadProfile(name)
+def main():
+    profile = loadProfile()
+    name = profileName()
 
     if not Confirm.ask(f'Destroy [bold]{name}[/bold]?'):
         exit(1)
@@ -42,11 +43,4 @@ def main(name: str):
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description=__doc__)
-    parser.add_argument(
-        'profile',
-        help="Name of the profile defined in 'profiles.yaml'",
-    )
-    args = parser.parse_args()
-
-    main(args.profile)
+    main()
