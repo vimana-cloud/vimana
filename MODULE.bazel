@@ -25,6 +25,7 @@ git_override(
         # They should become obsolete with the next proper release.
         "//dev/patches:protobuf-bzl-visibility.patch",
         "//dev/patches:protobuf-linkarr-attr.patch",
+        "//dev/patches:protobuf-prebuilt-linux-aarch64-integrity.patch",
     ],
 )
 
