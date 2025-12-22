@@ -68,13 +68,13 @@ sh_binary(
         "$(location @rules_k8s//:minikube)",
         "$(location @rules_k8s//:minikube-bin)",
         "$(location @rules_k8s//:kubectl)",
-        "$(location //cluster/node:vimanad-x86_64-linux)",
+        "$(location //cluster/node:vimanad.x86_64-linux)",
         "$(location //operator:image-push)",
         "$(location :operator-deploy-minikube)",
     ],
     data = [
         ":operator-deploy-minikube",
-        "//cluster/node:vimanad-x86_64-linux",
+        "//cluster/node:vimanad.x86_64-linux",
         "//dev/lib:util-bash",
         "//operator:image-push",
         "@rules_k8s//:kubectl",
@@ -104,20 +104,20 @@ pkg_tar(
         # Vimanad SystemD unit file.
         ":vimanad.kicbase.service",
         # Vimanad binary built for the container.
-        "//cluster/node:vimanad-x86_64-linux",
+        "//cluster/node:vimanad.x86_64-linux",
         # We need a more modern version of `crictl` than the one that ships with Kicbase by default.
-        "@rules_k8s//:crictl-x86_64-linux",
+        "@rules_k8s//:crictl.x86_64-linux",
         # Standard `host-local` IPAM CNI plugin.
-        "@rules_k8s//:host-local-x86_64-linux",
+        "@rules_k8s//:host-local.x86_64-linux",
     ],
     remap_paths = {
         "/vimanad.kicbase.service": "/etc/systemd/system/vimanad.service",
-        "/vimanad-x86_64-linux": "/usr/bin/vimanad",
+        "/vimanad.x86_64-linux": "/usr/bin/vimanad",
         # Override these things that should already be on the image,
         # because we want specific versions.
         # Bazel downloader adds the `.exe` suffix no matter what the platform is.
-        "/crictl-x86_64-linux.exe": "/usr/bin/crictl",
-        "/host-local-x86_64-linux.exe": "/opt/cni/bin/host-local",
+        "/crictl.x86_64-linux.exe": "/usr/bin/crictl",
+        "/host-local.x86_64-linux.exe": "/opt/cni/bin/host-local",
     },
 )
 

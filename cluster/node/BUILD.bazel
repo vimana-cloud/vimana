@@ -9,7 +9,7 @@ py_binary(
     data = [
         ":containerd-config.toml",
         ":vimanad.prod.service",
-        ":vimanad-x86_64-linux",
+        ":vimanad.x86_64-linux",
     ],
     main = "image-make.py",
     deps = [
@@ -24,7 +24,7 @@ py_binary(
 
 # Cross-compile a statically-linked `vimanad` Linux binary suitable for a container or a VM.
 platform_binary(
-    name = "vimanad-x86_64-linux",
+    name = "vimanad.x86_64-linux",
     platform = "//dev:x86_64-linux-musl",
     target = "//runtime",
     visibility = ["//dev/minikube:__pkg__"],
