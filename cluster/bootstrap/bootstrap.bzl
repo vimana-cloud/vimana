@@ -9,13 +9,14 @@ VIMANA_IMAGE_PUSH_SCRIPT_TEMPLATE = (
 
 def _vimana_image_push_impl(ctx):
     metadata_file = ctx.attr.metadata[MetadataInfo].file
+    repository = ctx.expand_make_variables("repository", ctx.attr.repository, {})
 
     runner = ctx.actions.declare_file(ctx.label.name)
     ctx.actions.write(
         output = runner,
         content = VIMANA_IMAGE_PUSH_SCRIPT_TEMPLATE.format(
             shell.quote(ctx.executable._push_image_bin.short_path),
-            shell.quote(ctx.attr.repository),
+            shell.quote(repository),
             shell.quote(ctx.attr.version),
             shell.quote(ctx.file.component.short_path),
             shell.quote(metadata_file.short_path),
@@ -46,7 +47,8 @@ vimana_image_push = rule(
             providers = [MetadataInfo],
         ),
         "repository": attr.string(
-            doc = "Repository to push the image to, e.g. `http://localhost:5000/image-name`.",
+            doc = "Repository to push the image to, e.g. `http://localhost:5000/image-name`." +
+                  " Subject to \"Make variable\" substitution.",
         ),
         "version": attr.string(
             doc = "Component version, e.g. `1.0.0-release`. Must be a valid SemVer." +

@@ -1,50 +1,53 @@
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
 load("@environment//:environment.bzl", "localhost")
-load("@rules_k8s//:test.bzl", "k8s_cluster_test")
 load("@rules_python//python:py_binary.bzl", "py_binary")
-load("//cluster/bootstrap:bootstrap.bzl", "self_signed_tls", "vimana_image_push")
+load(":test-e2e.bzl", "component", "domain", "e2e_test", "server")
 
-vimana_image_push(
-    name = "mvp-image-push",
-    component = "//cluster/tests/components:mvp",
-    metadata = "//cluster/tests/components:mvp-vimana",
-    repository = "http://{}:5000/hello-world-example".format(localhost),
-    version = "1.0.0",
+# The base for the URLs of all the images that are pushed prioan r to running E2E tests.
+# The machine executing the test must be able to push to this registry.
+# Include the scheme (`https://` or `http://`).
+string_flag(
+    name = "registry-test",
+    build_setting_default = "http://{}:5000".format(localhost),
+    make_variable = "REGISTRY_TEST",
 )
 
-self_signed_tls(
-    name = "mvp-certificates",
-    domains = [
-        "00000000000000000000000000000001.app.vimana.host",
-        "mvp.test",
-    ],
+# The base for the name of all the images that are pulled into the cluster.
+# The cluster under test must be able to pull from this registry.
+# Unlike for `registry-test`, do *not* include the scheme.
+# `https` is assumed unless the domain is configured as an "insecure registry" with the runtime.
+string_flag(
+    name = "registry-cluster",
+    build_setting_default = "host.minikube.internal:5000",
+    make_variable = "REGISTRY_CLUSTER",
 )
 
-exports_files(["mvp.yaml"])
-
-k8s_cluster_test(
+e2e_test(
     name = "mvp-test",
-    objects = [
-        ":mvp.yaml",
-        ":mvp-certificates",
-    ],
-    services = {
-        "the-vimana-gateway": [
-            "mvp.test",
-        ],
+    domains = {
+        "00000000000000000000000000000001": domain(
+            aliases = ["mvp.test"],
+            servers = {
+                "the-mvp-server": server(
+                    versions = {
+                        "1.0.0": component(
+                            metadata = "//cluster/tests/components:mvp-vimana",
+                            implementation = "//cluster/tests/components:mvp",
+                        ),
+                    },
+                ),
+            },
+        ),
     },
-    setup = [
-        ":mvp-image-push",
-    ],
-    tags = ["external"],  # Never cache test results.
-    test = ":mvp",
+    executable = ":mvp",
+    gateway = "the-vimana-gateway",
+    resources = ["mvp.yaml"],
 )
 
 py_binary(
     name = "mvp",
     srcs = ["mvp-test.py"],
-    data = [
-        ":mvp-certificates",
-    ],
+    data = [":mvp-test.certificates"],
     main = "mvp-test.py",
     deps = [
         "//cluster/tests/components:mvp-py-grpc",

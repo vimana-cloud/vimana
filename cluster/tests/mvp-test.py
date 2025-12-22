@@ -8,7 +8,9 @@ from cluster.tests.components.mvp_pb2 import HelloRequest, HelloResponse
 from cluster.tests.components.mvp_pb2_grpc import ThisOldTropeStub
 
 # https://github.com/grpc/grpc/blob/v1.76.0/doc/environment_variables.md
-environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = 'cluster/tests/mvp-certificates.root.cert'
+environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = (
+    'cluster/tests/mvp-test.certificates.root.cert'
+)
 
 
 class Walkthough(TestCase):
