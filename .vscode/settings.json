@@ -2,6 +2,9 @@
     "editor.formatOnSave": true,
     "editor.renderFinalNewline": "off",
     "files.insertFinalNewline": true,
+    "files.associations": {
+        "*.yaml.tmpl": "yaml"
+    },
     "[bash]": {
         "editor.tabSize": 2
     },
