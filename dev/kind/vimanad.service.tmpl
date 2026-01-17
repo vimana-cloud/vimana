@@ -1,0 +1,14 @@
+# Injected, along with the `vimanad` binary, into a Kind node image
+# to enable Vimana in Kind.
+
+[Unit]
+Description=Vimana Work Runtime Service
+Requires=containerd.service
+After=containerd.service
+
+[Service]
+Type=exec
+ExecStart=vimanad --insecure-registries={{ .ClusterRegistry }}
+
+[Install]
+WantedBy=multi-user.target

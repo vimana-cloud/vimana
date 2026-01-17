@@ -3,7 +3,7 @@ load("@environment//:environment.bzl", "localhost")
 load("@rules_python//python:py_binary.bzl", "py_binary")
 load(":test-e2e.bzl", "component", "domain", "e2e_test", "server")
 
-# The base for the URLs of all the images that are pushed prioan r to running E2E tests.
+# The base for the URLs of all the images that are pushed prior to running E2E tests.
 # The machine executing the test must be able to push to this registry.
 # Include the scheme (`https://` or `http://`).
 string_flag(
@@ -18,7 +18,7 @@ string_flag(
 # `https` is assumed unless the domain is configured as an "insecure registry" with the runtime.
 string_flag(
     name = "registry-cluster",
-    build_setting_default = "host.minikube.internal:5000",
+    build_setting_default = "host.docker.internal:5000",
     make_variable = "REGISTRY_CLUSTER",
 )
 
@@ -52,5 +52,6 @@ py_binary(
     deps = [
         "//cluster/tests/components:mvp-py-grpc",
         "//cluster/tests/components:mvp-py-pb2",
+        "@rules_python//python/runfiles",
     ],
 )

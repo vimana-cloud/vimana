@@ -45,7 +45,7 @@ oci_push(
     image = ":image",
     remote_tags = ["latest"],
     repository = default_image_name,
-    visibility = ["//dev/minikube:__pkg__"],
+    visibility = ["//dev/kind:__pkg__"],
 )
 
 pkg_tar(
@@ -95,7 +95,7 @@ kubectl_apply(
     srcs = [":deploy-resources"],
     visibility = [
         "//cluster:__pkg__",
-        "//dev/minikube:__pkg__",
+        "//dev/kind:__pkg__",
     ],
 )
 

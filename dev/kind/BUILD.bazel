@@ -1,0 +1,167 @@
+load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
+load("@environment//:environment.bzl", "localhost")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_push")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//operator:deploy-configure.bzl", "operator_deploy_configure")
+
+# Name of some registry we can push / pull images to / from,
+# from the execution platform's perspective.
+local_registry = "{}:5000".format(localhost)
+
+# Name of the same registry as `local_registry`,
+# as it would appear from inside the cluster.
+cluster_registry = "host.docker.internal:5000"
+
+node_local_image_name = "{}/kind-node".format(local_registry)
+
+node_vimana_local_image_name = "{}/kind-node-vimana".format(local_registry)
+
+# Start a Vimana-enabled Kind cluster locally
+# with the latest builds of the runtime and operator from source.
+# If a cluster is already running, delete it first.
+sh_binary(
+    name = "restart",
+    srcs = ["restart.sh"],
+    args = [
+        "$(location @rules_k8s//:kubectl)",
+        "$(location @rules_k8s//:helm)",
+        "$(location @rules_k8s//:kind)",
+        "$(location :kind-node-image-push)",
+        "$(location :kind-node-vimana-image-push)",
+        "$(location //operator:image-push)",
+        "{}:latest".format(node_local_image_name),
+        "{}:latest".format(node_vimana_local_image_name),
+        cluster_registry,
+        "$(location :operator-deploy)",
+        "$(location @rules_k8s//:envoy-gateway-helm-export)",
+        "$(location :cluster.yaml)",
+    ],
+    data = [
+        ":cluster.yaml",
+        ":kind-node-image-push",
+        ":kind-node-vimana-image-push",
+        ":operator-deploy",
+        "//operator:image-push",
+        "@rules_k8s//:envoy-gateway-helm-export",
+        "@rules_k8s//:helm",
+        "@rules_k8s//:kind",
+        "@rules_k8s//:kubectl",
+    ],
+    # Customize kubeconfig output path by setting `KUBECONFIG`.
+    # The default is `${HOME}/.kube/config`.
+    env_inherit = [
+        "KUBECONFIG",
+        "HOME",
+    ],
+    deps = [
+        "//dev/lib:util-bash",
+        "@rules_shell//shell/runfiles",
+    ],
+)
+
+# If there's a running Kind cluster started by `:restart`,
+# deploy fresh builds of both the container runtime and API operator in it
+# without a full reset.
+# This can significantly speed up iteration,
+# but be mindful of the safety disclaimer at the top of this script!
+sh_binary(
+    name = "hotswap",
+    srcs = ["hotswap.sh"],
+    args = [
+        "$(location @rules_k8s//:kind)",
+        "$(location @rules_k8s//:kubectl)",
+        "$(location //cluster/node:vimanad.x86_64-linux)",
+        "$(location //operator:image-push)",
+        "$(location :operator-deploy)",
+    ],
+    data = [
+        ":operator-deploy",
+        "//cluster/node:vimanad.x86_64-linux",
+        "//operator:image-push",
+        "@rules_k8s//:kind",
+        "@rules_k8s//:kubectl",
+    ],
+    deps = [
+        "//dev/lib:util-bash",
+        "@rules_shell//shell/runfiles",
+    ],
+)
+
+expand_template(
+    name = "cluster.yaml",
+    out = "cluster.yaml",
+    substitutions = {
+        "{{ .ClusterRegistry }}": cluster_registry,
+        "{{ .StockNodeImage }}": node_local_image_name,
+        "{{ .VimanaNodeImage }}": node_vimana_local_image_name,
+    },
+    template = "cluster.yaml.tmpl",
+)
+
+# The stock Kind node image is used for control plane nodes.
+oci_push(
+    name = "kind-node-image-push",
+    image = "@kind-node",
+    remote_tags = ["latest"],
+    repository = node_local_image_name,
+)
+
+# A modified version of the Kind node image is used for worker nodes.
+oci_push(
+    name = "kind-node-vimana-image-push",
+    image = ":kind-node-vimana-image",
+    remote_tags = ["latest"],
+    repository = node_vimana_local_image_name,
+)
+
+oci_image(
+    name = "kind-node-vimana-image",
+    base = "@kind-node",
+    tars = [":kind-node-vimana-tar"],
+)
+
+pkg_tar(
+    name = "kind-node-vimana-tar",
+    srcs = [
+        # Vimanad SystemD unit file.
+        ":vimanad.service",
+        # Vimanad binary built for the container.
+        "//cluster/node:vimanad.x86_64-linux",
+        # Configures kubelet to use the Vimana runtime.
+        ":kubelet-config",
+        # TODO: Can this be removed?
+        # We need a more modern version of `crictl` than the one that's included by default.
+        "@rules_k8s//:crictl.x86_64-linux",
+        # Standard `host-local` IPAM CNI plugin.
+        #"@rules_k8s//:host-local.x86_64-linux",
+    ],
+    remap_paths = {
+        "/vimanad.service": "/etc/systemd/system/vimanad.service",
+        "/vimanad.x86_64-linux": "/usr/local/bin/vimanad",
+        "/kubelet-config": "/etc/default/kubelet",
+        # Override these things that should already be on the image,
+        # because we want specific versions.
+        # Bazel downloader adds the `.exe` suffix no matter what the platform is.
+        "/crictl.x86_64-linux.exe": "/usr/local/bin/crictl",
+        #"/host-local.x86_64-linux.exe": "/opt/cni/bin/host-local",
+    },
+    # Enable the vimanad service so it starts automatically.
+    symlinks = {
+        "/etc/systemd/system/multi-user.target.wants/vimanad.service": "/etc/systemd/system/vimanad.service",
+    },
+)
+
+expand_template(
+    name = "vimanad.service",
+    out = "vimanad.service",
+    substitutions = {
+        "{{ .ClusterRegistry }}": cluster_registry,
+    },
+    template = "vimanad.service.tmpl",
+)
+
+operator_deploy_configure(
+    name = "operator-deploy",
+    image_name = "{}/vimana-operator".format(cluster_registry),
+)

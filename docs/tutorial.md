@@ -4,7 +4,7 @@ This tutorial walks you through deploying a simple Vimana service.
 
 Before starting, read the [Developer Setup].
 If you set up `direnv` as described,
-all the tools referenced in this tutorial (`wasm-tools`, `minikube`, `kubectl`, etc.)
+all the tools referenced in this tutorial (`wasm-tools`, `kind`, `kubectl`, etc.)
 will be available automatically when your working directory is within the repository,
 but you can also use local installations of each tool if you prefer.
 
@@ -158,13 +158,13 @@ bazel run //cluster/bootstrap:push-image -- \
 The above command assumes you're running a registry locally on port 5000,
 as show in the [Developer Setup].
 
-## 4. Fire Up Minikube
+## 4. Fire Up Kind
 
-Start a local [minikube] cluster
+Start a local [kind] cluster
 with the latest local builds of the runtime and operator:
 
 ```bash
-bazel run //dev/minikube:restart
+bazel run //dev/kind:restart
 ```
 
 Once the cluster is up, you'll need a tunnel to communicate with it.
@@ -172,10 +172,10 @@ The following command should probably be running in the background
 the whole time the cluster is running.
 
 ```bash
-minikube tunnel
+cloud-provider-kind
 ```
 
-[minikube]: https://minikube.sigs.k8s.io/
+[kind]: https://kind.sigs.k8s.io/
 
 ## 5. Generate TLS Credentials
 
@@ -219,7 +219,7 @@ Routing to this domain requires a local override in `/etc/hosts`.
 
 ```bash
 # Get the external IP address of the gateway.
-# `minikube tunnel` must be running for this to work.
+# `cloud-provider-kind` must be running for this to work.
 gateway_address="$(
   kubectl get service the-vimana-gateway \
     --output=jsonpath='{.status.loadBalancer.ingress[0].ip}'
@@ -253,10 +253,10 @@ to make it portable across Linux and MacOS:
 sudo sed -i.backup '/mvp\.test/d' /etc/hosts && sudo rm /etc/hosts.backup
 ```
 
-If you're done with the minikube cluster, shut it down:
+If you're done with the kind cluster, shut it down:
 
 ```bash
-minikube delete
+kind delete cluster
 ```
 
 Alternatively, if you want to keep the cluster up,

@@ -1,27 +1,43 @@
-"""A basic E2E test that walks through some of Vimana's functionality."""
+"""A basic E2E test that exercises the simplest possible service."""
 
-from os import environ
+from datetime import timedelta
 from unittest import TestCase, main
 
 import grpc
 from cluster.tests.components.mvp_pb2 import HelloRequest, HelloResponse
 from cluster.tests.components.mvp_pb2_grpc import ThisOldTropeStub
+from python.runfiles import Runfiles
 
-# https://github.com/grpc/grpc/blob/v1.76.0/doc/environment_variables.md
-environ['GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'] = (
-    'cluster/tests/mvp-test.certificates.root.cert'
+runfiles = Runfiles.Create()
+
+ROOT_CERTIFICATE_PATH = runfiles.Rlocation(
+    '_main/cluster/tests/mvp-test.certificates.root.cert'
 )
 
 
-class Walkthough(TestCase):
-    def test_WIP(self):
-        mvpClient = ThisOldTropeStub(
-            grpc.secure_channel('mvp.test', grpc.ssl_channel_credentials()),
-        )
+class MvpTest(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with open(ROOT_CERTIFICATE_PATH, 'rb') as rootCertificateFile:
+            cls.rootCertificate = rootCertificateFile.read()
 
-        response = mvpClient.HelloWorld(HelloRequest(name='World'))
+    def test_mvp(self):
+        client = ThisOldTropeStub(self.secureChannel('mvp.test'))
+
+        response = client.HelloWorld(HelloRequest(name='World'))
 
         self.assertEqual(response, HelloResponse(message='Hello, World!'))
+
+    @classmethod
+    def secureChannel(cls, domain: str, timeout: timedelta = timedelta(seconds=15)):
+        channel = grpc.secure_channel(
+            domain,
+            grpc.ssl_channel_credentials(root_certificates=cls.rootCertificate),
+        )
+        # Sometimes there is a delay between when the gateway is programmed
+        # and when it has finished setting up its listeners, TLS certificates, and routes.
+        grpc.channel_ready_future(channel).result(timeout=timeout.total_seconds())
+        return channel
 
 
 if __name__ == '__main__':

@@ -27,5 +27,5 @@ platform_binary(
     name = "vimanad.x86_64-linux",
     platform = "//dev:x86_64-linux-musl",
     target = "//runtime",
-    visibility = ["//dev/minikube:__pkg__"],
+    visibility = ["//dev/kind:__pkg__"],
 )
