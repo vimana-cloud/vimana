@@ -14,21 +14,11 @@ use serde::Deserialize;
 use serde_json::{from_slice, json, to_vec};
 use sha2::{Digest, Sha256};
 use tokio::process::Command;
+use tokio::sync::RwLock as AsyncRwLock;
 use tokio::task::spawn;
 
 use logging::log_info;
 use names::{PodName, hexify};
-
-/// CNI plugin API version.
-/// Seems to be the latest version supported by the `host-local` plugin
-/// at time of writing.
-const CNI_VERSION: &str = "1.0.0";
-
-// TODO: Verify assumption:
-//   Must be the same network name used by the downstream OCI runtime,
-//   so IP address allocations do not collide.
-/// Default network implementation for Minikube: https://kindnet.es/.
-const CNI_NETWORK_NAME: &str = "kindnet";
 
 /// Client to allocate available IP addresses.
 #[derive(Clone)]
@@ -41,7 +31,7 @@ struct IpamInner {
 
     /// Serialized JSON object representing the CNI plugin's configuration:
     /// https://www.cni.dev/docs/spec/#section-1-network-configuration-format.
-    config: Vec<u8>,
+    config: AsyncRwLock<Vec<u8>>,
 
     /// Handle to the netlink socket connection
     /// for managing IP addresses on the network interface.
@@ -84,25 +74,9 @@ impl Ipam {
             new_connection().context("Failed to establish netlink connection")?;
         spawn(connection);
 
-        let config = to_vec(&json!({
-            "cniVersion": CNI_VERSION,
-            "name": CNI_NETWORK_NAME,
-            "ipam": {
-                "type": "host-local",
-                // TODO: Verify veracity of this claim:
-                // Must be the same data directory used by the downstream OCI runtime,
-                // so IP address allocations do not overlap.
-                "dataDir": "/run/cni-ipam-state",
-                "ranges": [
-                    [{"subnet": pod_cidr}],
-                ],
-            },
-        }))
-        .unwrap();
-
         Ok(Self(Arc::new(IpamInner {
             path,
-            config,
+            config: AsyncRwLock::new(cni_config(pod_cidr)),
             netlink_handle,
             interface,
         })))
@@ -165,6 +139,8 @@ impl Ipam {
             });
         }
 
+        log_info!(pod: pod_name, "Allocated IP address: {}/{}", address, prefix_length);
+
         Ok(IpAddress {
             ipam: self.clone(),
             address,
@@ -191,7 +167,7 @@ impl Ipam {
             .env("CNI_NETNS", "/dev/null")
             .env("CNI_IFNAME", "unused")
             .env("CNI_PATH", "/..")
-            .stdin(self.config_pipe()?)
+            .stdin(self.config_pipe().await?)
             .output()
             .await
             .context("Error executing command")?;
@@ -208,13 +184,23 @@ impl Ipam {
     }
 
     /// Create a new unnamed pipe to feed config data to a command's standard input.
-    fn config_pipe(&self) -> Result<PipeReader> {
+    async fn config_pipe(&self) -> Result<PipeReader> {
         let (reader, mut writer) = pipe().context("Error creating stdin pipe")?;
+        let config = self.0.config.read().await;
         writer
-            .write_all(&self.0.config)
+            .write_all(&config)
             .context("Error writing to stdin pipe")?;
         drop(writer); // Flush the pipe.
         Ok(reader)
+    }
+
+    /// Update the range of IP address from which to allocate with the host-local plugin.
+    /// This should be called by kubelet very early in the lifecycle of the runtime,
+    /// before any pods are created.
+    pub(crate) async fn update_pod_cidr(&self, pod_cidr: &str) {
+        let config_buffer = cni_config(pod_cidr);
+        let mut config = self.0.config.write().await;
+        *config = config_buffer;
     }
 }
 
@@ -239,8 +225,9 @@ impl IpAddress {
         })?;
         log_info!(
             pod: &self.pod_name,
-            "Successful IPAM deactivation: {}",
+            "Successful IPAM deactivation: {}/{}",
             self.address,
+            self.prefix_length,
         );
         Ok(())
     }
@@ -254,8 +241,9 @@ impl IpAddress {
             .context("Failed to run IPAM DEL")?;
         log_info!(
             pod: &self.pod_name,
-            "Successful IPAM deallocation: {}",
+            "Successful IPAM deallocation: {}/{}",
             self.address,
+            self.prefix_length,
         );
         Ok(())
     }
@@ -267,6 +255,23 @@ impl Display for IpAddress {
     }
 }
 
+/// Return the CNI configuration
+/// given the range from which to allocate pod IP addresses.
+fn cni_config(pod_cidr: &str) -> Vec<u8> {
+    // Inspired by the CNI configuration for containerd used by kOps for kubenet.
+    // https://github.com/kubernetes/kops/blob/v1.35.0-alpha.1/nodeup/pkg/model/containerd.go#L434
+    to_vec(&json!({
+        "cniVersion": "1.0.0",
+        "name": "k8s-pod-network",
+        "ipam": {
+            "type": "host-local",
+            "ranges": [[{"subnet": pod_cidr}]],
+            "routes": [{"dst":"0.0.0.0/0"}],
+        },
+    }))
+    .unwrap()
+}
+
 /// Add an IP address to the named network interface.
 #[inline]
 async fn ip_addr_add(
@@ -275,19 +280,17 @@ async fn ip_addr_add(
     address: &IpAddr,
     prefix_length: u8,
 ) -> Result<()> {
+    let link_index = lookup_interface(netlink_handle, interface).await?;
+
     netlink_handle
         .address()
-        .add(
-            lookup_interface(netlink_handle, interface).await?,
-            *address,
-            prefix_length,
-        )
+        .add(link_index, *address, prefix_length)
         .execute()
         .await
         .with_context(|| {
             format!(
-                "Failed executing netlink add-address request for interface {:?}",
-                interface,
+                "Failed adding address {}/{} to interface {:?}",
+                address, prefix_length, interface,
             )
         })
 }
@@ -301,6 +304,7 @@ async fn ip_addr_del(
     prefix_length: u8,
 ) -> Result<()> {
     let link_index = lookup_interface(netlink_handle, interface).await?;
+
     if let Some(address_message) = netlink_handle
         .address()
         .get()
@@ -312,8 +316,8 @@ async fn ip_addr_del(
         .await
         .with_context(|| {
             format!(
-                "Failed executing netlink get-address request for interface {:?}",
-                interface,
+                "Failed getting address {}/{} on interface {:?}",
+                address, prefix_length, interface,
             )
         })?
     {
@@ -324,13 +328,13 @@ async fn ip_addr_del(
             .await
             .with_context(|| {
                 format!(
-                    "Failed executing netlink delete-address request for interface {:?}",
-                    interface,
+                    "Failed deleting address {}/{} from interface {:?}",
+                    address, prefix_length, interface,
                 )
             })
     } else {
         Err(anyhow!(
-            "IP address {:?}/{} not found on network device {:?}",
+            "IP address {}/{} not found on interface {:?}",
             address,
             prefix_length,
             interface,

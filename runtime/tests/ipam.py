@@ -18,7 +18,7 @@ from sys import argv, stdin, stdout
 
 # CNI API parameters:
 CNI_VERSION = '1.0.0'
-NETWORK_NAME = 'kindnet'
+NETWORK_NAME = 'k8s-pod-network'
 IPAM_TYPE = 'host-local'
 
 
@@ -98,7 +98,6 @@ def main(dbPath: str):
     assert 'ipam' in config, "Expected 'ipam' in configuration"
     ipam = config['ipam']
     ipamType = ipam['type']
-    dataDir = ipam['dataDir']
 
     # Check that the runtime is behaving as expected.
     # Not all of these checks are strictly necessary; change them if they stop making sense.
@@ -106,9 +105,6 @@ def main(dbPath: str):
     assert version == CNI_VERSION, f'Unexpected CNI version: {version}'
     assert network == NETWORK_NAME, f'Unexpected network name: {network}'
     assert ipamType == IPAM_TYPE, f'Unexpected IPAM type: {ipamType}'
-    assert dataDir == '/run/cni-ipam-state', (
-        f'Unexpected IPAM data directory: {dataDir}'
-    )
 
     # Persist all allocations to a database in the temporary directory,
     # so non-colliding addresses can be allocated across test runs,

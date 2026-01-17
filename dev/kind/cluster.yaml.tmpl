@@ -1,0 +1,26 @@
+# https://kind.sigs.k8s.io/docs/user/configuration
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  image: "{{ .StockNodeImage }}:latest"
+# One worker node is needed to run Envoy Gateway, which requires an OCI runtime.
+- role: worker
+  image: "{{ .StockNodeImage }}:latest"
+  labels:
+    runtime: containerd
+# A separate worker node is used to run Vimana pods.
+- role: worker
+  image: "{{ .VimanaNodeImage }}:latest"
+  labels:
+    runtime: vimanad
+  # Use a taint to prevent Envoy Gateway pods from being scheduled here.
+  # Pods created by the Vimana operator have a tolerance for this.
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      taints:
+      - key: runtime
+        value: vimanad
+        effect: NoSchedule

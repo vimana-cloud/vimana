@@ -2,26 +2,26 @@
 
 Run tests with access to a Vimana cluster.
 
-## Minikube
+## Kind
 
-Use [minikube] to test locally.
+Use [kind] to test locally.
 
-Start a local minikube cluster with Vimana enabled.
-Note that this does more than just `minikube start`;
-it first builds a "kicbase" image with the latest local build of Vimana's container runtime,
-uses a fork of minikube that supports that runtime,
-and installs the Vimana API controller and Envoy Gateway.
+Start a local kind cluster with Vimana enabled.
+Note that this does more than just `kind create cluster`;
+it first builds a "node" image with the latest local build of Vimana's container runtime,
+installs the Vimana API controller and Envoy Gateway,
+and configures various settings.
 
 ```bash
-bazel run //dev/minikube:restart
+bazel run //dev/kind:restart
 ```
 
-Starting minikube can take a while.
+Starting kind can take a minute.
 Iterate faster by hot-swapping a freshly-built runtime binary and controller
-into the running minikube cluster.
+into the running kind cluster.
 
 ```bash
-bazel run //dev/minikube:hotswap
+bazel run //dev/kind:hotswap
 ```
 
 > [!IMPORTANT]
@@ -34,4 +34,4 @@ bazel run //dev/minikube:hotswap
 > since each test uses a unique K8s namespace that is deleted on exit
 > (unless cleanup is explicitly disabled).
 
-[minikube]: https://minikube.sigs.k8s.io/
+[kind]: https://kind.sigs.k8s.io/

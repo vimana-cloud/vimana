@@ -2,15 +2,14 @@
 
 from collections import defaultdict
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta
-from functools import partial, wraps
+from functools import partial
 from hashlib import sha256
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import IPv4Address, IPv6Address
-from itertools import chain, repeat
+from itertools import chain
 from json import loads as parseJson
 from os import chmod, getpid, stat, walk
 from os.path import exists
@@ -35,19 +34,10 @@ import grpc
 from runtime.tests.api_pb2 import (
     ImageFsInfoRequest,
     ImageSpec,
-    ListContainersResponse,
-    ListPodSandboxResponse,
     PodSandboxConfig,
     PullImageRequest,
 )
-from runtime.tests.api_pb2_grpc import (
-    ImageServiceServicer,
-    ImageServiceStub,
-    RuntimeServiceServicer,
-    RuntimeServiceStub,
-    add_ImageServiceServicer_to_server,
-    add_RuntimeServiceServicer_to_server,
-)
+from runtime.tests.api_pb2_grpc import ImageServiceStub, RuntimeServiceStub
 
 # Path to the `vimanad` binary in the runfiles.
 VIMANAD_PATH = 'runtime/vimanad'
@@ -93,8 +83,6 @@ class VimanadTestCase(TestCase):
         cls.imageService = cls.tester.imageService
         cls.setupImage = cls.tester.setupImage
         cls.imageId = cls.tester.imageId
-        cls.downstreamRuntimeService = cls.tester.downstreamRuntimeService
-        cls.downstreamImageService = cls.tester.downstreamImageService
 
     @classmethod
     def tearDownClass(cls):
@@ -106,16 +94,6 @@ class VimanadTestCase(TestCase):
 
     def tearDown(self):
         self.tester.printVimanadLogs(self)
-        # Ensure that we used precisely as many mocked calls as we thought we would,
-        # and won't leave any silly behavior behind for another test.
-        try:
-            self.assertTrue(self.downstreamRuntimeService.isClear())
-            self.assertTrue(self.downstreamImageService.isClear())
-        except:
-            # Clean up the mocks for subsequent test cases to reduce error noise.
-            self.downstreamRuntimeService.clear()
-            self.downstreamImageService.clear()
-            raise
 
 
 class VimanadTester:
@@ -124,62 +102,45 @@ class VimanadTester:
     Fires up a real `vimanad` server hooked up to dependencies:
     - A fake container image registry
       that should act like the [reference implementation](https://hub.docker.com/_/registry).
-    - A mock downstream runtime that can be configured to behave in specific ways.
     - An emulator for the host-local IPAM plugin.
 
     Also provides clients to communicate with the `vimanad` server.
     """
 
     def __init__(self):
-        # Fire up image registry, downstream runtime, and `vimanad` instances and wire them up.
+        # Fire up image registry and `vimanad` instances and wire them up.
         self._imageRegistry, self._imageRegistryPort = startImageRegistry()
         try:
-            # Start a mock downstream runtime (normally, this would be containerd).
-            (
-                self._downstreamRuntime,
-                downstreamSocket,
-                self.downstreamRuntimeService,
-                self.downstreamImageService,
-            ) = startDownstreamRuntime()
+            # Wait for the image registry to become connectable before starting `vimanad`.
+            _waitFor(lambda: not _isPortAvailable(self._imageRegistryPort))
+            self._imageStore = TemporaryDirectory()
+            self._vimanad, self._vimanadSocket = startVimanad(
+                self._imageRegistryPort,
+                self._imageStore.name,
+                IPAM_WRAPPER.name,
+            )
             try:
-                # Wait for both the image registry and downstream runtime to become connectable
-                # before starting `vimanad`.
-                _waitFor(
-                    lambda: exists(downstreamSocket)
-                    and not _isPortAvailable(self._imageRegistryPort),
-                )
-                self._imageStore = TemporaryDirectory()
-                self._vimanad, self._vimanadSocket = startVimanad(
-                    downstreamSocket,
-                    self._imageRegistryPort,
-                    self._imageStore.name,
-                    IPAM_WRAPPER.name,
-                )
+                # We need a separate thread just to collect the logs:
+                # https://stackoverflow.com/a/4896288/5712883.
+                self._vimanadLogQueue = Queue()
+                Thread(
+                    target=_collectLogs,
+                    args=(self._vimanad.stdout, self._vimanadLogQueue),
+                    daemon=True,  # Shut down the thread if the parent process exits.
+                ).start()
                 try:
-                    # We need a separate thread just to collect the logs:
-                    # https://stackoverflow.com/a/4896288/5712883.
-                    self._vimanadLogQueue = Queue()
-                    Thread(
-                        target=_collectLogs,
-                        args=(self._vimanad.stdout, self._vimanadLogQueue),
-                        daemon=True,  # Shut down the thread if the parent process exits.
-                    ).start()
-                    try:
-                        # Wait for `vimanad` to become connectable before opening client channels.
-                        _waitFor(lambda: exists(self._vimanadSocket))
-                        self._runtimeChannel = self._channel()
-                        self._imageChannel = self._channel()
-                        self.runtimeService = RuntimeServiceStub(self._runtimeChannel)
-                        self.imageService = ImageServiceStub(self._imageChannel)
-                    except:
-                        self._vimanadLogQueue.shutdown()
-                        raise
+                    # Wait for `vimanad` to become connectable before opening client channels.
+                    _waitFor(lambda: exists(self._vimanadSocket))
+                    self._runtimeChannel = self._channel()
+                    self._imageChannel = self._channel()
+                    self.runtimeService = RuntimeServiceStub(self._runtimeChannel)
+                    self.imageService = ImageServiceStub(self._imageChannel)
                 except:
-                    self._vimanad.terminate()
-                    self._vimanad.wait(TIMEOUT.total_seconds())
+                    self._vimanadLogQueue.shutdown()
                     raise
             except:
-                self._downstreamRuntime.stop(TIMEOUT.total_seconds())
+                self._vimanad.terminate()
+                self._vimanad.wait(TIMEOUT.total_seconds())
                 raise
         except:
             self._imageRegistry.server_close()
@@ -207,10 +168,7 @@ class VimanadTester:
                 try:
                     self._imageRegistry.server_close()
                 finally:
-                    try:
-                        self._downstreamRuntime.stop(TIMEOUT.total_seconds())
-                    finally:
-                        self._vimanadLogQueue.shutdown()
+                    self._vimanadLogQueue.shutdown()
 
     def pushImage(
         self, domain: str, server: str, version: str, module: str, metadata: str
@@ -326,7 +284,6 @@ class VimanadTester:
 
 
 def startVimanad(
-    downstreamRuntimeSocket: str,
     imageRegistryPort: int,
     imageStorePath: str,
     ipamPath: str,
@@ -342,7 +299,6 @@ def startVimanad(
     command = [
         VIMANAD_PATH,
         f'--incoming={socket}',
-        f'--downstream={downstreamRuntimeSocket}',
         f'--image-store={imageStorePath}',
         f'--insecure-registries={insecureRegistry}',
         f'--ipam-plugin={ipamPath}',
@@ -618,220 +574,3 @@ def _sha256(data: bytes) -> str:
     hasher = sha256()
     hasher.update(data)
     return hasher.hexdigest()
-
-
-class Mockable:
-    """Mixin for mocking instance methods."""
-
-    def __init__(self):
-        self.clear()
-
-    def mockNext(self, methodName: str, function: Callable, count: int = 1):
-        """
-        Mock the next `count` invocations of a named function,
-        reverting back to the prior behavior thereafter.
-        """
-        self._mocks[methodName] = chain(
-            repeat(function, count), self._mocks[methodName]
-        )
-
-    def returnNext(self, methodName: str, value: object, count: int = 1):
-        """
-        Convenience wrapper for `mockNext`
-        where the mock implementation simply returns a constant.
-        """
-        self.mockNext(methodName, (lambda *args, **kwargs: value), count=count)
-
-    def clear(self) -> bool:
-        """Unmock every instance method."""
-        # Mapping from method names to iterators of mock implementations.
-        self._mocks = defaultdict(lambda: iter([]))
-
-    def isClear(self) -> bool:
-        """Return true iff every instance method is unmocked."""
-        sentinel = object()
-        return all(next(mocks, sentinel) is sentinel for mocks in self._mocks.values())
-
-
-def mockable(method: Callable) -> Callable:
-    """
-    Decorator to use on instance methods of classes that derive `Mockable`
-    to enable mocking those methods.
-    """
-
-    @wraps(method)
-    def hook(self, *args, **kwargs):
-        # Use the next mock implementation available in this method's mock iterator.
-        # If the iterator is empty, use the original default implementation.
-        return next(self._mocks[method.__name__], method)(self, *args, **kwargs)
-
-    return hook
-
-
-class MockRuntimeService(RuntimeServiceServicer, Mockable):
-    """Mockable implementation of the CRI API's `RuntimeService` that does nothing by default."""
-
-    @mockable
-    def Version(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def RunPodSandbox(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def StopPodSandbox(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def RemovePodSandbox(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def PodSandboxStatus(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ListPodSandbox(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def CreateContainer(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def StartContainer(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def StopContainer(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def RemoveContainer(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ListContainers(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ContainerStatus(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def UpdateContainerResources(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ReopenContainerLog(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ExecSync(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def Exec(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def Attach(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def PortForward(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ContainerStats(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ListContainerStats(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def PodSandboxStats(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ListPodSandboxStats(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def UpdateRuntimeConfig(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def Status(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def CheckpointContainer(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def GetContainerEvents(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ListMetricDescriptors(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ListPodSandboxMetrics(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def RuntimeConfig(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-
-class MockImageService(ImageServiceServicer, Mockable):
-    """Mockable implementation of the CRI API's `ImageService` that does nothing by default."""
-
-    @mockable
-    def ListImages(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ImageStatus(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def PullImage(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def RemoveImage(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-    @mockable
-    def ImageFsInfo(self, request, context):
-        raise AssertionError('Unexpected invocation of mocked service')
-
-
-def startDownstreamRuntime() -> tuple[
-    grpc.Server,
-    str,
-    MockRuntimeService,
-    MockImageService,
-]:
-    """Start a background process running a mock container runtime.
-
-    Return the running server and the UNIX socket path where it's listening.
-    """
-    runtimeService = MockRuntimeService()
-    imageService = MockImageService()
-    # On startup, `vimanad` will list the downstream pods / containers
-    # to populate its internal set of pre-existing downstream IDs.
-    runtimeService.returnNext('ListPodSandbox', ListPodSandboxResponse())
-    runtimeService.returnNext('ListContainers', ListContainersResponse())
-    socket = _tmpName()
-    server = grpc.server(ThreadPoolExecutor(max_workers=1))
-    add_RuntimeServiceServicer_to_server(runtimeService, server)
-    add_ImageServiceServicer_to_server(imageService, server)
-    server.add_insecure_port(f'unix://{socket}')
-    server.start()
-    return (server, socket, runtimeService, imageService)

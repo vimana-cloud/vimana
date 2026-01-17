@@ -63,7 +63,7 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "9881182782444d7e26f0adf661db21ccda53b6cd",
+    commit = "f0e861e44829c93f33e47c1fa28281c6b6aa0bc9",
     remote = "https://github.com/vimana-cloud/rules_k8s.git",
 )
 
@@ -302,11 +302,14 @@ oci.pull(
     ],
 )
 
-# Kicbase is the base for the Minikube node image used in end-to-end tests.
-# https://github.com/kubernetes/minikube/blob/v1.36.0/pkg/drivers/kic/types.go#L30
+# Node image for local E2E testing using Kind.
+# https://hub.docker.com/r/kindest/node/
 oci.pull(
-    name = "kicbase",
-    image = "gcr.io/k8s-minikube/kicbase@sha256:6ed579c9292b4370177b7ef3c42cc4b4a6dcd0735a1814916cbc22c8bf38412b",
+    name = "kind-node",
+    # Must match the recommended image for the release of `kind` being used.
+    # https://github.com/kubernetes-sigs/kind/releases
+    digest = "sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f",
+    image = "docker.io/kindest/node",
     platforms = [
         "linux/amd64",
         "linux/arm64",
@@ -317,9 +320,9 @@ use_repo(
     "distroless-static",
     "distroless-static_linux_amd64",
     "distroless-static_linux_arm64_v8",
-    "kicbase",
-    "kicbase_linux_amd64",
-    "kicbase_linux_arm64",
+    "kind-node",
+    "kind-node_linux_amd64",
+    "kind-node_linux_arm64",
 )
 
 # NodeJS setup (for serving documentation with VitePress):

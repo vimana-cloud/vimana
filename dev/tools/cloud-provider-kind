@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+exec bazel run @rules_k8s//:cloud-provider-kind \
+  --ui_event_filters=-info,-debug,-stderr \
+  -- "$@"

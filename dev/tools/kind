@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-exec bazel run @rules_k8s//:minikube \
+exec bazel run @rules_k8s//:kind \
   --ui_event_filters=-info,-debug,-stderr \
   -- "$@"

@@ -29,6 +29,7 @@ whenever you enter the repository directory in your shell.
 
 The following tool aliases are provided:
 
+- `cloud-provider-kind`
 - `crane`
 - `crictl`
 - `grpcurl`
@@ -36,7 +37,7 @@ The following tool aliases are provided:
 - `kops`
 - `kubectl`
 - `kustomize`
-- `minikube` (customized to support Vimana)
+- `kind`
 - `openssl`
 - `operator-sdk`
 - `wasmtime`

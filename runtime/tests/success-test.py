@@ -56,23 +56,23 @@ class SuccessTest(VimanadTestCase):
         self.assertEqual(response.runtime_api_version, 'v1')
         self.assertEqual(response.version, '0.1.0')
 
-    def test_RunPodSandbox_NoHandlerToOci(self):
+    def test_RunPodSandbox_NoHandlerReturnsError(self):
         request = RunPodSandboxRequest()
-        downstreamResponse = RunPodSandboxResponse(pod_sandbox_id='from downstream!')
-        self.downstreamRuntimeService.returnNext('RunPodSandbox', downstreamResponse)
 
-        response = self.runtimeService.RunPodSandbox(request)
+        with self.assertRaises(RpcError) as context:
+            self.runtimeService.RunPodSandbox(request)
 
-        self.assertEqual(response, downstreamResponse)
+        self.assertEqual(context.exception.code(), StatusCode.INTERNAL)
+        self.assertIn('Unknown runtime handler', context.exception.details())
 
-    def test_RunPodSandbox_DefaultHandlerToOci(self):
+    def test_RunPodSandbox_UnknownHandlerReturnsError(self):
         request = RunPodSandboxRequest(runtime_handler='something')
-        downstreamResponse = RunPodSandboxResponse(pod_sandbox_id='🥲')
-        self.downstreamRuntimeService.returnNext('RunPodSandbox', downstreamResponse)
 
-        response = self.runtimeService.RunPodSandbox(request)
+        with self.assertRaises(RpcError) as context:
+            self.runtimeService.RunPodSandbox(request)
 
-        self.assertEqual(response, downstreamResponse)
+        self.assertEqual(context.exception.code(), StatusCode.INTERNAL)
+        self.assertIn('Unknown runtime handler', context.exception.details())
 
     def test_ImageStatus_NotFound(self):
         response = self.imageService.ImageStatus(
@@ -92,9 +92,6 @@ class SuccessTest(VimanadTestCase):
         self.assertFalse(response.HasField('image'))
 
     def test_ImageFsUsage(self):
-        self.downstreamImageService.returnNext(
-            'ImageFsInfo', ImageFsInfoResponse(), count=5
-        )
         noneUsedBytes, noneInodesUsed = self.verifyFsUsage()
 
         domain, _, _, _, _, firstImageSpec = self.setupImage(

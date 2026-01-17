@@ -2,85 +2,46 @@
 //! [Container Runtime Interface](https://kubernetes.io/docs/concepts/architecture/cri/)
 //! `ImageService` for the Work Node runtime.
 //!
-//! K8s control plane pods expect an OCI-compatible runtime.
+//! Envoy Gateway and K8s control plane pods expect an OCI-compatible runtime.
 //! Since Vimana's Wasm component runtime is not OCI-compatible,
-//! this implementation relies on a downstream OCI runtime to run control plane pods,
-//! enabling colocation of pods using diverse runtimes on a single node.
+//! Vimana nodes must be tainted such that OCI pods will never run on one.
 
 use std::collections::HashMap;
 use std::io::{Error as IoError, ErrorKind};
 
 use anyhow::{Context, Result, anyhow};
 use api_proto::runtime::v1;
-use api_proto::runtime::v1::image_service_client::ImageServiceClient;
 use api_proto::runtime::v1::image_service_server::ImageService;
 use lazy_static::lazy_static;
 use regex::Regex;
-use tokio::sync::Mutex as AsyncMutex;
-use tonic::transport::channel::Channel;
 use tonic::{Request, Response, async_trait};
 
 use crate::containers::ContainerStore;
-use crate::cri::runtime::CONTAINER_RUNTIME_HANDLER;
 use crate::cri::{GlobalLogs, LogErrorToStatus, TonicResult, component_name_from_labels};
 use crate::state::now;
 use names::{ComponentName, DomainUuid};
 
-/// Wrapper around [WorkRuntime] that implements [ImageService]
-/// with a downstream server for OCI requests.
-pub(crate) struct ProxyingImageService {
-    /// The upstream runtime handler for all Vimana-related business logic.
-    containers: ContainerStore,
-
-    /// Client to a downstream OCI container runtime (e.g. containerd or cri-o)
-    /// so work nodes can run traditional OCI containers as well.
-    oci_image: AsyncMutex<ImageServiceClient<Channel>>,
-}
-
 #[async_trait]
-impl ImageService for ProxyingImageService {
+impl ImageService for ContainerStore {
     async fn list_images(
         &self,
-        r: Request<v1::ListImagesRequest>,
+        request: Request<v1::ListImagesRequest>,
     ) -> TonicResult<v1::ListImagesResponse> {
-        let request = r.into_inner();
-
-        let filter = request.clone().filter.unwrap_or_default();
-        let image_spec = filter.image.unwrap_or_default();
-        let handler = image_spec.runtime_handler;
-
-        // Unless `vimanad` is explicitly chosen,
-        // forward all requests to the downstream OCI runtime.
-        // This supports running K8s control plane pods like `kube-controller-manager` etc.
-        if handler != CONTAINER_RUNTIME_HANDLER {
-            return self
-                .oci_image
-                .lock()
-                .await
-                .list_images(Request::new(request))
-                .await;
-        }
+        let _image_spec = request
+            .into_inner()
+            .filter
+            .unwrap_or_default()
+            .image
+            .unwrap_or_default();
 
         todo!()
     }
 
     async fn image_status(
         &self,
-        r: Request<v1::ImageStatusRequest>,
+        request: Request<v1::ImageStatusRequest>,
     ) -> TonicResult<v1::ImageStatusResponse> {
-        let request = r.into_inner();
-
-        if let Some(image_spec) = &request.image {
-            // Fall back on the downstream runtime for non-Vimana images.
-            if image_spec.runtime_handler != CONTAINER_RUNTIME_HANDLER {
-                return self
-                    .oci_image
-                    .lock()
-                    .await
-                    .image_status(Request::new(request))
-                    .await;
-            }
-        }
+        let request = request.into_inner();
 
         let image_spec = request.image.unwrap_or_default();
         let (_registry, name) = registry_and_component_from_image_spec(&image_spec.image)
@@ -90,7 +51,7 @@ impl ImageService for ProxyingImageService {
         // If the container file was not found,
         // swallow the error and return an empty image,
         // which is what Kubelet expects to indicate that the image must be pulled.
-        let image = match self.containers.get_image(&name).await {
+        let image = match self.get_image(&name).await {
             Ok(image) => Some(image),
             Err(error) => {
                 if let Some(ErrorKind::NotFound) =
@@ -111,21 +72,9 @@ impl ImageService for ProxyingImageService {
 
     async fn pull_image(
         &self,
-        r: Request<v1::PullImageRequest>,
+        request: Request<v1::PullImageRequest>,
     ) -> TonicResult<v1::PullImageResponse> {
-        let request = r.into_inner();
-
-        if let Some(image_spec) = &request.image {
-            // Fall back on the downstream runtime for non-Vimana images.
-            if image_spec.runtime_handler != CONTAINER_RUNTIME_HANDLER {
-                return self
-                    .oci_image
-                    .lock()
-                    .await
-                    .pull_image(Request::new(request))
-                    .await;
-            }
-        }
+        let request = request.into_inner();
 
         let pod_labels = &request.sandbox_config.unwrap_or_default().labels;
         let name = component_name_from_labels(pod_labels)
@@ -134,8 +83,7 @@ impl ImageService for ProxyingImageService {
 
         let image_spec = request.image.unwrap_or_default();
 
-        self.containers
-            .pull(&name, &image_spec)
+        self.pull(&name, &image_spec)
             .await
             .with_context(|| format!("Error pulling image: {:?}", image_spec.image))
             .log_error(&name)?;
@@ -147,29 +95,16 @@ impl ImageService for ProxyingImageService {
 
     async fn remove_image(
         &self,
-        r: Request<v1::RemoveImageRequest>,
+        request: Request<v1::RemoveImageRequest>,
     ) -> TonicResult<v1::RemoveImageResponse> {
-        let request = r.into_inner();
-
-        if let Some(image_spec) = &request.image {
-            // Fall back on the downstream runtime for non-Vimana images.
-            if image_spec.runtime_handler != CONTAINER_RUNTIME_HANDLER {
-                return self
-                    .oci_image
-                    .lock()
-                    .await
-                    .remove_image(Request::new(request))
-                    .await;
-            }
-        }
+        let request = request.into_inner();
 
         let image_spec = request.image.unwrap_or_default();
         let (_, name) = registry_and_component_from_image_spec(&image_spec.image)
             .with_context(|| format!("Invalid image ID: {:?}", image_spec.image))
             .log_error(GlobalLogs)?;
 
-        self.containers
-            .remove(&name)
+        self.remove(&name)
             .await
             .with_context(|| format!("Error removing image: {:?}", image_spec.image))
             .log_error(&name)?;
@@ -179,48 +114,23 @@ impl ImageService for ProxyingImageService {
 
     async fn image_fs_info(
         &self,
-        r: Request<v1::ImageFsInfoRequest>,
+        _request: Request<v1::ImageFsInfoRequest>,
     ) -> TonicResult<v1::ImageFsInfoResponse> {
-        let request = r.into_inner();
+        let usage = self.filesystem_usage().await.log_error(GlobalLogs)?;
 
-        // Start by getting the downstream info.
-        let mut image_fs_info = self
-            .oci_image
-            .lock()
-            .await
-            .image_fs_info(Request::new(request))
-            .await?;
-
-        // Insert the upstream info.
-        let usage = self
-            .containers
-            .filesystem_usage()
-            .await
-            .log_error(GlobalLogs)?;
-        image_fs_info.get_mut().image_filesystems.insert(
-            0,
-            v1::FilesystemUsage {
+        Ok(Response::new(v1::ImageFsInfoResponse {
+            image_filesystems: vec![v1::FilesystemUsage {
                 timestamp: now(),
                 fs_id: Some(v1::FilesystemIdentifier {
-                    mountpoint: self.containers.mountpoint(),
+                    mountpoint: self.mountpoint(),
                 }),
                 used_bytes: Some(v1::UInt64Value { value: usage.bytes }),
                 inodes_used: Some(v1::UInt64Value {
                     value: usage.inodes,
                 }),
-            },
-        );
-
-        Ok(image_fs_info)
-    }
-}
-
-impl ProxyingImageService {
-    pub(crate) fn new(containers: ContainerStore, oci_image: ImageServiceClient<Channel>) -> Self {
-        Self {
-            containers,
-            oci_image: AsyncMutex::new(oci_image),
-        }
+            }],
+            container_filesystems: Vec::default(),
+        }))
     }
 }
 

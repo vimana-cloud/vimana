@@ -46,12 +46,11 @@ bazel run //cluster/bootstrap:push-image -- \
   --component="$(pwd)/tmp/component.wasm" \
   --metadata="$(pwd)/tmp/metadata.binpb"
 
-# 4. Fire Up Minikube
+# 4. Fire Up Kind
 
-bazel run //dev/minikube:restart
+bazel run //dev/kind:restart
 
-sudo -v
-sudo-persist minikube tunnel &
+cloud-provider-kind
 tunnel_pid=$!
 function cleanup-tunnel {
   kill $tunnel_pid || true
@@ -87,7 +86,7 @@ trap cleanup-resources EXIT
 # 7. Set up DNS
 
 # Wait for the gateway to become available.
-sleep 10s
+sleep 15s
 
 gateway_address="$(
   kubectl get service the-vimana-gateway \

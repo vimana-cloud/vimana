@@ -48,7 +48,7 @@ pub(crate) struct WorkRuntime {
     pub(crate) pod_store: PodInitializer,
 
     /// IP address management system.
-    ipam: Ipam,
+    pub(crate) ipam: Ipam,
 
     /// All data-place servers should start gracefully shutting down
     /// upon completion of this shareable future.
