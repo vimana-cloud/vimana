@@ -7,9 +7,12 @@ to an OCI container registry.
 from argparse import ArgumentParser
 from datetime import UTC, datetime
 from hashlib import sha256
-from json import dumps
+from json import dumps as dumpsJson
 from typing import Dict
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+from google.auth import default as googleAdc
+from google.auth.transport.requests import Request as GoogleAuthRequest
 
 from dev.lib.util import console, requestOrDie
 
@@ -25,9 +28,12 @@ def main(
     registry = f'{parsed.scheme}://{parsed.netloc}'
     namespace = parsed.path.lstrip('/')
 
+    # Determine extra headers (for auth) based on the registry hostname.
+    headers = authorityHeaders(parsed.netloc)
+
     # Push the component and metadata blobs.
-    componentDigest = pushBlob(registry, namespace, component)
-    metadataDigest = pushBlob(registry, namespace, metadata)
+    componentDigest = pushBlob(registry, namespace, component, headers=headers)
+    metadataDigest = pushBlob(registry, namespace, metadata, headers=headers)
 
     # Create and push the image config blob,
     # adhering as closely to the Wasm OCI artifact spec as we can.
@@ -46,7 +52,7 @@ def main(
         'component': {},
     }
     imageConfig = serializeJson(imageConfig)
-    imageConfigDigest = pushBlob(registry, namespace, imageConfig)
+    imageConfigDigest = pushBlob(registry, namespace, imageConfig, headers=headers)
 
     # Build the manifest.
     # https://tag-runtime.cncf.io/wgs/wasm/deliverables/wasm-oci-artifact/#manifest-format
@@ -80,22 +86,26 @@ def main(
     requestOrDie(
         'PUT',
         tagUrl,
-        headers={'Content-Type': 'application/vnd.oci.image.manifest.v1+json'},
+        headers=(
+            headers | {'Content-Type': 'application/vnd.oci.image.manifest.v1+json'}
+        ),
         data=serializeJson(manifest),
     )
 
     console.print(f'Pushed {repository}:{version}')
 
 
-def pushBlob(registry: str, namespace: str, content: bytes) -> str:
+def pushBlob(
+    registry: str, namespace: str, content: bytes, headers: Dict[str, str] = {}
+) -> str:
     """
     Push a blob to an OCI repository and return its digest.
 
     Args:
         registry: Registry hostname and scheme (e.g. 'http://localhost:5000').
         namespace: Repository namespace (e.g. 'path/to/image').
-        server: Server ID (e.g. 'some-server').
         content: Binary content of the blob to push.
+        headers: HTTP headers to include in the request.
 
     Returns:
         The digest of the pushed blob (e.g. 'sha256:...').
@@ -109,6 +119,7 @@ def pushBlob(registry: str, namespace: str, content: bytes) -> str:
         'POST',
         postUrl,
         allow_redirects=True,
+        headers=headers,
     ).headers.get('Location')
     if not putLocation:
         raise RuntimeError(f"Response missing 'Location' header for '{postUrl}'")
@@ -138,19 +149,34 @@ def pushBlob(registry: str, namespace: str, content: bytes) -> str:
     requestOrDie(
         'PUT',
         putUrl,
-        headers={
-            'Content-Type': 'application/octet-stream',
-            'Content-Length': str(len(content)),
-        },
+        headers=(
+            headers
+            | {
+                'Content-Type': 'application/octet-stream',
+                'Content-Length': str(len(content)),
+            }
+        ),
         data=content,
     )
 
     return digest
 
 
+def authorityHeaders(authority: str) -> Dict[str, str]:
+    headers = {}
+
+    # Use Google Application Default Credentials for `pkg.dev`.
+    if authority.endswith('.pkg.dev'):
+        credentials, project = googleAdc()
+        credentials.refresh(GoogleAuthRequest())
+        headers['Authorization'] = f'Bearer {credentials.token}'
+
+    return headers
+
+
 def serializeJson(json: Dict[str, any]) -> bytes:
     """Helper method to serialize a JSON object as compact, binary data."""
-    return dumps(json, separators=(',', ':')).encode()
+    return dumpsJson(json, separators=(',', ':')).encode()
 
 
 if __name__ == '__main__':
