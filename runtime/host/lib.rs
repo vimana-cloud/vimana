@@ -35,3 +35,9 @@ pub fn grpc_linker(wasmtime: &WasmEngine) -> Result<Linker<HostState>> {
     wasip2_add_to_linker_async(&mut linker)?;
     Ok(linker)
 }
+
+impl Default for HostState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
