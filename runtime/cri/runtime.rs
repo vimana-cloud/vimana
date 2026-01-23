@@ -108,7 +108,20 @@ impl RuntimeService for WorkRuntime {
         // Fail unless the `vimanad` runtime is explicitly specified.
         let handler = &request.get_ref().runtime_handler;
         if handler != CONTAINER_RUNTIME_HANDLER {
-            return Err(anyhow!("Unknown runtime handler {:?}", handler)).log_error(GlobalLogs);
+            return Err(
+                if let Some(config) = &request.get_ref().config
+                    && let Some(metadata) = &config.metadata
+                {
+                    anyhow!(
+                        "Unknown runtime handler {:?} for pod {:?}",
+                        handler,
+                        &metadata.name
+                    )
+                } else {
+                    anyhow!("Unknown runtime handler {:?}", handler)
+                },
+            )
+            .log_error(GlobalLogs);
         }
 
         let config = request.into_inner().config.unwrap_or_default();
@@ -525,9 +538,11 @@ impl RuntimeService for WorkRuntime {
             message: String::default(),
         };
 
-        // TODO: Populate these with relevant information.
         let info = HashMap::default();
-        let runtime_handlers = Vec::default();
+        let runtime_handlers = vec![v1::RuntimeHandler {
+            name: String::from(CONTAINER_RUNTIME_HANDLER),
+            features: None,
+        }];
 
         Ok(Response::new(v1::StatusResponse {
             status: Some(v1::RuntimeStatus {

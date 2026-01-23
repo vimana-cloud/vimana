@@ -3198,7 +3198,6 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tower 0.5.2",
- "tower-service",
  "tracing",
  "tracing-subscriber",
  "wasmtime",

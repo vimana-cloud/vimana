@@ -1,1 +1,1 @@
-KUBELET_EXTRA_ARGS=--container-runtime-endpoint=unix:///run/vimana/vimanad.sock
+KUBELET_EXTRA_ARGS=--container-runtime-endpoint=unix:///run/vimana/vimanad.sock --feature-gates=RuntimeClassInImageCriApi=true

@@ -70,7 +70,7 @@ See also the [compiler documentation] for more ways to run `protoc` with the Vim
 
 The above commands will produce a WIT package at `tmp/wit`.
 There are many ways to compile a component against this WIT package [in various languages].
-It's 2025, so let's do it in C!
+It's 2026, so let's do it in C!
 Generate C-native "bindings" for the WIT interface using [`wit-bindgen`]:
 
 ```bash
@@ -160,22 +160,24 @@ as show in the [Developer Setup].
 
 ## 4. Fire Up Kind
 
-Start a local [kind] cluster
-with the latest local builds of the runtime and operator:
 
 ```bash
-bazel run //dev/kind:restart
+bazel run //dev/kind:restart && tput bel && cloud-provider-kind
 ```
 
-Once the cluster is up, you'll need a tunnel to communicate with it.
-The following command should probably be running in the background
-the whole time the cluster is running.
+This convenient command chain:
 
-```bash
-cloud-provider-kind
-```
+1. Starts a local [kind] cluster
+   with the latest local builds of the runtime and operator.
+   If an old cluster was already running, it is shut down first.
+2. Beeps when the cluster is ready.
+3. [Opens a tunnel] to communicate with load balancers in the cluster.
+   `cloud-provider-kind` will run until manually killed with `Ctrl+C`.
+   Killing it will not shut down the cluster,
+   but the cluster will be unreachable from the host unless it is running.
 
 [kind]: https://kind.sigs.k8s.io/
+[Opens a tunnel]: https://github.com/kubernetes-sigs/cloud-provider-kind
 
 ## 5. Generate TLS Credentials
 
@@ -201,15 +203,21 @@ kubectl apply -f "$(pwd)/tmp/self-signed-certificates.json"
 ## 6. Run the Service
 
 For a minimal example using the running Vimana cluster,
-see [`cluster/tests/mvp.yaml`].
+see [`cluster/tests/mvp.yaml.tmpl`].
 This set of resources makes use of the image we pushed to the local registry earlier
 and the TLS credentials we just created.
 
+It's defined as a template
+so you can configure the registry from which the image is pulled.
+Rendering the template with the default value
+makes it usable in the local kind cluster.
+
 ```bash
-kubectl apply -f cluster/tests/mvp.yaml
+bazel build //cluster/tests:mvp.yaml
+kubectl apply -f "$(bazel cquery --output=files //cluster/tests:mvp.yaml)"
 ```
 
-[`cluster/tests/mvp.yaml`]: /cluster/tests/mvp.yaml
+[`cluster/tests/mvp.yaml.tmpl`]: /cluster/tests/mvp.yaml.tmpl
 
 ## 7. Set up DNS
 

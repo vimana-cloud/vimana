@@ -3,6 +3,7 @@
     "editor.renderFinalNewline": "off",
     "files.insertFinalNewline": true,
     "files.associations": {
+        "*.sh.tmpl": "shellscript",
         "*.yaml.tmpl": "yaml"
     },
     "[bash]": {

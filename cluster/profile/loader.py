@@ -55,11 +55,6 @@ def load() -> Dict[str, object]:
 
 
 def _populateDefaultsGcp(gcp: Dict[str, object]):
-    # Use the official published node images for GCP by default.
-    if 'image-project' not in gcp:
-        gcp['image-project'] = 'vimana-node-images'
-    if 'image-family' not in gcp:
-        gcp['image-family'] = 'vimana'
     pass
 
 

@@ -14,10 +14,11 @@ use api_proto::runtime::v1;
 use api_proto::runtime::v1::image_service_server::ImageService;
 use lazy_static::lazy_static;
 use regex::Regex;
+use tokio_stream::StreamExt;
 use tonic::{Request, Response, async_trait};
 
 use crate::containers::ContainerStore;
-use crate::cri::{GlobalLogs, LogErrorToStatus, TonicResult, component_name_from_labels};
+use crate::cri::{GlobalLogs, LogErrorToStatus, TonicResult};
 use crate::state::now;
 use names::{ComponentName, DomainUuid};
 
@@ -33,8 +34,15 @@ impl ImageService for ContainerStore {
             .unwrap_or_default()
             .image
             .unwrap_or_default();
+        let mut response = v1::ListImagesResponse::default();
 
-        todo!()
+        let mut stream = self.scan();
+        while let Some(image) = stream.next().await {
+            // TODO: Filter these results according to the spec.
+            response.images.push(image);
+        }
+
+        Ok(Response::new(response))
     }
 
     async fn image_status(
@@ -44,8 +52,8 @@ impl ImageService for ContainerStore {
         let request = request.into_inner();
 
         let image_spec = request.image.unwrap_or_default();
-        let (_registry, name) = registry_and_component_from_image_spec(&image_spec.image)
-            .with_context(|| format!("Invalid image ID: {:?}", image_spec.image))
+        let name = component_from_image_spec(&image_spec.image)
+            .context("ImageStatus")
             .log_error(GlobalLogs)?;
 
         // If the container file was not found,
@@ -76,12 +84,10 @@ impl ImageService for ContainerStore {
     ) -> TonicResult<v1::PullImageResponse> {
         let request = request.into_inner();
 
-        let pod_labels = &request.sandbox_config.unwrap_or_default().labels;
-        let name = component_name_from_labels(pod_labels)
-            .with_context(|| format!("Invalid pod labels: {:?}", pod_labels))
-            .log_error(GlobalLogs)?;
-
         let image_spec = request.image.unwrap_or_default();
+        let name = component_from_image_spec(&image_spec.image)
+            .context("PullImage")
+            .log_error(GlobalLogs)?;
 
         self.pull(&name, &image_spec)
             .await
@@ -100,8 +106,8 @@ impl ImageService for ContainerStore {
         let request = request.into_inner();
 
         let image_spec = request.image.unwrap_or_default();
-        let (_, name) = registry_and_component_from_image_spec(&image_spec.image)
-            .with_context(|| format!("Invalid image ID: {:?}", image_spec.image))
+        let name = component_from_image_spec(&image_spec.image)
+            .context("RemoveImage")
             .log_error(GlobalLogs)?;
 
         self.remove(&name)
@@ -134,21 +140,20 @@ impl ImageService for ContainerStore {
     }
 }
 
-fn registry_and_component_from_image_spec(image_id: &str) -> Result<(String, ComponentName)> {
+fn component_from_image_spec(image_id: &str) -> Result<ComponentName> {
     lazy_static! {
         // Use a permissive regex to parse the image ID:
         //     <registry>/<domain-id>/<server-id>:<version>
-        static ref IMAGE_ID_RE: Regex = Regex::new(r"^([^/]*)/([^/]*)/([^:]*):(.*)$").unwrap();
+        static ref IMAGE_ID_RE: Regex = Regex::new(r"^.*/([^/]*)/([^:]*):(.*)$").unwrap();
     }
 
     let Some(image_id) = IMAGE_ID_RE.captures(image_id) else {
         return Err(anyhow!("Malformed image ID"));
     };
-    let registry = &image_id[1];
-    let domain = &image_id[2];
-    let server = &image_id[3];
-    let version = &image_id[4];
+    let domain = &image_id[1];
+    let server = &image_id[2];
+    let version = &image_id[3];
 
-    let name = ComponentName::new(DomainUuid::parse(domain)?, server, version)?;
-    Ok((String::from(registry), name))
+    ComponentName::new(DomainUuid::parse(domain)?, server, version)
+        .with_context(|| format!("Invalid image spec: {:?}", image_id))
 }

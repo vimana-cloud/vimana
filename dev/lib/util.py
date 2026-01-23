@@ -5,9 +5,9 @@ A library of useful, general values and functions for Python scripts.
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from shlex import quote
-from subprocess import DEVNULL, PIPE, CompletedProcess, Popen, run
+from subprocess import PIPE, CompletedProcess, Popen, run
 from time import sleep
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, TextIO
 
 from requests import Response, request
 from rich.console import Console
@@ -50,7 +50,7 @@ def waitFor(
     or a timeout expires.
     """
     with step(
-        f'Waiting up to [bold]{int(timeout.total_seconds())}[/bold] seconds for {description}'
+        f'Waiting up to [bold]{truncateTimedelta(timeout)}[/bold] for {description}'
     ):
         if minimum is not None:
             sleep(min(minimum, timeout).total_seconds())
@@ -65,25 +65,28 @@ def waitFor(
         else:
             raise RuntimeError(f'Timed out waiting for {description}')
 
-    console.print(f'Ready after {int((now - start).total_seconds())} seconds')
+    console.print(f'Done after [bold]{truncateTimedelta(now - start)}[/bold]')
 
 
-def runWithStderr(*command) -> int:
+def runLoggingStderr(*command) -> TextIO:
     """
     Run the command defined by the specified arguments.
 
-    Any output written to stdout is discarded.
-    Any output written to stderr is displayed in yellow.
+    Any output written to stderr is immediately logged to the console in yellow.
     If the command exits with a non-zero status, an exception is raised.
+    Otherwise, all output written to stdout is returned as a text stream.
     """
-    process = Popen(command, stderr=PIPE, stdout=DEVNULL, text=True)
+    process = Popen(command, stderr=PIPE, stdout=PIPE, text=True)
 
     for line in process.stderr:
         console.print(line.rstrip(), style='yellow')
 
     status = process.wait()
     if status != 0:
-        raise RuntimeError(codeMessage(status, 'Command failed'))
+        stdout = process.stdout.read()
+        raise RuntimeError(stdout if stdout else codeMessage(status, 'Command failed'))
+
+    return process.stdout
 
 
 def runOrDie(
@@ -92,6 +95,8 @@ def runOrDie(
     """
     Drop-in replacement for `subprocess.run`
     that raises with a helpful message if the status code is non-zero.
+
+    Runs quietly by default.
     """
     kwargs['stdout'] = stdout
     kwargs['stderr'] = stderr
@@ -129,3 +134,11 @@ def codeMessage(code: int | str, message: str) -> str:
     or many types of Python exceptions which include "status code" fields.
     """
     return f'[{code}] {message}'
+
+
+def truncateTimedelta(span: timedelta) -> timedelta:
+    """
+    Return a new `timedelta` with the same number of total seconds as the input
+    rounded down to the nearest integer.
+    """
+    return timedelta(seconds=int(span.total_seconds()))

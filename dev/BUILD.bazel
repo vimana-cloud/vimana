@@ -38,8 +38,8 @@ platform(
         "@platforms//os:linux",
     ],
     visibility = [
-        "//cluster/node:__pkg__",
         "//operator:__pkg__",
+        "//runtime:__pkg__",
     ],
 )
 

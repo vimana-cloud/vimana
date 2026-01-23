@@ -58,8 +58,8 @@ def e2e_test(name, executable, gateway, domains = {}, resources = [], **kwargs):
                  Each value must be a result returned by the `domain` function.
         resources: List of filenames of expanded resources files.
                    For each filename `foo`, a file named `foo.tmpl` must exist.
-                   It is expanded into a file named `foo` by substituting `{{.RegistryCluster}}`
-                   out for the value of the `:registry-cluster` config setting.
+                   It is expanded into a file named `foo` by substituting `{{.RegistryPull}}`
+                   out for the value of the `:registry-pull` config setting.
                    These resources are seeded in the cluster before running the test.
     """
     push_names = []
@@ -72,8 +72,8 @@ def e2e_test(name, executable, gateway, domains = {}, resources = [], **kwargs):
                     name = push_name,
                     component = component.implementation,
                     metadata = component.metadata,
-                    repository = "$(REGISTRY_TEST)/{}/{}".format(domain_id, server_id),
-                    toolchains = [Label(":registry-test")],
+                    repository = "$(REGISTRY_PUSH)/{}/{}".format(domain_id, server_id),
+                    toolchains = [Label(":registry-push")],
                     version = version,
                 )
                 push_names.append(push_name)
@@ -88,10 +88,10 @@ def e2e_test(name, executable, gateway, domains = {}, resources = [], **kwargs):
             name = resource,
             out = resource,
             substitutions = {
-                "{{.RegistryCluster}}": "$(REGISTRY_CLUSTER)",
+                "{{.RegistryPull}}": "$(REGISTRY_PULL)",
             },
             template = "{}.tmpl".format(resource),
-            toolchains = [Label(":registry-cluster")],
+            toolchains = [Label(":registry-pull")],
         )
         resource_targets.append(":{}".format(resource))
 

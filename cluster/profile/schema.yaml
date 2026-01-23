@@ -20,37 +20,22 @@ patternProperties:
       machine-type:
         type: string
         description: Name of the machine types to provision for nodes.
+      # TODO: Make this optional and provide a public default.
       operator-uri:
         type: string
         description: URI of the operator container image to deploy.
+      # TODO: Make this optional and provide a public default.
+      runtime-uri:
+        type: string
+        description: URI of the Vimana runtime binary, stored as an OCI artifact with type `application/octet-stream`.
       gcp:
         type: object
         properties:
           project:
             type: string
             description: The Google Cloud project ID for the cluster.
-          image-project:
-            type: string
-            description: The Google Cloud project ID of the node image to use.
-          image-family:
-            type: string
-            description: The family of the node image to use.
         required:
           - project
-        # `image-project` and `image-family` are optional but co-dependent.
-        allOf:
-          - if:
-              required:
-                - image-project
-            then:
-              required:
-                - image-family
-          - if:
-              required:
-                - image-family
-            then:
-              required:
-                - image-project
         additionalProperties: false
       # TODO: Specify AWS settings.
       aws:

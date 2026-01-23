@@ -1,6 +1,8 @@
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@rules_k8s//:resource.bzl", "oras_push")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
+load("//dev/rules:platform-binary.bzl", "platform_binary")
 
 # The Vimana runtime implements the K8s CRI.
 rust_binary(
@@ -9,6 +11,7 @@ rust_binary(
         "containers.rs",
         "cri/image.rs",
         "cri/mod.rs",
+        "cri/proxy.rs",
         "cri/runtime.rs",
         "ipam.rs",
         "main.rs",
@@ -103,4 +106,20 @@ rust_prost_library(
 rust_prost_library(
     name = "cri-api-prost",
     proto = "@cri-api//pkg/apis/runtime/v1:api-proto",
+)
+
+# Cross-compile the runtime binary to deploy it to most cloud hardware.
+platform_binary(
+    name = "runtime.x86_64-linux",
+    platform = "//dev:x86_64-linux-musl",
+    target = ":runtime",
+    visibility = ["//dev/kind:__pkg__"],
+)
+
+# Push the built runtime binary to an OCI registry using ORAS.
+oras_push(
+    name = "artifact-push",
+    src = ":runtime.x86_64-linux",
+    artifact_type = "application/octet-stream",
+    remote_tags = ["latest"],
 )

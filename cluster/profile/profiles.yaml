@@ -18,12 +18,3 @@ gcp-example.com:
   machine-type: "e2-medium"
   gcp:
     project: "project-id"
-
-gcp-example-with-custom-node-image.com:
-  state-store: "gs://google-storage-bucket/"
-  zone: "asia-south1-a"
-  machine-type: "e2-medium"
-  gcp:
-    project: "project-id"
-    image-project: "image-project-id"
-    image-family: "some-family"

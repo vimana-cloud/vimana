@@ -22,33 +22,41 @@ use std::io::BufReader;
 use std::path::Path;
 use std::result::Result as StdResult;
 
+use anyhow::Context;
+use api_proto::runtime::v1::image_service_client::ImageServiceClient;
+use api_proto::runtime::v1::image_service_server::ImageServiceServer;
+use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
+use api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
 use clap::Parser;
 use futures::FutureExt;
+use hyper_util::rt::TokioIo;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::logs::LoggerProviderBuilder;
 use opentelemetry_stdout::LogExporter as StdoutLogExporter;
 use serde::Deserialize;
 use serde_json::from_reader;
-use tokio::net::UnixListener;
+use tokio::net::{UnixListener, UnixStream};
 use tokio::select;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::UnixListenerStream;
-use tonic::transport::Server;
+use tonic::transport::{Endpoint, Server};
+use tower::service_fn;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::Registry;
 use wasmtime::{Config as WasmConfig, Engine as WasmEngine};
 
-use api_proto::runtime::v1::image_service_server::ImageServiceServer;
-use api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
 use containers::ContainerStore;
+use cri::proxy::{ProxyingImageServer, ProxyingRuntimeServer};
 use cri::runtime::{CONTAINER_RUNTIME_NAME, CONTAINER_RUNTIME_VERSION};
 use ipam::Ipam;
 use state::WorkRuntime;
 
 /// Default value for [`VimanadConfig::incoming`].
 const DEFAULT_INCOMING: &str = "/run/vimana/vimanad.sock";
+/// Default value for [`VimanadConfig::downstream`].
+const DEFAULT_DOWNSTREAM: &str = "/run/containerd/containerd.sock";
 /// Default value for [`VimanadConfig::image_store`].
 const DEFAULT_IMAGE_STORE: &str = "/var/lib/vimana/images";
 /// Default value for [`VimanadConfig::ipam_plugin`].
@@ -75,6 +83,11 @@ struct VimanadConfig {
     /// on which to listen for CRI requests from Kubelet
     #[arg(long, value_name = "PATH")]
     incoming: Option<String>,
+
+    /// Path to the Unix-domain socket
+    /// to which requests for OCI pods and images are forwarded
+    #[arg(long, value_name = "PATH")]
+    downstream: Option<String>,
 
     /// Root filesystem path under which to save pulled images
     #[arg(long, value_name = "PATH")]
@@ -114,6 +127,10 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         .incoming
         .or(config.incoming)
         .unwrap_or(String::from(DEFAULT_INCOMING));
+    let downstream = args
+        .downstream
+        .or(config.downstream)
+        .unwrap_or(String::from(DEFAULT_DOWNSTREAM));
     let image_store = args
         .image_store
         .or(config.image_store)
@@ -143,6 +160,25 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         .with(LevelFilter::INFO)
         .with(OpenTelemetryTracingBridge::new(&logger_provider))
         .init();
+
+    // This seems to be the most idiomatic way to create a client with a UDS transport:
+    // https://github.com/hyperium/tonic/blob/v0.12.3/examples/src/uds/client.rs.
+    // The socket path must be cloneable to enable re-invoking the connector function.
+    let oci_socket_path = downstream.clone();
+    let oci_channel = Endpoint::from_static("http://unused")
+        .connect_with_connector(service_fn(move |_| {
+            let oci_socket_path = oci_socket_path.clone();
+            async move {
+                Ok::<_, std::io::Error>(TokioIo::new(UnixStream::connect(&oci_socket_path).await?))
+            }
+        }))
+        .await
+        .context(format!(
+            "Unable to connect to OCI runtime socket: {:?}",
+            downstream
+        ))?;
+    let oci_image_client = ImageServiceClient::new(oci_channel.clone());
+    let oci_runtime_client = RuntimeServiceClient::new(oci_channel);
 
     let ipam = Ipam::host_local(ipam_plugin, &pod_ips, network_interface).await?;
 
@@ -190,8 +226,13 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
         .unwrap_or_else(|_| panic!("Cannot bind Unix socket '{}'", &incoming));
 
     let result = Server::builder()
-        .add_service(RuntimeServiceServer::new(runtime))
-        .add_service(ImageServiceServer::new(containers))
+        .add_service(RuntimeServiceServer::new(
+            ProxyingRuntimeServer::new(runtime, oci_runtime_client).await?,
+        ))
+        .add_service(ImageServiceServer::new(ProxyingImageServer::new(
+            containers,
+            oci_image_client,
+        )))
         .serve_with_incoming_shutdown(UnixListenerStream::new(cri_listener), shutdown_signal)
         .await;
 

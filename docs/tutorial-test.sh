@@ -50,7 +50,7 @@ bazel run //cluster/bootstrap:push-image -- \
 
 bazel run //dev/kind:restart
 
-cloud-provider-kind
+cloud-provider-kind &
 tunnel_pid=$!
 function cleanup-tunnel {
   kill $tunnel_pid || true
@@ -76,9 +76,10 @@ trap cleanup-certificates EXIT
 
 # 6. Run the Service
 
-kubectl apply -f cluster/tests/mvp.yaml
+bazel build //cluster/tests:mvp.yaml
+kubectl apply -f "$(bazel cquery --output=files //cluster/tests:mvp.yaml)"
 function cleanup-resources {
-  kubectl delete -f cluster/tests/mvp.yaml || true
+  kubectl delete -f "$(bazel cquery --output=files //cluster/tests:mvp.yaml)" || true
   cleanup-certificates
 }
 trap cleanup-resources EXIT

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+set -e
+
+repository_uri={{ .RepositoryUri }}
+destination={{ .Destination }}
+
+# Extract the registry host (everything before the first slash).
+host="${repository_uri%%/*}"
+# Extract the path and reference (everything after the first slash).
+path_and_reference="${repository_uri#*/}"
+
+# Separate the image path from the tag / digest
+# If it contains '@', it's a digest; if ':', it's a tag.
+if [[ "$path_and_reference" == *@* ]]
+then
+  path="${path_and_reference%@*}"
+  reference="${path_and_reference##*@}"
+elif [[ "$path_and_reference" == *:* ]]
+then
+  path="${path_and_reference%:*}"
+  reference="${path_and_reference##*:}"
+else
+  # Use `latest` tag by default if no tag is provided.
+  path="$path_and_reference"
+  reference='latest'
+fi
+
+base_url="https://${host}/v2/${path}"
+
+# Make sure `jq` is installed.
+# It probably already is, because `google-compute-engine` depends on it.
+apt-get install -y jq
+
+# Fetch the Manifest to determine the blob digest.
+# The correct 'Accept' header is required.
+manifest_url="${base_url}/manifests/${reference}"
+digest="$(
+  curl --location --silent --show-error --fail \
+    --header 'Accept: application/vnd.oci.image.manifest.v1+json' \
+    "$manifest_url" \
+      | jq --raw-output '.layers[0].digest'
+)"
+if [ "$digest" == 'null' ]
+then
+  echo "[ERROR] Could not find blob digest for '${manifest_url}'"
+  exit 1
+fi
+
+# Download the blob and store it in the destination as an executable.
+blob_url="${base_url}/blobs/${digest}"
+curl --location --silent --show-error --fail \
+  --output "$destination" \
+  --header 'Accept: application/octet-stream' \
+  "$blob_url"
+chmod +x "$destination"

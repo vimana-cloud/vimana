@@ -71,14 +71,14 @@ sh_binary(
     args = [
         "$(location @rules_k8s//:kind)",
         "$(location @rules_k8s//:kubectl)",
-        "$(location //cluster/node:vimanad.x86_64-linux)",
+        "$(location //runtime:runtime.x86_64-linux)",
         "$(location //operator:image-push)",
         "$(location :operator-deploy)",
     ],
     data = [
         ":operator-deploy",
-        "//cluster/node:vimanad.x86_64-linux",
         "//operator:image-push",
+        "//runtime:runtime.x86_64-linux",
         "@rules_k8s//:kind",
         "@rules_k8s//:kubectl",
     ],
@@ -126,25 +126,15 @@ pkg_tar(
     srcs = [
         # Vimanad SystemD unit file.
         ":vimanad.service",
-        # Vimanad binary built for the container.
-        "//cluster/node:vimanad.x86_64-linux",
         # Configures kubelet to use the Vimana runtime.
         ":kubelet-config",
-        # TODO: Can this be removed?
-        # We need a more modern version of `crictl` than the one that's included by default.
-        "@rules_k8s//:crictl.x86_64-linux",
-        # Standard `host-local` IPAM CNI plugin.
-        #"@rules_k8s//:host-local.x86_64-linux",
+        # Vimanad binary built for the container.
+        "//runtime:runtime.x86_64-linux",
     ],
     remap_paths = {
         "/vimanad.service": "/etc/systemd/system/vimanad.service",
-        "/vimanad.x86_64-linux": "/usr/local/bin/vimanad",
+        "/runtime.x86_64-linux": "/usr/local/bin/vimanad",
         "/kubelet-config": "/etc/default/kubelet",
-        # Override these things that should already be on the image,
-        # because we want specific versions.
-        # Bazel downloader adds the `.exe` suffix no matter what the platform is.
-        "/crictl.x86_64-linux.exe": "/usr/local/bin/crictl",
-        #"/host-local.x86_64-linux.exe": "/opt/cni/bin/host-local",
     },
     # Enable the vimanad service so it starts automatically.
     symlinks = {

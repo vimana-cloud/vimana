@@ -1,4 +1,5 @@
 fabric==3.2.2
+google-auth==2.47.0
 google-cloud-compute==1.40.0
 google-cloud-os-login==2.18.0
 grpcio==1.76.0

@@ -12,6 +12,7 @@ use logging::{log_error, log_error_globally};
 use names::{ComponentName, DomainUuid, PodName};
 
 pub(crate) mod image;
+pub(crate) mod proxy;
 pub(crate) mod runtime;
 
 /// Type boilerplate for a typical Tonic response result.

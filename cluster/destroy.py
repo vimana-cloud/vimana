@@ -1,20 +1,18 @@
 """Shut down a Vimana cluster."""
 
 from datetime import datetime
-from os import getenv
-from os.path import join as joinPath
 
+from python.runfiles import Runfiles
 from rich.prompt import Confirm
 
 from cluster.profile.loader import load as loadProfile
 from cluster.profile.loader import name as profileName
-from dev.lib.util import console, runWithStderr, step
+from dev.lib.util import console, runLoggingStderr, step, truncateTimedelta
+
+runfiles = Runfiles.Create()
 
 # Path to the `kops` binary.
-# `RUNFILES_DIR` is set when invoked via `bazel build`.
-# `..` is the parent for external repo data dependencies when invoked via `bazel run`.
-RUNFILES_DIR = getenv('RUNFILES_DIR', '..')
-KOPS_PATH = joinPath(RUNFILES_DIR, 'rules_k8s+', 'kops.exe')
+KOPS_PATH = runfiles.Rlocation('rules_k8s/kops.exe')
 
 
 def main():
@@ -27,7 +25,7 @@ def main():
     start = datetime.now()
 
     with step('Destroying cluster using [bold]kops[/bold]'):
-        runWithStderr(
+        runLoggingStderr(
             KOPS_PATH,
             'delete',
             'cluster',
@@ -36,7 +34,7 @@ def main():
             '--yes',
         )
 
-    elapsed = datetime.now() - start
+    elapsed = truncateTimedelta(datetime.now() - start)
     console.print(
         f'[bold]{name}[/bold] successfully destroyed after [bold]{elapsed}[/bold] 💀',
     )

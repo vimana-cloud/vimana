@@ -7,19 +7,19 @@ load(":test-e2e.bzl", "component", "domain", "e2e_test", "server")
 # The machine executing the test must be able to push to this registry.
 # Include the scheme (`https://` or `http://`).
 string_flag(
-    name = "registry-test",
+    name = "registry-push",
     build_setting_default = "http://{}:5000".format(localhost),
-    make_variable = "REGISTRY_TEST",
+    make_variable = "REGISTRY_PUSH",
 )
 
 # The base for the name of all the images that are pulled into the cluster.
 # The cluster under test must be able to pull from this registry.
-# Unlike for `registry-test`, do *not* include the scheme.
+# Unlike for `registry-push`, do *not* include the scheme.
 # `https` is assumed unless the domain is configured as an "insecure registry" with the runtime.
 string_flag(
-    name = "registry-cluster",
+    name = "registry-pull",
     build_setting_default = "host.docker.internal:5000",
-    make_variable = "REGISTRY_CLUSTER",
+    make_variable = "REGISTRY_PULL",
 )
 
 e2e_test(

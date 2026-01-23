@@ -2,6 +2,7 @@
 //! caching compiled components and container metadata locally.
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs::{
     File as SyncFile, create_dir_all as sync_create_dir_all, metadata as sync_metadata,
     remove_dir as sync_remove_dir, remove_file as sync_remove_file,
@@ -9,23 +10,28 @@ use std::fs::{
 use std::io::{Read, Write};
 use std::mem::{drop, size_of};
 use std::path::PathBuf;
+use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
 
 use anyhow::{Context, Error, Result, anyhow};
 use api_proto::runtime::v1;
 use bytes::Bytes;
+use futures::Stream;
 use prost::Message;
 use reqwest::header::ACCEPT;
 use reqwest::{Client, StatusCode as HttpStatusCode};
 use serde::Deserialize;
+use tokio::fs::read_dir;
+use tokio::sync::mpsc::channel as mpsc_channel;
 use tokio::task::{spawn, spawn_blocking};
+use tokio_stream::wrappers::ReceiverStream;
 use wasmtime::Engine as WasmEngine;
 use wasmtime::component::Component;
 
 use logging::log_info;
 use metadata_proto::vimana::runtime::Metadata;
-use names::ComponentName;
+use names::{ComponentName, DomainUuid};
 
 /// Each component directory under [store root](ContainerStore::root)
 /// has a file called `container` containing the pre-compiled [Component] and the [Metadata].
@@ -266,46 +272,60 @@ impl ContainerStore {
 
     /// Return metadata about the image originally requested when pulling the named container.
     pub(crate) async fn get_image(&self, name: &ComponentName) -> Result<v1::Image> {
-        let component_path = self.component_path(name);
-        let container_path = component_path.join(CONTAINER_FILENAME);
-        let image_spec_path = component_path.join(IMAGE_SPEC_FILENAME);
+        get_image(name, self.component_path(name)).await
+    }
 
-        let (container_size, serialized_image_spec) = spawn_blocking(move || {
-            let container_metadata =
-                sync_metadata(container_path.as_path()).with_context(|| {
-                    format!(
-                        "Failed to get metadata for container file: {:?}",
-                        container_path
-                    )
-                })?;
-            let mut image_spec_file =
-                SyncFile::open(image_spec_path.as_path()).with_context(|| {
-                    format!("Failed to open image spec file: {:?}", image_spec_path)
-                })?;
+    /// Return a stream that yields the metadata for every image on the filesystem.
+    pub(crate) fn scan(&self) -> impl Stream<Item = v1::Image> {
+        let (tx, rx) = mpsc_channel(64);
+        let root = self.root.clone();
 
-            let mut serialized_image_spec = Vec::new();
-            image_spec_file
-                .read_to_end(&mut serialized_image_spec)
-                .context("Failed reading image spec from file")?;
+        spawn(async move {
+            if let Ok(mut domains) = read_dir(root).await {
+                while let Ok(Some(domain)) = domains.next_entry().await {
+                    let domain_path = domain.path();
+                    if let Some(domain_uuid) = domain_path
+                        .file_name()
+                        .and_then(OsStr::to_str)
+                        .map(DomainUuid::parse)
+                        .and_then(StdResult::ok)
+                        && let Ok(mut servers) = read_dir(domain_path).await
+                    {
+                        while let Ok(Some(server)) = servers.next_entry().await {
+                            let server_path = server.path();
+                            if let Some(server_id) = server_path
+                                .file_name()
+                                .and_then(OsStr::to_str)
+                                .map(String::from)
+                                && let Ok(mut versions) = read_dir(server_path).await
+                            {
+                                while let Ok(Some(version)) = versions.next_entry().await {
+                                    let version_path = version.path();
+                                    if let Some(version_string) = version_path
+                                        .file_name()
+                                        .and_then(OsStr::to_str)
+                                        .map(String::from)
+                                        && let Ok(name) = ComponentName::new(
+                                            domain_uuid.clone(),
+                                            server_id.clone(),
+                                            version_string,
+                                        )
+                                        && let Ok(image) = get_image(&name, version_path).await
+                                        && tx.send(image).await.is_err()
+                                    {
+                                        // If `tx.send` failed, the receiver was dropped.
+                                        // End the spawned task.
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
 
-            Ok::<_, Error>((container_metadata.len(), serialized_image_spec))
-        })
-        .await
-        .context("Failed joining blocking thread to read image metadata")??;
-
-        let image_spec = v1::ImageSpec::decode(serialized_image_spec.as_slice())
-            .context("Failed to decode image spec from file")?;
-
-        Ok(v1::Image {
-            id: name.to_string(),
-            repo_tags: Vec::default(),
-            repo_digests: Vec::default(),
-            size: container_size,
-            uid: None,
-            username: String::default(),
-            spec: Some(image_spec),
-            pinned: false,
-        })
+        ReceiverStream::new(rx)
     }
 
     /// Delete an image that has been pulled and saved locally.
@@ -385,6 +405,46 @@ impl ContainerStore {
             .join(&name.server.server)
             .join(&name.version)
     }
+}
+
+/// Logic common to [`get_image`](ContainerStore::get_image) and [`scan`](ContainerStore::scan).
+async fn get_image(name: &ComponentName, component_path: PathBuf) -> Result<v1::Image> {
+    let container_path = component_path.join(CONTAINER_FILENAME);
+    let image_spec_path = component_path.join(IMAGE_SPEC_FILENAME);
+
+    let (container_size, serialized_image_spec) = spawn_blocking(move || {
+        let container_metadata = sync_metadata(container_path.as_path()).with_context(|| {
+            format!(
+                "Failed to get metadata for container file: {:?}",
+                container_path
+            )
+        })?;
+        let mut image_spec_file = SyncFile::open(image_spec_path.as_path())
+            .with_context(|| format!("Failed to open image spec file: {:?}", image_spec_path))?;
+
+        let mut serialized_image_spec = Vec::new();
+        image_spec_file
+            .read_to_end(&mut serialized_image_spec)
+            .context("Failed reading image spec from file")?;
+
+        Ok::<_, Error>((container_metadata.len(), serialized_image_spec))
+    })
+    .await
+    .context("Failed joining blocking thread to read image metadata")??;
+
+    let image_spec = v1::ImageSpec::decode(serialized_image_spec.as_slice())
+        .context("Failed to decode image spec from file")?;
+
+    Ok(v1::Image {
+        id: name.to_string(),
+        repo_tags: Vec::default(),
+        repo_digests: Vec::default(),
+        size: container_size,
+        uid: None,
+        username: String::default(),
+        spec: Some(image_spec),
+        pinned: false,
+    })
 }
 
 /// The container client fetches and processes blobs from a

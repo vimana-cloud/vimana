@@ -6,6 +6,7 @@ py_binary(
     name = "create",
     srcs = ["create.py"],
     data = [
+        ":vimanad-fetch.sh.tmpl",
         "//operator:deploy",
         "@rules_k8s//:envoy-gateway-helm-export",
         "@rules_k8s//:helm",
