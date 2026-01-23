@@ -1,26 +1,8 @@
-load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "repeatable_string_flag", "string_flag")
 load("@environment//:environment.bzl", "localhost")
 load("@rules_python//python:py_binary.bzl", "py_binary")
+load("//dev/rules:delegating-string-flag.bzl", "delegating_string_flag")
 load(":test-e2e.bzl", "component", "domain", "e2e_test", "server")
-
-# The base for the URLs of all the images that are pushed prior to running E2E tests.
-# The machine executing the test must be able to push to this registry.
-# Include the scheme (`https://` or `http://`).
-string_flag(
-    name = "registry-push",
-    build_setting_default = "http://{}:5000".format(localhost),
-    make_variable = "REGISTRY_PUSH",
-)
-
-# The base for the name of all the images that are pulled into the cluster.
-# The cluster under test must be able to pull from this registry.
-# Unlike for `registry-push`, do *not* include the scheme.
-# `https` is assumed unless the domain is configured as an "insecure registry" with the runtime.
-string_flag(
-    name = "registry-pull",
-    build_setting_default = "host.docker.internal:5000",
-    make_variable = "REGISTRY_PULL",
-)
 
 e2e_test(
     name = "mvp-test",
@@ -54,4 +36,51 @@ py_binary(
         "//cluster/tests/components:mvp-py-pb2",
         "@rules_python//python/runfiles",
     ],
+)
+
+# The registry to use for Vimana Wasm component "containers".
+#
+# Bootstrapped components will be pushed to this registry from the host machine
+# before starting the test.
+# During testing, nodes in the cluster will pull from (and possibly push to)
+# this registry as well.
+#
+# If nodes in the cluster should use a different registry URI than the local machine,
+# set `registry-host` and `registry-cluster` individually.
+string_flag(
+    name = "registry",
+    build_setting_default = "",
+)
+
+registry_host_default = "{}:5000".format(localhost)
+
+registry_cluster_default = "host.docker.internal:5000"
+
+# The base for the URLs of all the images that are pushed prior to running E2E tests.
+# The machine executing the test must be able to push to this registry.
+# Do *not* include the scheme.
+# `https` is assumed unless the domain is listed under `registries-insecure`.
+delegating_string_flag(
+    name = "registry-host",
+    build_setting_default = registry_host_default,
+    delegate = ":registry",
+    make_variable = "REGISTRY_HOST",
+)
+
+# The base for the name of all the images that are pulled into the cluster.
+# The cluster under test must be able to pull from this registry.
+# Do *not* include the scheme.
+# `https` is assumed unless the domain is configured as an "insecure registry" with the runtime.
+delegating_string_flag(
+    name = "registry-cluster",
+    build_setting_default = registry_cluster_default,
+    delegate = ":registry",
+    make_variable = "REGISTRY_CLUSTER",
+)
+
+# The set of registry domains for which to use cleartext HTTP instead of HTTPS.
+# This setting only affects `registry-host`.
+repeatable_string_flag(
+    name = "registries-insecure",
+    build_setting_default = [registry_host_default],
 )

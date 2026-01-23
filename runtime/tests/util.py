@@ -226,10 +226,11 @@ class VimanadTester:
         """
         command = [
             PUSH_IMAGE_PATH,
-            f'--repository=http://localhost:{self._imageRegistryPort}/{domain}/{server}',
+            f'--repository=localhost:{self._imageRegistryPort}/{domain}/{server}',
             f'--version={version}',
             f'--component={module}',
             f'--metadata={metadata}',
+            f'--insecure-registry=localhost:{self._imageRegistryPort}',
         ]
         status = Popen(command).wait(TIMEOUT.total_seconds())
         if status != 0:

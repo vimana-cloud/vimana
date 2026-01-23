@@ -345,7 +345,6 @@ google-auth==2.47.0 \
     --hash=sha256:833229070a9dfee1a353ae9877dcd2dec069a8281a4e72e72f77d4a70ff945da \
     --hash=sha256:c516d68336bfde7cf0da26aab674a36fedcf04b37ac4edd59c597178760c3498
     # via
-    #   -r requirements.txt
     #   google-api-core
     #   google-cloud-compute
     #   google-cloud-os-login

@@ -5,16 +5,17 @@ to an OCI container registry.
 """
 
 from argparse import ArgumentParser
+from base64 import b64decode, b64encode
 from datetime import UTC, datetime
 from hashlib import sha256
 from json import dumps as dumpsJson
-from typing import Dict
+from json import loads as loadsJson
+from os import getenv
+from os.path import join as joinPath
+from typing import Dict, Set
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from google.auth import default as googleAdc
-from google.auth.transport.requests import Request as GoogleAuthRequest
-
-from dev.lib.util import console, requestOrDie
+from dev.lib.util import console, requestOrDie, runOrDie
 
 
 def main(
@@ -22,10 +23,13 @@ def main(
     version: str,
     component: bytes,
     metadata: bytes,
+    insecureRegistries: Set[str],
 ):
-    # Parse the repository URL to extract registry (scheme + host) and namespace (path).
-    parsed = urlparse(repository)
-    registry = f'{parsed.scheme}://{parsed.netloc}'
+    # Parse the repository URL to determine the registry domain (`netloc`) and namespace (`path`).
+    # Use an empty scheme so it parses properly.
+    parsed = urlparse(f'//{repository}')
+    scheme = 'http' if parsed.netloc in insecureRegistries else 'https'
+    registry = f'{scheme}://{parsed.netloc}'
     namespace = parsed.path.lstrip('/')
 
     # Determine extra headers (for auth) based on the registry hostname.
@@ -163,15 +167,49 @@ def pushBlob(
 
 
 def authorityHeaders(authority: str) -> Dict[str, str]:
-    headers = {}
+    """
+    Get authorization headers for a given registry using Docker's credential system.
 
-    # Use Google Application Default Credentials for `pkg.dev`.
-    if authority.endswith('.pkg.dev'):
-        credentials, project = googleAdc()
-        credentials.refresh(GoogleAuthRequest())
-        headers['Authorization'] = f'Bearer {credentials.token}'
+    Read `~/.docker/config.json` and use `credHelpers` or `auths` to obtain credentials.
+    """
+    configPath = joinPath(
+        getenv('DOCKER_CONFIG', joinPath(getenv('HOME', '~'), '.docker')),
+        'config.json',
+    )
+    try:
+        with open(configPath, 'r') as f:
+            config = loadsJson(f.read())
+    except FileNotFoundError:
+        return {}
 
-    return headers
+    # Check for a credential helper for this registry.
+    credHelper = config.get('credHelpers', {}).get(authority)
+    if credHelper is not None:
+        credentials = loadsJson(
+            runOrDie(
+                [f'docker-credential-{credHelper}', 'get'],
+                input=authority,
+            ).stdout
+        )
+        return basicAuthHeader(credentials['Username'], credentials['Secret'])
+
+    # Fall back to hardcoded credentials, if available.
+    auths = config.get('auths', {})
+    # The authority may or may not be prefixed with `https://` here.
+    auth = auths.get(authority) or auths.get(f'https://{authority}')
+    if auth and 'auth' in auth:
+        # `auth` is base64-encoded `username:password`.
+        decoded = b64decode(auth['auth']).decode()
+        username, password = decoded.split(':', 1)
+        return basicAuthHeader(username, password)
+
+    return {}
+
+
+def basicAuthHeader(username: str, password: str) -> Dict[str, str]:
+    """Create a Basic Authorization header from username and password."""
+    credentials = b64encode(f'{username}:{password}'.encode()).decode()
+    return {'Authorization': f'Basic {credentials}'}
 
 
 def serializeJson(json: Dict[str, any]) -> bytes:
@@ -185,7 +223,7 @@ if __name__ == '__main__':
         '--repository',
         required=True,
         metavar='URL',
-        help="Repository URL including scheme (e.g. 'https://docker.io/path/to/image')",
+        help="Repository URL excluding scheme (e.g. 'docker.io/path/to/image')",
     )
     parser.add_argument(
         '--version',
@@ -205,6 +243,12 @@ if __name__ == '__main__':
         metavar='PATH',
         help='Path to serialized container metadata',
     )
+    parser.add_argument(
+        '--insecure-registry',
+        action='append',
+        default=[],
+        help='Insecure registry domain (can be repeated)',
+    )
     args = parser.parse_args()
 
     with open(args.component, 'rb') as componentFile:
@@ -217,4 +261,5 @@ if __name__ == '__main__':
         version=args.version,
         component=component,
         metadata=metadata,
+        insecureRegistries=set(args.insecure_registry),
     )

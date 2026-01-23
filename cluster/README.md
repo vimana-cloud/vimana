@@ -66,9 +66,12 @@ is that a cloud cluster will not have access to your local container registry,
 so you must specify one:
 
 ```bash
-bazel test //cluster/tests:mvp-test \
-  --//cluster/tests:registry-push=https://ghcr.io/user/repo \
-  --//cluster/tests:registry-push=ghcr.io/user/repo
+bazel test //cluster/tests:mvp-test --//cluster/tests:registry=ghcr.io/user/repo
 ```
+
+This registry will be used for distributing Vimana components
+before and during test execution.
+Components pushed to the registry
+are *not* automatically cleaned up once the test is over.
 
 [end-to-end tests]: /cluster/tests/
