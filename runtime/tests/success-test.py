@@ -1,12 +1,12 @@
 """'Happy path' unit tests."""
 
 from ipaddress import ip_address
-from os.path import join as joinPath
 from unittest import main
 
 from cluster.tests.components.mvp_pb2 import HelloRequest, HelloResponse
 from cluster.tests.components.mvp_pb2_grpc import ThisOldTropeStub
 from grpc import RpcError, StatusCode, insecure_channel
+from python.runfiles import Runfiles
 from runtime.tests.api_pb2 import (
     ContainerConfig,
     ContainerMetadata,
@@ -40,9 +40,13 @@ from runtime.tests.util import (
     ipHostName,
 )
 
-MVP_COMPONENT_PATH = joinPath('cluster', 'tests', 'components', 'mvp.component.wasm')
-MVP_METADATA_PATH = joinPath(
-    'cluster', 'tests', 'components', 'mvp-vimana', 'metadata.binpb'
+runfiles = Runfiles.Create()
+
+MVP_COMPONENT_PATH = runfiles.Rlocation(
+    '_main/cluster/tests/components/mvp.component.wasm'
+)
+MVP_METADATA_PATH = runfiles.Rlocation(
+    '_main/cluster/tests/components/mvp-vimana/metadata.binpb'
 )
 
 

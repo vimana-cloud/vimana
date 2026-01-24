@@ -1,5 +1,4 @@
 from os import getenv
-from os.path import join as joinPath
 from typing import Dict
 
 from python.runfiles import Runfiles
@@ -8,9 +7,7 @@ from yaml import safe_load as loadYaml
 runfiles = Runfiles.Create()
 
 # Path to the profiles configuration, which must be in the runfiles.
-PROFILES_PATH = runfiles.Rlocation(
-    joinPath('_main', 'cluster', 'profile', 'profiles.yaml')
-)
+PROFILES_PATH = runfiles.Rlocation('_main/cluster/profile/profiles.yaml')
 
 
 class ProfileUnspecifiedError(RuntimeError):

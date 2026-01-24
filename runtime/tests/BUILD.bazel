@@ -23,6 +23,7 @@ py_test(
         ":util",
         "//cluster/tests/components:mvp-py-grpc",
         "//cluster/tests/components:mvp-py-pb2",
+        "@rules_python//python/runfiles",
     ],
 )
 
@@ -41,6 +42,7 @@ py_test(
     deps = [
         ":cri-api-py-pb2",
         ":util",
+        "@rules_python//python/runfiles",
     ],
 )
 
@@ -57,6 +59,7 @@ py_library(
         ":cri-api-py-pb2",
         # `typing_extensions` is required for the generated Python gRPC stub.
         "@pypi//typing_extensions",
+        "@rules_python//python/runfiles",
     ],
 )
 

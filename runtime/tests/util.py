@@ -32,6 +32,7 @@ from unittest import TestCase
 from uuid import uuid4
 
 import grpc
+from python.runfiles import Runfiles
 from runtime.tests.api_pb2 import (
     ImageFsInfoRequest,
     ImageSpec,
@@ -49,13 +50,15 @@ from runtime.tests.api_pb2_grpc import (
     add_RuntimeServiceServicer_to_server,
 )
 
-# Path to the `vimanad` binary in the runfiles.
-VIMANAD_PATH = 'runtime/vimanad'
+runfiles = Runfiles.Create()
+
+# Path to the `vimanad` binary.
+VIMANAD_PATH = runfiles.Rlocation('_main/runtime/vimanad')
 # Path to the `host-local` IPAM emulator.
-IPAM_PATH = 'runtime/tests/ipam'
+IPAM_PATH = runfiles.Rlocation('_main/runtime/tests/ipam')
 # Path to the `push-image` binary
 # which uploads Vimana containers to the registry.
-PUSH_IMAGE_PATH = 'cluster/bootstrap/push-image'
+PUSH_IMAGE_PATH = runfiles.Rlocation('_main/cluster/bootstrap/push-image')
 
 # Generally wait up to 5 seconds for things to happen asynchronously.
 TIMEOUT = timedelta(seconds=5)

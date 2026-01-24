@@ -18,9 +18,13 @@ from os.path import join as joinPath
 from typing import Callable
 from unittest import TestCase, main
 
+from python.runfiles import Runfiles
+
 from compiler.tests.util import protoc
 
-DATA_PATH = joinPath('compiler', 'tests', 'data')
+runfiles = Runfiles.Create()
+
+DATA_PATH = runfiles.Rlocation('_main/compiler/tests/data')
 
 
 # The test class is populated dynamically
@@ -39,7 +43,7 @@ def generateTestCase(rootName: str) -> Callable[[TestCase], None]:
         for path in [witFile, protoFile, metadataFile]:
             self.assertTrue(exists(path), f"File '{path}' is missing")
 
-        result = protoc(protoFile)
+        result = protoc(protoFile, include=[DATA_PATH])
 
         # Show diffs even if they're big.
         self.maxDiff = None

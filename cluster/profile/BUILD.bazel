@@ -45,5 +45,6 @@ py_test(
         ":loader",
         "@pypi//jsonschema",
         "@pypi//pyyaml",
+        "@rules_python//python/runfiles",
     ],
 )

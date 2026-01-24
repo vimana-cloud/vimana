@@ -23,6 +23,7 @@ py_binary(
         "//dev/lib:util-python",
         "@pypi//packaging",
         "@pypi//tomlkit",
+        "@rules_python//python/runfiles",
     ],
 )
 

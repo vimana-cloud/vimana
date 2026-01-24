@@ -1,16 +1,18 @@
 """Validate cluster profiles against a JSON schema."""
 
 from os import environ
-from os.path import join as joinPath
 from unittest import TestCase, main
 
 from jsonschema import validate
+from python.runfiles import Runfiles
 from yaml import safe_load as loadYaml
 
 from cluster.profile.loader import PROFILES_PATH
 from cluster.profile.loader import load as loadProfile
 
-SCHEMA_PATH = joinPath('cluster', 'profile', 'schema.yaml')
+runfiles = Runfiles.Create()
+
+SCHEMA_PATH = runfiles.Rlocation('_main/cluster/profile/schema.yaml')
 
 
 class ProfilesValidationTest(TestCase):

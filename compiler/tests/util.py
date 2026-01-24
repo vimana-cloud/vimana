@@ -1,12 +1,16 @@
 from dataclasses import dataclass
-from os.path import abspath
+from os.path import abspath, dirname
 from os.path import join as joinPath
 from subprocess import PIPE, run
 from tempfile import TemporaryDirectory
 
-PROTOC_PATH = joinPath('compiler', 'tests', 'protoc')
-PLUGIN_PATH = joinPath('compiler', 'protoc-gen-vimana')
-METADATA_PROTO_PATH = joinPath('runtime', 'metadata.proto')
+from python.runfiles import Runfiles
+
+runfiles = Runfiles.Create()
+
+PROTOC_PATH = runfiles.Rlocation('_main/compiler/tests/protoc')
+PLUGIN_PATH = runfiles.Rlocation('_main/compiler/protoc-gen-vimana')
+METADATA_PROTO_PATH = runfiles.Rlocation('_main/runtime/metadata.proto')
 
 WIT_FILENAME = joinPath('wit', 'server.wit')
 METADATA_FILENAME = 'metadata.binpb'
@@ -56,6 +60,7 @@ def protoc(*files, include=None) -> ProtocOutput:
         [
             PROTOC_PATH,
             f'--decode={METADATA_MESSAGE_NAME}',
+            f'--proto_path={dirname(METADATA_PROTO_PATH)}',
             *includeOptions,
             METADATA_PROTO_PATH,
         ],

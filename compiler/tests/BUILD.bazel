@@ -49,7 +49,10 @@ py_test(
     name = "success-test",
     srcs = ["success-test.py"],
     data = [":data"],
-    deps = [":util"],
+    deps = [
+        ":util",
+        "@rules_python//python/runfiles",
+    ],
 )
 
 py_library(

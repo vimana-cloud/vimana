@@ -3,10 +3,10 @@
 from enum import Enum, auto
 from functools import partial
 from os import getenv
-from os.path import join as joinPath
 from time import time_ns
 from unittest import main
 
+from python.runfiles import Runfiles
 from runtime.tests.api_pb2 import (
     Container,
     ContainerConfig,
@@ -35,15 +35,19 @@ from runtime.tests.api_pb2 import (
 
 from runtime.tests.util import RUNTIME_HANDLER, VimanadTestCase, hexUuid
 
+runfiles = Runfiles.Create()
+
+MVP_COMPONENT_PATH = runfiles.Rlocation(
+    '_main/cluster/tests/components/mvp.component.wasm'
+)
+MVP_METADATA_PATH = runfiles.Rlocation(
+    '_main/cluster/tests/components/mvp-vimana/metadata.binpb'
+)
+
 # The number of nanoseconds it takes for this test to time out.
 # Used for very rough upper / lower bounds when checking reasonableness of recent timestamps.
 # https://bazel.build/reference/test-encyclopedia#initial-conditions
 TEST_TIMEOUT_NANOSECONDS = int(getenv('TEST_TIMEOUT')) * 1000 * 1000 * 1000
-
-MVP_COMPONENT_PATH = joinPath('cluster', 'tests', 'components', 'mvp.component.wasm')
-MVP_METADATA_PATH = joinPath(
-    'cluster', 'tests', 'components', 'mvp-vimana', 'metadata.binpb'
-)
 
 
 class Phase(Enum):

@@ -9,27 +9,22 @@ If no particular languages are specified, upgrade dependencies for all languages
 from argparse import ArgumentParser
 from json import loads as loadsJson
 from os import chdir, getenv
-from os.path import join as joinPath
 from os.path import realpath
 from re import compile as compileRegex
 from typing import Dict
 
 from packaging.requirements import Requirement, SpecifierSet
+from python.runfiles import Runfiles
 from tomlkit import dump as dumpToml
 from tomlkit import load as loadToml
 
 from dev.lib.util import console, requestOrDie, runOrDie, step
 
+runfiles = Runfiles.Create()
+
 # Absolute paths to tool binaries.
-# `RUNFILES_DIR` is set when invoked via `bazel build`.
-# `..` is the parent for external repo data dependencies when invoked via `bazel run`.
-RUNFILES_DIR = getenv('RUNFILES_DIR', '..')
-BUILDOZER_PATH = realpath(
-    joinPath(RUNFILES_DIR, 'buildifier_prebuilt+', 'buildozer', 'buildozer')
-)
-GO_PATH = realpath(
-    joinPath(RUNFILES_DIR, 'rules_go+', 'go', 'tools', 'go_bin_runner', 'bin', 'go')
-)
+BUILDOZER_PATH = realpath(runfiles.Rlocation('buildtools/buildozer/buildozer'))
+GO_PATH = realpath(runfiles.Rlocation('rules_go/go/tools/go_bin_runner/bin/go'))
 
 
 def main(bazel: bool = True, rust: bool = True, python: bool = True, go: bool = True):
