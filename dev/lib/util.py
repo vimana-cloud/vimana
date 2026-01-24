@@ -10,9 +10,44 @@ from time import sleep
 from typing import Callable, List, Optional, TextIO
 
 from requests import Response, request
-from rich.console import Console
+from rich.console import (
+    Console,
+    ConsoleOptions,
+    ConsoleRenderable,
+    RenderableType,
+    RenderResult,
+)
+from rich.style import Style
+from rich.text import Text
 
 console = Console(stderr=True, highlight=False, soft_wrap=True)
+
+
+class TimingText(ConsoleRenderable):
+    """Renders text in a Rich Status with a timer."""
+
+    def __init__(self, text: str, timerStyle: Style = Style(bold=True)):
+        self.text = Text.from_markup(text)
+        self.timerStyle = timerStyle
+        self.start = None
+        self.frame = self.nextFrame(timedelta())
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield self.render(console.get_time())
+
+    def render(self, time: float) -> RenderableType:
+        if self.start is None:
+            self.start = time
+        self.frame = self.nextFrame(timedelta(seconds=int(time - self.start)))
+        return self.frame
+
+    def nextFrame(self, elapsed: timedelta) -> Text:
+        return Text.assemble(Text(str(elapsed), style=self.timerStyle), ' ', self.text)
+
+    def __format__(self, spec) -> str:
+        return self.frame.markup
 
 
 @contextmanager
@@ -25,6 +60,7 @@ def step(status: str):
     On failure, keep the status message with an X mark, and immediately print the exception text.
     The exception is also re-raised, but there may be cleanup actions that occur first.
     """
+    status = TimingText(status)
     try:
         with console.status(status):
             yield
@@ -57,15 +93,13 @@ def waitFor(
         start = datetime.now()
         end = start + timeout
         interval = interval.total_seconds()
-        while (now := datetime.now()) < end:
+        while datetime.now() < end:
             if condition():
                 break
             else:
                 sleep(interval)
         else:
             raise RuntimeError(f'Timed out waiting for {description}')
-
-    console.print(f'Done after [bold]{truncateTimedelta(now - start)}[/bold]')
 
 
 def runLoggingStderr(*command) -> TextIO:
