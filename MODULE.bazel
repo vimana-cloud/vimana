@@ -2,42 +2,36 @@ module(name = "vimana")
 
 bazel_dep(name = "buildifier_prebuilt", version = "8.2.1.1", dev_dependency = True, repo_name = "buildtools")
 
-bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
 single_version_override(
     module_name = "bazel_skylib",
     # TODO: Delete this patch once functionality is upstreamed.
     #   https://github.com/bazelbuild/bazel-skylib/issues/442
     patches = ["//dev/patches:skylib-expand-template-make-variables.patch"],
 )
+
 bazel_dep(name = "gazelle", version = "0.47.0")
-bazel_dep(name = "googleapis", version = "0.0.0-20251127-8cd3749f")
+bazel_dep(name = "googleapis", version = "0.0.0-20260109-6145b5ff")
 bazel_dep(name = "googleapis-go", version = "1.0.0")
 bazel_dep(name = "grpc", version = "1.76.0.bcr.1")
-bazel_dep(name = "openssl", version = "3.5.4.bcr.0")
+bazel_dep(name = "openssl", version = "3.5.4.bcr.1")
 bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "protobuf")
-
-# TODO: Use a proper release once the prebuilt toolchain is available there.
-#   https://github.com/protocolbuffers/protobuf/issues/19558
-git_override(
+bazel_dep(name = "protobuf", version = "33.4")
+single_version_override(
     module_name = "protobuf",
-    commit = "cc23698b486e690ea2eb873cc7596a87c74a3ba6",
-    remote = "https://github.com/protocolbuffers/protobuf",
     patches = [
         # TODO: Delete this patch once visibility is fixed.
         #   https://github.com/protocolbuffers/protobuf/pull/24895
         "//dev/patches:protobuf-conformance-visibility.patch",
-        # These patches patch over apparent breaking changes in protobuf at this commit.
-        # They should become obsolete with the next proper release.
-        "//dev/patches:protobuf-bzl-visibility.patch",
-        "//dev/patches:protobuf-linkarr-attr.patch",
-        "//dev/patches:protobuf-prebuilt-linux-aarch64-integrity.patch",
+        # TODO: Delete this patch once conformance is loadable.
+        #   https://github.com/protocolbuffers/protobuf/pull/24487
+        "//dev/patches:protobuf-conformance-delete-ruby.patch",
     ],
 )
 
 bazel_dep(name = "toolchains_musl", version = "0.1.27")
 bazel_dep(name = "rules_go", version = "0.59.0")
-bazel_dep(name = "rules_nodejs", version = "6.6.2")
+bazel_dep(name = "rules_nodejs", version = "6.7.3")
 bazel_dep(name = "rules_oci", version = "2.2.7")
 single_version_override(
     module_name = "rules_oci",
@@ -46,13 +40,13 @@ single_version_override(
     patches = ["//dev/patches:rules-oci-implicit-mediatype.patch"],
 )
 
-bazel_dep(name = "rules_pkg", version = "1.1.0")
-bazel_dep(name = "rules_python", version = "1.7.0")
+bazel_dep(name = "rules_pkg", version = "1.2.0")
+bazel_dep(name = "rules_python", version = "1.8.1")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "rules_rust", version = "0.68.1")
 bazel_dep(name = "rules_rust_prost", version = "0.68.1")
 bazel_dep(name = "rules_shell", version = "0.6.1")
-bazel_dep(name = "rules_wasm", version = "2.0.3")
+bazel_dep(name = "rules_wasm", version = "2.1.1")
 bazel_dep(name = "cri-api")
 git_override(
     module_name = "cri-api",
@@ -63,7 +57,7 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "5fc742fae310ca77d2e748f528e372390c053de2",
+    commit = "3d485d44f2e6087297aa6f154edbc4af4387b919",
     remote = "https://github.com/vimana-cloud/rules_k8s.git",
 )
 
@@ -210,23 +204,6 @@ crate.annotation(
     crate = "protoc-gen-tonic",
     gen_binaries = ["protoc-gen-tonic"],
 )
-
-# https://github.com/bazelbuild/rules_rust/issues/1519#issuecomment-2459048249
-crate.annotation(
-    build_script_data = [
-        "@openssl//:gen_dir",
-    ],
-    build_script_env = {
-        "OPENSSL_NO_VENDOR": "1",
-        "OPENSSL_LIB_DIR": "$(location @openssl//:gen_dir)/lib",
-        "OPENSSL_INCLUDE_DIR": "$(location @openssl//:gen_dir)/include",
-        "OPENSSL_STATIC": "1",
-    },
-    crate = "openssl-sys",
-)
-
-inject_repo(crate, "openssl")
-
 use_repo(crate, "crates")
 
 # Go setup:

@@ -454,12 +454,8 @@ impl WorkRuntime {
                     "Logical impossibility (routes absent after checking)",
                 ))?;
                 let address = SocketAddr::new(pod.ip_address.address, GRPC_PORT);
-                // TODO: Revisit implications of nodelay.
-                let nodelay = true;
-                // TODO: Revisit implications of keepalive.
-                let keepalive = None;
 
-                TcpIncoming::new(address, nodelay, keepalive).map_or_else(
+                TcpIncoming::bind(address).map_or_else(
                     |bind_error| {
                         // If the pod is still `Starting`,
                         // "unlock" its state by setting it back to `Created`
@@ -499,6 +495,12 @@ impl WorkRuntime {
                         Err(anyhow!(bind_error).context("Failed binding to port"))
                     },
                     |incoming| {
+                        // Always enable nodelay,
+                        // which basically makes sense for everything besides telnet.
+                        // https://brooker.co.za/blog/2024/05/09/nagle.html
+                        // TODO: Tune keepalive socket options.
+                        let incoming = incoming.with_nodelay(Some(true));
+
                         // Shut down the server gracefully when either:
                         // - The pod is specifically targetted for shut down by the CRI controller.
                         // - All pods are shut down globally.

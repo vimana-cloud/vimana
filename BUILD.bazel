@@ -50,6 +50,7 @@ rust_library_group(
     deps = [
         ":prost-runtime",
         "@crates//:tonic",
+        "@crates//:tonic-prost",
     ],
 )
 

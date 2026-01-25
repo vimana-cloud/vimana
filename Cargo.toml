@@ -11,9 +11,9 @@ path = "runtime"
 
 [dependencies]
 anyhow = "1.0.100"
-axum = "0.7.9"
+axum = "0.8.8"
 bytes = "1.11.0"
-clap = { version = "4.5.53", features = ["derive"] }
+clap = { version = "4.5.54", features = ["derive"] }
 futures = "0.3.31"
 heck = "0.5.0"
 http = "1.4.0"
@@ -28,23 +28,24 @@ opentelemetry-appender-tracing = "0.31.1"
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
 opentelemetry-stdout = "0.31.0"
 papaya = "0.2.3"
-prost = "0.13.5"
-prost-types = "0.13.5"
-protoc-gen-prost = "0.4.0"
-protoc-gen-tonic = "0.4.1"
+prost = "0.14.3"
+prost-types = "0.14.3"
+protoc-gen-prost = "0.5.0"
+protoc-gen-tonic = "0.5.0"
 regex = "1.12.2"
-reqwest = { version = "0.12.26", features = ["blocking", "json"] }
-rtnetlink = "0.19.0"
+reqwest = { version = "0.13.1", features = ["blocking", "json"] }
+rtnetlink = "0.20.0"
 semver = "1.0.27"
 serde = "1.0.228"
-serde_json = { version = "1.0.145", features = ["std"] }
-sha2 = "0.11.0-rc.3"
-tokio = { version = "1.47.2", features = ["macros", "process", "rt-multi-thread", "signal", "fs", "sync"] }
-tokio-stream = { version = "0.1.17", features = ["net"] }
-tonic = "0.12.3"
-tower = "0.5.2"
-tracing = "0.1.43"
+serde_json = { version = "1.0.149", features = ["std"] }
+sha2 = "0.11.0-rc.4"
+tokio = { version = "1.49.0", features = ["macros", "process", "rt-multi-thread", "signal", "fs", "sync"] }
+tokio-stream = { version = "0.1.18", features = ["net"] }
+tonic = "0.14.2"
+tonic-prost = "0.14.2"
+tower = "0.5.3"
+tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["json"] }
-wasmtime = "39.0.1"
-wasmtime-wasi = "39.0.1"
-wit-encoder = "0.243.0"
+wasmtime = "41.0.0"
+wasmtime-wasi = "41.0.0"
+wit-encoder = "0.244.0"

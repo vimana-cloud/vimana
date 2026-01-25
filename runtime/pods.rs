@@ -13,7 +13,7 @@ use futures::FutureExt;
 use futures::future::Shared;
 use http::{Request as HttpRequest, Response as HttpResponse};
 use tokio::task::spawn;
-use tonic::body::BoxBody;
+use tonic::body::Body;
 use tonic::codec::{Codec as TonicCodec, EnabledCompressionEncodings};
 use tonic::metadata::KeyAndValueRef;
 use tonic::server::{Grpc, UnaryService};
@@ -150,7 +150,7 @@ async fn initialize_grpc(
                                 MAX_ENCODING_MESSAGE_SIZE,
                             );
                         // TODO: Handle streaming RPC's (currently assumes all are unary).
-                        Ok::<HttpResponse<BoxBody>, Infallible>(grpc.unary(method, request).await)
+                        Ok::<HttpResponse<Body>, Infallible>(grpc.unary(method, request).await)
                     })
                 }),
             );
