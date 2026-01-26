@@ -66,11 +66,6 @@ use_repo(environment, "environment")
 # Register Protobuf toolchains.
 register_toolchains("//:protoc-rust-toolchain")
 
-# Build Google API interfaces for Go.
-switched_rules = use_extension("@googleapis//:extensions.bzl", "switched_rules")
-switched_rules.use_languages(go = True)
-use_repo(switched_rules, "com_google_googleapis_imports")
-
 # Rust setup:
 
 RUST_EDITION = "2024"
@@ -243,7 +238,12 @@ use_repo(
     "io_k8s_utils",
 )
 
-# Python setup (for testing):
+# Build Google API interfaces for Go.
+switched_rules = use_extension("@googleapis//:extensions.bzl", "switched_rules")
+switched_rules.use_languages(go = True)
+use_repo(switched_rules, "com_google_googleapis_imports")
+
+# Python setup:
 
 # https://www.python.org/downloads/
 python_version = "3.13"
