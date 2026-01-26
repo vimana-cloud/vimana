@@ -16,5 +16,7 @@ gcp-example.com:
   state-store: "gs://google-storage-bucket/"
   zone: "us-east1-a"
   machine-type: "e2-medium"
+  runtime-uri: "us-central1-docker.pkg.dev/project/repo/runtime:latest"
+  operator-uri: "us-central1-docker.pkg.dev/project/repo/operator:latest"
   gcp:
     project: "project-id"

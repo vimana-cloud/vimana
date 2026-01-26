@@ -3,6 +3,26 @@
 Vimana aims to make provisioning clusters on various cloud providers as easy as possible,
 but currently, only GCP is supported.
 
+## Profiles
+
+Profiles provide a convenient way
+to keep track of the private details related to cluster management.
+
+If you haven't yet, edit [`cluster/profile/profiles.yaml`],
+replacing one of the example profile names (*i.e.* `gcp-example.com`)
+with a new name (*e.g.* `my-cluster.net`).
+It *does not* have to be a real domain.
+
+Edit the following fields:
+
+- `state-store` should identify a usable [kOps state store].
+  This can be the URI of a Google Storage bucket that you own.
+- `runtime-uri` is the URI of an OCI image (repository and tag)
+  that will be used to fetch a build of the Vimana runtime into the cluster.
+- `operator-uri` is the URI of an OCI image (repository and tag)
+  that will be used to fetch the Vimana operator image into the cluster.
+- For GCP profiles, `project` is the ID of the GCP project that will own the cluster.
+
 ## GCP
 
 To use the GCP backend,
@@ -17,20 +37,23 @@ gcloud auth application-default login
 
 ### Cluster Provision
 
-Profiles provide a convenient way
-to keep track of the private details related to cluster management.
+To push fresh runtime or operator artifact(s)
+to the repositories you configured in the profile
+(`runtime-uri` and `operator-uri`, respectively),
+run the following commands,
+replacing the value in angle brackets with the same value you configued in the profile:
 
-If you haven't yet, edit [`cluster/profile/profiles.yaml`],
-replacing `gcp-example.com` with a new name,
-*e.g.* `my-cluster.net`
-(it *does not* have to be a real domain).
-Edit the following fields:
+```bash
+bazel run //runtime:artifact-push -- --repository=<RUNTIME-URI>
+bazel run //operator:image-push -- --repository=<OPERATOR-URI>
+```
 
-- `state-store` should identify a usable [kOps state store].
-  This can be the URI of a Google Storage bucket that you own.
-- `project` is the ID of the GCP project that will own the cluster.
+Each command labels the freshly-pushed artifact with the `latest` tag.
+You can set additional tags by passing `--tag=<TAG>` options.
 
-Once the profile is configured, use it to create your cluster:
+Once the profile has been configured,
+and fresh artifacts have been pushed,
+create your cluster:
 
 ```bash
 bazel run //cluster:create --//cluster/profile='gcp-example.com' # or whatever you named it
@@ -62,7 +85,8 @@ you're already set up to test against that cluster.
 A different cluster can be selected with `kubectl config use-context`.
 
 The main difference between testing locally and testing in the cloud
-is that a cloud cluster will not have access to your local container registry,
+is that a cloud cluster will not have access to your local container registry
+for pushing and pulling Wasm component images,
 so you must specify one:
 
 ```bash

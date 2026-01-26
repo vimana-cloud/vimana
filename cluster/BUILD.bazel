@@ -1,4 +1,4 @@
-""" Manage Vimana clusters. """
+"""Manage Vimana clusters."""
 
 load("@rules_python//python:defs.bzl", "py_binary")
 

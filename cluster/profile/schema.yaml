@@ -21,13 +21,13 @@ patternProperties:
         type: string
         description: Name of the machine types to provision for nodes.
       # TODO: Make this optional and provide a public default.
-      operator-uri:
-        type: string
-        description: URI of the operator container image to deploy.
-      # TODO: Make this optional and provide a public default.
       runtime-uri:
         type: string
         description: URI of the Vimana runtime binary, stored as an OCI artifact with type `application/octet-stream`.
+      # TODO: Make this optional and provide a public default.
+      operator-uri:
+        type: string
+        description: URI of the operator container image to deploy.
       gcp:
         type: object
         properties:
@@ -48,6 +48,8 @@ patternProperties:
       - state-store
       - zone
       - machine-type
+      - runtime-uri
+      - operator-uri
     # Exactly one of `gcp`, `aws`, or `azure` must be present.
     oneOf:
       - required:
