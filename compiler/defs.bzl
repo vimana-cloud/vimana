@@ -1,7 +1,7 @@
 """Provide a Bazel build rule to invoke the Vimana Protobuf compiler as a build action."""
 
 load("@bazel_skylib//lib:paths.bzl", "paths")
-load("@rules_proto//proto:defs.bzl", "ProtoInfo")
+load("@protobuf//bazel/common:proto_info.bzl", "ProtoInfo")
 load("@rules_wasm//wasm:defs.bzl", "WitPackageInfo")
 
 PROTOC_TOOLCHAIN = "@protobuf//bazel/private:proto_toolchain_type"
