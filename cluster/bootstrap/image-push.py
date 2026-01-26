@@ -6,12 +6,16 @@ to an OCI container registry.
 
 from argparse import ArgumentParser
 from base64 import b64decode, b64encode
+from contextlib import AbstractAsyncContextManager, contextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from json import dumps as dumpsJson
 from json import loads as loadsJson
-from os import getenv
+from os import environ, getenv
+from os.path import exists as pathExists
 from os.path import join as joinPath
+from shutil import copytree
+from tempfile import TemporaryDirectory
 from typing import Dict, Set
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -166,6 +170,11 @@ def pushBlob(
     return digest
 
 
+def serializeJson(json: Dict[str, any]) -> bytes:
+    """Helper method to serialize a JSON object as compact, binary data."""
+    return dumpsJson(json, separators=(',', ':')).encode()
+
+
 def authorityHeaders(authority: str) -> Dict[str, str]:
     """
     Get authorization headers for a given registry using Docker's credential system.
@@ -185,12 +194,18 @@ def authorityHeaders(authority: str) -> Dict[str, str]:
     # Check for a credential helper for this registry.
     credHelper = config.get('credHelpers', {}).get(authority)
     if credHelper is not None:
-        credentials = loadsJson(
-            runOrDie(
-                [f'docker-credential-{credHelper}', 'get'],
-                input=authority,
-            ).stdout
-        )
+        # Allow running `gcloud` in the linux-sandbox with read-only filesystem.
+        with (
+            fakeWritableGcloudConfig()
+            if credHelper == 'gcloud'
+            else AbstractAsyncContextManager()
+        ):
+            credentials = loadsJson(
+                runOrDie(
+                    [f'docker-credential-{credHelper}', 'get'],
+                    input=authority,
+                ).stdout
+            )
         return basicAuthHeader(credentials['Username'], credentials['Secret'])
 
     # Fall back to hardcoded credentials, if available.
@@ -212,9 +227,26 @@ def basicAuthHeader(username: str, password: str) -> Dict[str, str]:
     return {'Authorization': f'Basic {credentials}'}
 
 
-def serializeJson(json: Dict[str, any]) -> bytes:
-    """Helper method to serialize a JSON object as compact, binary data."""
-    return dumpsJson(json, separators=(',', ':')).encode()
+@contextmanager
+def fakeWritableGcloudConfig():
+    """
+    Set up a temporary, writeable version of the gcloud config directory.
+    """
+    # TODO: Delete this function if `gcloud` stops requiring a writable config directory.
+    #   https://issuetracker.google.com/issues/478634528
+    realConfigDir = joinPath(
+        getenv(
+            'CLOUDSDK_CONFIG',
+            getenv('XDG_CONFIG_HOME', joinPath(getenv('HOME', '~'), '.config')),
+        ),
+        'gcloud',
+    )
+    with TemporaryDirectory() as tempDir:
+        fakeConfigDir = joinPath(tempDir, 'gcloud')
+        if pathExists(realConfigDir):
+            copytree(realConfigDir, fakeConfigDir)
+            environ['CLOUDSDK_CONFIG'] = fakeConfigDir
+        yield
 
 
 if __name__ == '__main__':
