@@ -1,0 +1,362 @@
+# MODULE.bazel-included file
+# to set up hermetic CC and Rust toolchains
+# to cross-compile from the various supported platforms to other supported platforms.
+#
+# The following table conveys which target platforms (columns)
+# can be compiled from which execution platforms (rows).
+#
+#     |    | XL | AL | XLm | ALm | XM | AM | WW |
+#     | XL | ✔  |    |  ✔  |  ✔  |    |    | ✔  |
+#     | AL |    | ✔  |  ✔  |  ✔  |    |    | ✔  |
+#     | XM |    |    |  ✔  |  ✔  | ✔  | ✔  | ✔  |
+#     | AM |    |    |  ✔  |  ✔  | ✔  | ✔  | ✔  |
+#
+# - XL = x86_64-linux
+# - AL = aarch64-linux
+# - XLm = x86_64-linux-musl
+# - ALm = aarch64-linux-musl
+# - XM = x86_64-macos
+# - AM = aarch64-macos
+# - WW = wasm32-wasip2
+
+# Download hermetic CC toolchains for each supported execution platform.
+zig_toolchains = use_extension(
+    "@hermetic_cc_toolchain//toolchain:ext.bzl",
+    "toolchains",
+)
+zig_toolchains.exec_platform(
+    arch = "amd64",
+    os = "linux",
+)
+zig_toolchains.exec_platform(
+    arch = "arm64",
+    os = "linux",
+)
+zig_toolchains.exec_platform(
+    arch = "amd64",
+    os = "macos",
+)
+zig_toolchains.exec_platform(
+    arch = "arm64",
+    os = "macos",
+)
+use_repo(zig_toolchains, "zig_sdk")
+
+# Only register libc-aware toolchains so that zig is used exclusively for musl targets,
+# not for host tool builds (where the system toolchain is fine).
+# On MacOS, the native clang toolchain can always cross-compile.
+register_toolchains("@zig_sdk//libc_aware/toolchain/...")
+
+RUST_EDITION = "2024"
+
+# Must use nightly to take advantage of experimental features (`#![feature]`).
+# https://github.com/bazelbuild/rules_rust/blob/0.67.0/rust/private/common.bzl#L36
+RUST_NIGHTLY_DATE = "2025-11-01"
+
+RUST_VERSION = "nightly/{}".format(RUST_NIGHTLY_DATE)
+
+# Cross-compile Rust to all supported platforms from any host.
+# https://github.com/bazelbuild/rules_rust/blob/0.59.1/examples/musl_cross_compiling/MODULE.bazel
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = RUST_EDITION,
+    sha256s = {
+        "{}/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "b5eab5cce0269f64caf9c36a607388cb591ccd61f46e886c34350384a039630a",
+        "{}/clippy-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "247d18366911dffde2aeb37b4ceb6ff3650f62b00fd82e3ee63cf57256de2545",
+        "{}/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "6f8fa84ec41cda902e5575edcbaec93f8a43b51932d63d1597dc01dc32ee1368",
+        "{}/llvm-tools-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "f0976321dd6bb6e1aca474fe743b55ec176414850ea2f0cda1732f208fc97bd5",
+        "{}/rust-std-nightly-x86_64-unknown-linux-musl.tar.xz".format(RUST_NIGHTLY_DATE): "ebb31c22602ca92731efdf78d0d440d68d06d02f527fd6426badec498cad22a5",
+        "{}/rust-std-nightly-aarch64-unknown-linux-musl.tar.xz".format(RUST_NIGHTLY_DATE): "f4e926cfcc6f4ebd07124aba145b32e6574d86feafa2d6b7fb9d9814202bf778",
+        "{}/rust-std-nightly-wasm32-wasip2.tar.xz".format(RUST_NIGHTLY_DATE): "17bbc247c9f980ca7e9e8257d7f30f7d15bdcff14ab8265366a765dacc3420e6",
+    },
+    versions = [RUST_VERSION],
+)
+
+# Execution: x86_64-linux
+# Target: x86_64-linux
+rust.repository_set(
+    name = "rust.x86_64-linux.x86_64-linux",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-unknown-linux-gnu",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:unconstrained",
+    ],
+    target_triple = "x86_64-unknown-linux-gnu",
+    versions = [RUST_VERSION],
+)
+
+# Execution: x86_64-linux
+# Target: x86_64-linux-musl
+rust.repository_set(
+    name = "rust.x86_64-linux.x86_64-linux-musl",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-unknown-linux-gnu",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:musl",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+
+# Execution: x86_64-linux
+# Target: aarch64-linux-musl
+rust.repository_set(
+    name = "rust.x86_64-linux.aarch64-linux-musl",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-unknown-linux-gnu",
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:musl",
+    ],
+    target_triple = "aarch64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+
+# Execution: x86_64-linux
+# Target: wasm32-wasip2
+rust.repository_set(
+    name = "rust.x86_64-linux.wasm32-wasip2",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-unknown-linux-gnu",
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
+    target_triple = "wasm32-wasip2",
+    versions = [RUST_VERSION],
+)
+
+# Execution: aarch64-linux
+# Target: aarch64-linux
+rust.repository_set(
+    name = "rust.aarch64-linux.aarch64-linux",
+    edition = RUST_EDITION,
+    exec_triple = "aarch64-unknown-linux-gnu",
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:unconstrained",
+    ],
+    target_triple = "aarch64-unknown-linux-gnu",
+    versions = [RUST_VERSION],
+)
+
+# Execution: aarch64-linux
+# Target: x86_64-linux-musl
+rust.repository_set(
+    name = "rust.aarch64-linux.x86_64-linux-musl",
+    edition = RUST_EDITION,
+    exec_triple = "aarch64-unknown-linux-gnu",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:musl",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+
+# Execution: aarch64-linux
+# Target: aarch64-linux-musl
+rust.repository_set(
+    name = "rust.aarch64-linux.aarch64-linux-musl",
+    edition = RUST_EDITION,
+    exec_triple = "aarch64-unknown-linux-gnu",
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:musl",
+    ],
+    target_triple = "aarch64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+
+# Execution: aarch64-linux
+# Target: wasm32-wasip2
+rust.repository_set(
+    name = "rust.aarch64-linux.wasm32-wasip2",
+    edition = RUST_EDITION,
+    exec_triple = "aarch64-unknown-linux-gnu",
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
+    target_triple = "wasm32-wasip2",
+    versions = [RUST_VERSION],
+)
+
+# Execution: x86_64-macos
+# Target: x86_64-linux-musl
+rust.repository_set(
+    name = "rust.x86_64-macos.x86_64-linux-musl",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:musl",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+
+# Execution: x86_64-macos
+# Target: aarch64-linux-musl
+rust.repository_set(
+    name = "rust.x86_64-macos.aarch64-linux-musl",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:musl",
+    ],
+    target_triple = "aarch64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+
+# Execution: x86_64-macos
+# Target: x86_64-macos
+rust.repository_set(
+    name = "rust.x86_64-macos.x86_64-macos",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:macos",
+    ],
+    target_triple = "x86_64-apple-darwin",
+    versions = [RUST_VERSION],
+)
+
+# Execution: x86_64-macos
+# Target: aarch64-macos
+rust.repository_set(
+    name = "rust.x86_64-macos.aarch64-macos",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:macos",
+    ],
+    target_triple = "aarch64-apple-darwin",
+    versions = [RUST_VERSION],
+)
+
+# Execution: x86_64-macos
+# Target: wasm32-wasip2
+rust.repository_set(
+    name = "rust.x86_64-macos.wasm32-wasip2",
+    edition = RUST_EDITION,
+    exec_triple = "x86_64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
+    target_triple = "wasm32-wasip2",
+    versions = [RUST_VERSION],
+)
+
+# Execution: aarch64-macos
+# Target: x86_64-linux-musl
+rust.repository_set(
+    name = "rust.aarch64-macos.x86_64-linux-musl",
+    edition = RUST_EDITION,
+    exec_triple = "aarch64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:musl",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+
+# Execution: aarch64-macos
+# Target: aarch64-linux-musl
+rust.repository_set(
+    name = "rust.aarch64-macos.aarch64-linux-musl",
+    edition = RUST_EDITION,
+    exec_triple = "aarch64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:musl",
+    ],
+    target_triple = "aarch64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+
+# Execution: aarch64-macos
+# Target: x86_64-macos
+rust.repository_set(
+    name = "rust.aarch64-macos.x86_64-macos",
+    edition = RUST_EDITION,
+    exec_triple = "aarch64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:macos",
+    ],
+    target_triple = "x86_64-apple-darwin",
+    versions = [RUST_VERSION],
+)
+
+# Execution: aarch64-macos
+# Target: aarch64-macos
+rust.repository_set(
+    name = "rust.aarch64-macos.aarch64-macos",
+    edition = RUST_EDITION,
+    exec_triple = "aarch64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:macos",
+    ],
+    target_triple = "aarch64-apple-darwin",
+    versions = [RUST_VERSION],
+)
+
+# Execution: aarch64-macos
+# Target: wasm32-wasip2
+rust.repository_set(
+    name = "rust.aarch64-macos.wasm32-wasip2",
+    edition = RUST_EDITION,
+    exec_triple = "aarch64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
+    target_triple = "wasm32-wasip2",
+    versions = [RUST_VERSION],
+)
+use_repo(rust, "rust_toolchains")
+
+# Register musl-targeting Linux Rust toolchains first.
+#
+# `rules_rust` generates two toolchains per repository_set:
+#   1. The "target toolchain" uses the constraints specified by `target_compatible_with`
+#      (including `@zig_sdk//libc:variant` constraint).
+#   2. The "exec toolchain" derives its target constraints from `exec_triple`
+#      (no libc constraint, making it strictly more permissive).
+#
+# On Linux platforms, both the target toolchain *and* the more-permissive exec toolchain
+# would match when building against musl.
+# Bazel selects the first matching toolchain,
+# so by registering the musl-specific toolchains first,
+# we can cause them to be matched preferentially.
+#
+# https://github.com/bazelbuild/rules_rust/issues/3831
+#
+# Pattern: rust.{exec_platform}.{target_platform}__{target_triple}__nightly
+register_toolchains(
+    "@rust_toolchains//:rust.x86_64-linux.x86_64-linux-musl__x86_64-unknown-linux-musl__nightly",
+    "@rust_toolchains//:rust.x86_64-linux.aarch64-linux-musl__aarch64-unknown-linux-musl__nightly",
+    "@rust_toolchains//:rust.aarch64-linux.x86_64-linux-musl__x86_64-unknown-linux-musl__nightly",
+    "@rust_toolchains//:rust.aarch64-linux.aarch64-linux-musl__aarch64-unknown-linux-musl__nightly",
+    # All remaining toolchains (non-musl targets and exec toolchains).
+    "@rust_toolchains//:all",
+)

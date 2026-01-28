@@ -110,7 +110,7 @@ rust_prost_library(
 
 # Cross-compile the runtime binary to deploy it to most cloud hardware.
 platform_binary(
-    name = "runtime.x86_64-linux",
+    name = "runtime.x86_64-linux-musl",
     platform = "//dev:x86_64-linux-musl",
     target = ":runtime",
     visibility = ["//dev/kind:__pkg__"],
@@ -119,7 +119,7 @@ platform_binary(
 # Push the built runtime binary to an OCI registry using ORAS.
 oras_push(
     name = "artifact-push",
-    src = ":runtime.x86_64-linux",
+    src = ":runtime.x86_64-linux-musl",
     artifact_type = "application/octet-stream",
     remote_tags = ["latest"],
 )

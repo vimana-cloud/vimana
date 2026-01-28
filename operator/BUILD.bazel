@@ -15,7 +15,7 @@ alias(
 
 # Cross-compile the operator binary to package it in a container.
 platform_binary(
-    name = "operator-x86_64-linux",
+    name = "operator.x86_64-linux-musl",
     platform = "//dev:x86_64-linux-musl",
     target = ":operator",
 )
@@ -50,9 +50,9 @@ oci_push(
 
 pkg_tar(
     name = "image-tar",
-    srcs = [":operator-x86_64-linux"],
+    srcs = [":operator.x86_64-linux-musl"],
     remap_paths = {
-        "/operator-x86_64-linux": "/manager",
+        "/operator.x86_64-linux-musl": "/manager",
     },
 )
 

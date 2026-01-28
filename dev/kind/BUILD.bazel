@@ -71,14 +71,14 @@ sh_binary(
     args = [
         "$(location @rules_k8s//:kind)",
         "$(location @rules_k8s//:kubectl)",
-        "$(location //runtime:runtime.x86_64-linux)",
+        "$(location //runtime:runtime.x86_64-linux-musl)",
         "$(location //operator:image-push)",
         "$(location :operator-deploy)",
     ],
     data = [
         ":operator-deploy",
         "//operator:image-push",
-        "//runtime:runtime.x86_64-linux",
+        "//runtime:runtime.x86_64-linux-musl",
         "@rules_k8s//:kind",
         "@rules_k8s//:kubectl",
     ],
@@ -129,11 +129,11 @@ pkg_tar(
         # Configures kubelet to use the Vimana runtime.
         ":kubelet-config",
         # Vimanad binary built for the container.
-        "//runtime:runtime.x86_64-linux",
+        "//runtime:runtime.x86_64-linux-musl",
     ],
     remap_paths = {
         "/vimanad.service": "/etc/systemd/system/vimanad.service",
-        "/runtime.x86_64-linux": "/usr/local/bin/vimanad",
+        "/runtime.x86_64-linux-musl": "/usr/local/bin/vimanad",
         "/kubelet-config": "/etc/default/kubelet",
     },
     # Enable the vimanad service so it starts automatically.

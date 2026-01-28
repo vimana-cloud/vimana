@@ -1,0 +1,35 @@
+name: Release Assets
+on:
+  release:
+    types: ['released']
+permissions:
+  # Necessary to upload a release asset:
+  contents: write
+
+jobs:
+  publish-compiler:
+    strategy:
+      matrix:
+        cpu:
+          - x86_64
+          - aarch64
+        os:
+          - linux
+          - macos
+    runs-on: ${{ matrix.os == 'macos' && 'macos-latest' || 'ubuntu-latest' }}
+    env:
+      BINARY_NAME: protoc-gen-vimana.${{ matrix.cpu }}-${{ matrix.os }}
+      TARGET_OS: ${{ matrix.os == 'linux' && 'linux-musl' || matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Build
+        run: |
+          bazel build compiler --platforms="//dev:${{ matrix.cpu }}-${TARGET_OS}"
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cp "$(bazel info bazel-bin)/compiler/protoc-gen-vimana" "./${BINARY_NAME}"
+          gh release upload "$RELEASE_TAG" "./${BINARY_NAME}"

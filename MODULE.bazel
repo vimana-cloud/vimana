@@ -14,6 +14,7 @@ bazel_dep(name = "gazelle", version = "0.47.0")
 bazel_dep(name = "googleapis", version = "0.0.0-20260109-6145b5ff")
 bazel_dep(name = "googleapis-go", version = "1.0.0")
 bazel_dep(name = "grpc", version = "1.76.0.bcr.1")
+bazel_dep(name = "hermetic_cc_toolchain", version = "4.1.0")
 bazel_dep(name = "openssl", version = "3.5.4.bcr.1")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "protobuf", version = "33.4")
@@ -29,7 +30,6 @@ single_version_override(
     ],
 )
 
-bazel_dep(name = "toolchains_musl", version = "0.1.27")
 bazel_dep(name = "rules_go", version = "0.59.0")
 bazel_dep(name = "rules_nodejs", version = "6.7.3")
 bazel_dep(name = "rules_oci", version = "2.2.7")
@@ -63,115 +63,12 @@ git_override(
 environment = use_extension("//dev/rules:environment.bzl", "environment")
 use_repo(environment, "environment")
 
-# Register Protobuf toolchains.
-register_toolchains("//:protoc-rust-toolchain")
+include("//dev:rust-cc-toolchains.MODULE.bazel")
 
 # Rust setup:
 
-RUST_EDITION = "2024"
-
-# Must use nightly to take advantage of experimental features (`#![feature]`).
-# https://github.com/bazelbuild/rules_rust/blob/0.67.0/rust/private/common.bzl#L36
-RUST_NIGHTLY_DATE = "2025-11-01"
-
-RUST_VERSION = "nightly/{}".format(RUST_NIGHTLY_DATE)
-
-# Make sure we have a toolchain that can cross-compile to x86-64 / Linux / musl.
-# https://github.com/bazelbuild/rules_rust/blob/0.59.1/examples/musl_cross_compiling/MODULE.bazel
-rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
-rust.toolchain(
-    edition = RUST_EDITION,
-    sha256s = {
-        "{}/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "b5eab5cce0269f64caf9c36a607388cb591ccd61f46e886c34350384a039630a",
-        "{}/clippy-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "247d18366911dffde2aeb37b4ceb6ff3650f62b00fd82e3ee63cf57256de2545",
-        "{}/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "6f8fa84ec41cda902e5575edcbaec93f8a43b51932d63d1597dc01dc32ee1368",
-        "{}/llvm-tools-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "f0976321dd6bb6e1aca474fe743b55ec176414850ea2f0cda1732f208fc97bd5",
-        "{}/rust-std-nightly-x86_64-unknown-linux-musl.tar.xz".format(RUST_NIGHTLY_DATE): "ebb31c22602ca92731efdf78d0d440d68d06d02f527fd6426badec498cad22a5",
-        "{}/rust-std-nightly-wasm32-wasip2.tar.xz".format(RUST_NIGHTLY_DATE): "17bbc247c9f980ca7e9e8257d7f30f7d15bdcff14ab8265366a765dacc3420e6",
-    },
-    versions = [RUST_VERSION],
-)
-rust.repository_set(
-    name = "rust_linux_x86_64",
-    edition = RUST_EDITION,
-    exec_triple = "x86_64-unknown-linux-gnu",
-    target_compatible_with = [
-        "//dev:unknown",
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-    ],
-    target_triple = "x86_64-unknown-linux-gnu",
-    versions = [RUST_VERSION],
-)
-rust.repository_set(
-    name = "rust_linux_aarch64",
-    edition = RUST_EDITION,
-    exec_triple = "aarch64-unknown-linux-gnu",
-    target_compatible_with = [
-        "//dev:unknown",
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-    ],
-    target_triple = "x86_64-unknown-linux-gnu",
-    versions = [RUST_VERSION],
-)
-rust.repository_set(
-    name = "rust_linux_x86_64",
-    target_compatible_with = [
-        "//dev:musl",
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-    ],
-    target_triple = "x86_64-unknown-linux-musl",
-)
-rust.repository_set(
-    name = "rust_linux_aarch64",
-    target_compatible_with = [
-        "//dev:musl",
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-    ],
-    target_triple = "x86_64-unknown-linux-musl",
-)
-rust.repository_set(
-    name = "rust_darwin_x86_64",
-    edition = RUST_EDITION,
-    exec_triple = "x86_64-apple-darwin",
-    target_compatible_with = [
-        "//dev:musl",
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-    ],
-    target_triple = "x86_64-unknown-linux-musl",
-    versions = [RUST_VERSION],
-)
-rust.repository_set(
-    name = "rust_darwin_aarch64",
-    edition = RUST_EDITION,
-    exec_triple = "aarch64-apple-darwin",
-    target_compatible_with = [
-        "//dev:musl",
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-    ],
-    target_triple = "x86_64-unknown-linux-musl",
-    versions = [RUST_VERSION],
-)
-rust.repository_set(
-    name = "rust_wasm32_wasip2",
-    edition = RUST_EDITION,
-    exec_triple = "x86_64-unknown-linux-gnu",
-    target_triple = "wasm32-wasip2",
-    versions = [RUST_VERSION],
-)
-use_repo(rust, "rust_toolchains")
-
-register_toolchains("@rust_toolchains//:all")
-
-toolchains_musl = use_extension("@toolchains_musl//:toolchains_musl.bzl", "toolchains_musl")
-toolchains_musl.config(
-    extra_target_compatible_with = ["//dev:musl"],
-)
+# Register Prost Protobuf toolchain.
+register_toolchains("//:protoc-rust-toolchain")
 
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 crate.from_cargo(
