@@ -57,8 +57,8 @@ def _vimana_protoc_impl(ctx):
         WitPackageInfo(
             package = _proto_to_wit_package_name(ctx.attr.package),
             directory = wit_package,
-            # Don't bother listing the Vimana dependencies.
-            # That means the transitive dependencies will be broken
+            # Don't bother listing the WIT dependencies (i.e. `grpc.wit`, WASI).
+            # That means the transitive dependencies would be broken
             # if this is used as a dependency of a downstream WIT package,
             # but that's not an intended use-case,
             # so this is considered acceptable for the sake of simplicity.

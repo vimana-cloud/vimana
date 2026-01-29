@@ -7,3 +7,16 @@ wit_package(
     srcs = ["grpc.wit"],
     package = "vimana:grpc",
 )
+
+# Gather all the packages (transitively)
+# that a generated WIT server package needs in the `deps/` folder.
+wit_package(
+    name = "deps",
+    package = "vimana",
+    deps = [
+        ":grpc",
+        "@rules_wasm//wasip2:clocks",
+        "@rules_wasm//wasip2:http",
+        "@rules_wasm//wasip2:random",
+    ],
+)

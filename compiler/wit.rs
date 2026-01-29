@@ -1,14 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use heck::ToKebabCase;
+use include_dir::{Dir, include_dir};
 use prost_types::compiler::code_generator_response::File;
 use prost_types::field_descriptor_proto::{Label, Type as ProtoType};
 use prost_types::{DescriptorProto, EnumDescriptorProto, ServiceDescriptorProto};
 use wit_encoder::{
     Enum, Field, Ident, Interface, NestedPackage, Package, PackageName, Params, Record,
     StandaloneFunc, Type, TypeDef, TypeDefKind, Variant, VariantCase, World, WorldItem,
+    WorldNamedInterface,
 };
 
 use crate::{
@@ -22,8 +24,10 @@ use crate::{
 /// and a `deps/` directory containing the Vimana-specific dependencies,
 /// which are hardcoded into the compiler binary.
 const DIRECTORY: &str = "wit";
-/// Static contents of Vimana's gRPC dependency WIT file.
-const DEPENDENCY_GRPC: &str = include_str!("wit/grpc/grpc.wit");
+/// Static contents of dependencies directory required for generated WIT packages.
+/// The path is resolved via the WIT_DEPENDENCIES environment variable,
+/// which is set by Bazel to point to the compiled wit_package output.
+static WIT_DEPENDENCIES: Dir<'static> = include_dir!("$WIT_DEPENDENCIES/deps");
 
 /// WIT has separate concepts of package namespaces and package names.
 /// Protobuf only has one such analogous concept; the package.
@@ -39,14 +43,23 @@ const TYPES_INTERFACE_NAME: &str = "types";
 /// One-ofs are compiled into an interface called `oneofs`.
 const ONEOFS_INTERFACE_NAME: &str = "oneofs";
 
-/// The fully-qualified (and versioned) interface name for Vimana gRPC types.
+/// WASI interface imports to include in the generated world.
+/// These provide standard WASI capabilities to components.
+const WASI_IMPORTS: &[&str] = &[
+    "wasi:http/outgoing-handler@0.2.0",
+    "wasi:clocks/wall-clock@0.2.0",
+    "wasi:clocks/monotonic-clock@0.2.0",
+    "wasi:random/random@0.2.0",
+];
+/// Fully-qualified (and versioned) interface name for Vimana gRPC types.
 /// This must exactly match the values in `grpc.wit`.
 const VIMANA_GRPC_TYPES_TARGET: &str = "vimana:grpc/types@0.0.0";
-/// The name of the context type within the interface identified by [`VIMANA_GRPC_TYPES_TARGET`].
+/// ame of the context type within the interface identified by [`VIMANA_GRPC_TYPES_TARGET`].
 const VIMANA_GRPC_TYPES_CONTEXT_ITEM: &str = "context";
-/// The name of the context parameter of each method handler function.
+
+/// Name of the context parameter of each method handler function.
 const CONTEXT_PARAMETER_NAME: &str = "context";
-/// The name of the request parameter of each method handler function.
+/// Name of the request parameter of each method handler function.
 const REQUEST_PARAMETER_NAME: &str = "request";
 
 /// An incrementally-built model of a Vimana server WIT file,
@@ -329,21 +342,34 @@ impl<'a> WitFile<'a> {
             );
         }
 
-        Ok(vec![
-            File {
-                name: Some(format!("{}/server.wit", DIRECTORY)),
-                insertion_point: None,
-                content: Some(wit_contents),
-                // TODO: Add generated code info to help with debugging.
-                generated_code_info: None,
-            },
-            File {
-                name: Some(format!("{}/deps/vimana:grpc/interface.wit", DIRECTORY)),
-                insertion_point: None,
-                content: Some(String::from(DEPENDENCY_GRPC)),
-                generated_code_info: None,
-            },
-        ])
+        // Use a heuristic lower-bound estimate of the total number of output files
+        // to avoid a bit of re-allocation.
+        let mut files = Vec::with_capacity(WIT_DEPENDENCIES.entries().len() + 1);
+        files.push(File {
+            name: Some(format!("{}/server.wit", DIRECTORY)),
+            insertion_point: None,
+            content: Some(wit_contents),
+            // TODO: Add generated code info to help with debugging.
+            generated_code_info: None,
+        });
+        for dependency in WIT_DEPENDENCIES.dirs() {
+            for source in dependency.files() {
+                let path = source
+                    .path()
+                    .to_str()
+                    .ok_or_else(|| anyhow!("Dependency WIT file path is not UTF-8"))?;
+                let contents = str::from_utf8(source.contents())
+                    .context("Dependency WIT file contents are not UTF-8")?;
+                files.push(File {
+                    name: Some(format!("{}/deps/{}", DIRECTORY, path)),
+                    insertion_point: None,
+                    content: Some(String::from(contents)),
+                    generated_code_info: None,
+                });
+            }
+        }
+
+        Ok(files)
     }
 }
 
@@ -507,6 +533,9 @@ fn enum_type_definition<'a>(enum_descriptor: &'a EnumDescriptorProto, name: &'a 
 impl ServerWorld {
     fn into_world(self) -> World {
         let mut world = World::new(WORLD_NAME);
+        for wasi_import in WASI_IMPORTS {
+            world.named_interface_import(WorldNamedInterface::new(Ident::new(*wasi_import)));
+        }
         for service in self.services {
             world.item(WorldItem::InlineInterfaceExport(service));
         }
