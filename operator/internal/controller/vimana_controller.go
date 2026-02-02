@@ -277,8 +277,8 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	updateAvailabilityStatus(r.Client, ctx, vimana, metav1.ConditionTrue, "Reconciled", "Successfully reconciled vimana")
-	return ctrl.Result{}, nil
+	err = updateAvailabilityStatus(r.Client, ctx, vimana, metav1.ConditionTrue, "Reconciled", "Successfully reconciled vimana")
+	return ctrl.Result{}, err
 }
 
 // Return the Gateway Listener object for the given domain name in the given namespace.

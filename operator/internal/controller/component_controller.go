@@ -197,8 +197,8 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	updateAvailabilityStatus(r.Client, ctx, component, metav1.ConditionTrue, "Reconciled", "Successfully reconciled component")
-	return ctrl.Result{}, nil
+	err = updateAvailabilityStatus(r.Client, ctx, component, metav1.ConditionTrue, "Reconciled", "Successfully reconciled component")
+	return ctrl.Result{}, err
 }
 
 // SetupWithManager sets up the controller with the Manager.

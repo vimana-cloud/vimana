@@ -170,8 +170,8 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	updateAvailabilityStatus(r.Client, ctx, domain, metav1.ConditionTrue, "Reconciled", "Successfully reconciled domain")
-	return ctrl.Result{}, nil
+	err = updateAvailabilityStatus(r.Client, ctx, domain, metav1.ConditionTrue, "Reconciled", "Successfully reconciled domain")
+	return ctrl.Result{}, err
 }
 
 // SetupWithManager sets up the controller with the Manager.
