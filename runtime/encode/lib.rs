@@ -1,5 +1,7 @@
+//! Decode outgoing responses into Wasm component record values.
+
 #![feature(box_as_ptr)]
-#![feature(push_mut)]
+#![feature(vec_push_within_capacity)]
 
 mod compound;
 mod scalar;

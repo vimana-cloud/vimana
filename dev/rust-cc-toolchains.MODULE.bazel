@@ -51,7 +51,7 @@ RUST_EDITION = "2024"
 
 # Must use nightly to take advantage of experimental features (`#![feature]`).
 # https://github.com/bazelbuild/rules_rust/blob/0.67.0/rust/private/common.bzl#L36
-RUST_NIGHTLY_DATE = "2025-11-01"
+RUST_NIGHTLY_DATE = "2026-01-01"
 
 RUST_VERSION = "nightly/{}".format(RUST_NIGHTLY_DATE)
 
@@ -61,13 +61,14 @@ rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = RUST_EDITION,
     sha256s = {
-        "{}/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "b5eab5cce0269f64caf9c36a607388cb591ccd61f46e886c34350384a039630a",
-        "{}/clippy-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "247d18366911dffde2aeb37b4ceb6ff3650f62b00fd82e3ee63cf57256de2545",
-        "{}/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "6f8fa84ec41cda902e5575edcbaec93f8a43b51932d63d1597dc01dc32ee1368",
-        "{}/llvm-tools-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "f0976321dd6bb6e1aca474fe743b55ec176414850ea2f0cda1732f208fc97bd5",
-        "{}/rust-std-nightly-x86_64-unknown-linux-musl.tar.xz".format(RUST_NIGHTLY_DATE): "ebb31c22602ca92731efdf78d0d440d68d06d02f527fd6426badec498cad22a5",
-        "{}/rust-std-nightly-aarch64-unknown-linux-musl.tar.xz".format(RUST_NIGHTLY_DATE): "f4e926cfcc6f4ebd07124aba145b32e6574d86feafa2d6b7fb9d9814202bf778",
-        "{}/rust-std-nightly-wasm32-wasip2.tar.xz".format(RUST_NIGHTLY_DATE): "17bbc247c9f980ca7e9e8257d7f30f7d15bdcff14ab8265366a765dacc3420e6",
+        "{}/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "66b79c8c1a1b5281f1e44ab49a25b9ab44958670f0f0558ffdc47cc3fc6a306d",
+        "{}/clippy-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "fa11fe20bf943deb87dccf764c38f4ff456f1ed869df86687ce9d9f9daf135ad",
+        "{}/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "08ee32c2890f9b65c097bab3084726a1445bdc9e7f4ce26c1fbe2e258f8b7f8a",
+        "{}/llvm-tools-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "9beacd171fe0ac5d948cc245886f00c60f879bd3cd52cfde174ae1e79a29aee1",
+        "{}/rust-std-nightly-x86_64-unknown-linux-gnu.tar.xz".format(RUST_NIGHTLY_DATE): "62145f32aa8daeadf77c91bfe2b8a95ea0aa9703335cad4dc7a56dd72707e19b",
+        "{}/rust-std-nightly-x86_64-unknown-linux-musl.tar.xz".format(RUST_NIGHTLY_DATE): "fe2cb33cc900de3c170ce0147a1f972c6add6a62ea05da28f8c802d66b514dd8",
+        "{}/rust-std-nightly-aarch64-unknown-linux-musl.tar.xz".format(RUST_NIGHTLY_DATE): "f7fb95974f23eb935a5e3502021f3c3b85241c0259129e6cbc40a713f3c16d7f",
+        "{}/rust-std-nightly-wasm32-wasip2.tar.xz".format(RUST_NIGHTLY_DATE): "65470010b617987dfb1df414ff0223132b1e63a3c4549a15efecec482dcba661",
     },
     versions = [RUST_VERSION],
 )

@@ -152,7 +152,7 @@ pub(crate) fn compile_response_encoder(
         let message = &source[source_index];
         debug_assert!(destination_index == destination.len());
         let message_encoder: *mut MessageEncoder = destination
-            .push_mut_within_capacity(MessageEncoder {
+            .push_within_capacity(MessageEncoder {
                 fields: HashMap::with_capacity(message.fields.len()),
             })
             .map_err(|_| {

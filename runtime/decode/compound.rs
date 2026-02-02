@@ -134,7 +134,7 @@ pub(crate) fn compile_request_decoder(
         let message = &source[source_index];
         debug_assert!(destination_index == destination.len());
         let message_merger: *mut MessageMerger = destination
-            .push_mut_within_capacity(MessageMerger {
+            .push_within_capacity(MessageMerger {
                 fields: HashMap::with_capacity(message.fields.len()),
                 defaults: Vec::with_capacity(message.fields.len()),
             })

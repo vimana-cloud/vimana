@@ -1,7 +1,7 @@
 //! Decode incoming requests into Wasm component record values.
 
-#![feature(push_mut)]
 #![feature(cold_path)]
+#![feature(vec_push_within_capacity)]
 
 mod compound;
 mod scalar;
