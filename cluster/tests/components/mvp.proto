@@ -1,3 +1,6 @@
+// The most basic end-to-end test
+// verifies that a tiny component with a single unary RPC can run.
+
 syntax = "proto3";
 
 package foo;

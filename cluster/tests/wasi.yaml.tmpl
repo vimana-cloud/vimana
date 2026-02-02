@@ -1,0 +1,46 @@
+apiVersion: api.vimana.host/v1alpha1
+kind: Vimana
+metadata:
+  name: the-vimana
+spec:
+  regions: []
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Domain
+metadata:
+  name: 'wasi-domain'
+  labels:
+    vimana.host/domain: '00000000000000000000000000000001'
+spec:
+  id: '00000000000000000000000000000001'
+  vimana: the-vimana
+  aliases:
+    - 'wasi.test'
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Server
+metadata:
+  name: 'wasi-server'
+  labels:
+    vimana.host/domain: '00000000000000000000000000000001'
+    vimana.host/server: 'wasi-server'
+spec:
+  id: 'wasi-server'
+  domain: '00000000000000000000000000000001'
+  services: ["bar.WasiExercise"]
+  versionWeights:
+    "1.2.3": 1
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Component
+metadata:
+  name: 'wasi-component'
+  labels:
+    vimana.host/domain: '00000000000000000000000000000001'
+    vimana.host/server: 'wasi-server'
+    vimana.host/version: '1.2.3'
+spec:
+  version: "1.2.3"
+  server: "wasi-server"
+  domain: "00000000000000000000000000000001"
+  image: "{{.RegistryCluster}}/00000000000000000000000000000001/wasi-server:1.2.3"

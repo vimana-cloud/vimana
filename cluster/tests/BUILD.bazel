@@ -1,5 +1,6 @@
 load("@bazel_skylib//rules:common_settings.bzl", "repeatable_string_flag", "string_flag")
 load("@environment//:environment.bzl", "localhost")
+load("@rules_python//python:defs.bzl", "py_library")
 load("@rules_python//python:py_binary.bzl", "py_binary")
 load("//dev/rules:delegating-string-flag.bzl", "delegating_string_flag")
 load(":test-e2e.bzl", "component", "domain", "e2e_test", "server")
@@ -32,10 +33,52 @@ py_binary(
     data = [":mvp-test.certificates"],
     main = "mvp-test.py",
     deps = [
+        ":util",
         "//cluster/tests/components:mvp-py-grpc",
         "//cluster/tests/components:mvp-py-pb2",
         "@rules_python//python/runfiles",
     ],
+)
+
+e2e_test(
+    name = "wasi-test",
+    domains = {
+        "00000000000000000000000000000001": domain(
+            aliases = ["wasi.test"],
+            servers = {
+                "wasi-server": server(
+                    versions = {
+                        "1.2.3": component(
+                            metadata = "//cluster/tests/components:wasi-vimana",
+                            implementation = "//cluster/tests/components:wasi",
+                        ),
+                    },
+                ),
+            },
+        ),
+    },
+    executable = ":wasi",
+    gateway = "the-vimana-gateway",
+    resources = ["wasi.yaml"],
+)
+
+py_binary(
+    name = "wasi",
+    srcs = ["wasi-test.py"],
+    data = [":wasi-test.certificates"],
+    main = "wasi-test.py",
+    deps = [
+        ":util",
+        "//cluster/tests/components:wasi-py-grpc",
+        "//cluster/tests/components:wasi-py-pb2",
+        "@rules_python//python/runfiles",
+    ],
+)
+
+py_library(
+    name = "util",
+    srcs = ["util.py"],
+    deps = ["@pypi//grpcio"],
 )
 
 # The registry to use for Vimana Wasm component "containers".

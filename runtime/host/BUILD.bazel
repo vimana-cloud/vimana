@@ -8,5 +8,6 @@ rust_library(
         "@crates//:anyhow",
         "@crates//:wasmtime",
         "@crates//:wasmtime-wasi",
+        "@crates//:wasmtime-wasi-http",
     ],
 )

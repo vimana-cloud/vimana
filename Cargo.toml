@@ -47,6 +47,8 @@ tonic-prost = "0.14.2"
 tower = "0.5.3"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["json"] }
+url = "2.5.8"
 wasmtime = "41.0.0"
 wasmtime-wasi = "41.0.0"
+wasmtime-wasi-http = "41.0.0"
 wit-encoder = "0.244.0"

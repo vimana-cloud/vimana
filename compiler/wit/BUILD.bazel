@@ -15,8 +15,15 @@ wit_package(
     package = "vimana",
     deps = [
         ":grpc",
+        # The complete WASI API is made available to guest components.
+        # However, certain APIs, like the filesystem API, are essentially useless
+        # due the purposefully-restricted access implemented by the runtime.
+        "@rules_wasm//wasip2:cli",
         "@rules_wasm//wasip2:clocks",
+        "@rules_wasm//wasip2:filesystem",
         "@rules_wasm//wasip2:http",
+        "@rules_wasm//wasip2:io",
         "@rules_wasm//wasip2:random",
+        "@rules_wasm//wasip2:sockets",
     ],
 )

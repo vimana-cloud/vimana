@@ -1,6 +1,7 @@
 load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_wasm//c:defs.bzl", "c_component")
+load("@rules_wasm//rust:defs.bzl", "rust_component")
 load("//compiler:defs.bzl", "vimana_protoc")
 
 package(
@@ -37,4 +38,34 @@ py_grpc_library(
     name = "mvp-py-grpc",
     srcs = [":mvp-proto"],
     deps = ["mvp-py-pb2"],
+)
+
+rust_component(
+    name = "wasi",
+    srcs = ["wasi.rs"],
+    wit = ":wasi-vimana",
+    world = "server",
+    deps = ["@crates//:url"],
+)
+
+vimana_protoc(
+    name = "wasi-vimana",
+    package = "bar",
+    proto = ":wasi-proto",
+)
+
+proto_library(
+    name = "wasi-proto",
+    srcs = ["wasi.proto"],
+)
+
+py_proto_library(
+    name = "wasi-py-pb2",
+    deps = [":wasi-proto"],
+)
+
+py_grpc_library(
+    name = "wasi-py-grpc",
+    srcs = [":wasi-proto"],
+    deps = ["wasi-py-pb2"],
 )
