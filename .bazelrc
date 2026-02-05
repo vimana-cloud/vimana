@@ -7,13 +7,6 @@ common --incompatible_enable_proto_toolchain_resolution=true --@protobuf//bazel/
 # Ensure a sane C++ standard on all platforms.
 build --cxxopt='-std=c++17' --host_cxxopt='-std=c++17'
 
-# Disable Rust's self-contained C runtime objects
-# so that the hermetic zig CC toolchains provide them instead
-# (avoids duplicate `_start` etc. symbols).
-# This is a no-op for non-musl Rust targets,
-# which do not use self-contained linking by default.
-build --@rules_rust//rust/settings:extra_rustc_flags=-Clink-self-contained=no
-
 # Use `--config=release` for optimized builds, without debugging symbols,
 # and with build information embedded ("stamped") in the resulting binary.
 build:release --compilation_mode=opt --strip=always --stamp

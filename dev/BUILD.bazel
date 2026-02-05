@@ -67,3 +67,10 @@ platform(
         "@platforms//os:macos",
     ],
 )
+
+# Config setting indicating that the target platform is built against musl.
+config_setting(
+    name = "musl",
+    constraint_values = ["@zig_sdk//libc:musl"],
+    visibility = ["//visibility:public"],
+)

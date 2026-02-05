@@ -120,8 +120,9 @@ function start-bazel {
     --cpus="$(nproc)" \
     --volume="$repository_root":"$repository_root":ro \
     --volume="$output_volume":"$output_root" \
+    --volume=/var/run/docker.sock:/var/run/docker.sock \
     --volume="${HOME}/.ssh":'/root/.ssh':ro \
-    --volume="${HOME}/.kube":'/root/.kube':ro \
+    --volume="${HOME}/.kube":'/root/.kube' \
     --add-host=host.docker.internal=host-gateway \
     --entrypoint=/usr/bin/sleep \
     debian:stable-slim \

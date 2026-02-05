@@ -4,7 +4,7 @@
 # from a fresh boot of the Debian "slim" container.
 
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install --yes curl jq git gcc g++ python3 uuid-runtime
+DEBIAN_FRONTEND=noninteractive apt-get install --yes curl jq git gcc g++ python3 docker-cli uuid-runtime
 
 # Install the latest version of Bazelisk from GitHub.
 bazelisk_version="$(

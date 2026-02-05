@@ -19,6 +19,13 @@ rust_binary(
         "state.rs",
     ],
     binary_name = "vimanad",
+    # Disable Rust's self-contained C runtime objects for musl targets
+    # so that the hermetic zig CC toolchain provides them instead
+    # (avoids duplicate `_start` etc. symbols).
+    rustc_flags = select({
+        "//dev:musl": ["-Clink-self-contained=no"],
+        "//conditions:default": [],
+    }),
     visibility = ["//visibility:public"],
     deps = [
         ":cri-api-prost",

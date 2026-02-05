@@ -62,8 +62,11 @@ that make building or testing certain things directly on a Mac impractical:
   and that tag is only supported by Bazel on Linux.
 - The [operator test] requires a build of `kube-apiserver`,
   which is not available for Mac.
+- Running [integration tests] involves using a mount namespace
+  to override `/etc/hosts` for custom local DNS.
 
-To work around this, any Bazel command can be run in a persistent container
+To work around these limitations,
+any Bazel command can be run in a persistent container
 dedicated to the current Git worktree.
 Use the built-in [`bazel-docker`] script
 (which is available automatically after enabling [`direnv`] &mdash; see [tools])
@@ -84,6 +87,15 @@ bazel-docker test //runtime/tests/...
 > subsequent invocations of `bazel-docker` should only incur modest lag (perhaps a second)
 > before output files are available.
 
+[runtime]: /runtime/
+[`rtnetlink`]: https://en.wikipedia.org/wiki/Netlink
+[runtime tests]: /runtime/tests/
+[`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
+[operator tests]: /operator/internal/controller/suite_test.go
+[integration tests]: /cluster/tests/
+[`bazel-docker`]: /dev/tools/bazel-docker
+[tools]: #tools
+
 #### OOM
 
 If you encounter this error while building using `bazel-docker`:
@@ -102,14 +114,6 @@ docker inspect "$(bazel-docker --name)" --format='{{.State.OOMKilled}}'
 ```
 
 In Docker Desktop, you can increase the memory limit under Settings > Resources.
-
-[runtime]: /runtime/
-[`rtnetlink`]: https://en.wikipedia.org/wiki/Netlink
-[runtime tests]: /runtime/tests/
-[`requires-fakeroot`]: https://bazel.build/reference/be/common-definitions#common-attributes
-[operator tests]: /operator/internal/controller/suite_test.go
-[`bazel-docker`]: /dev/tools/bazel-docker
-[tools]: #tools
 
 ### VSCode
 
