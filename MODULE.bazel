@@ -1,6 +1,6 @@
 module(name = "vimana")
 
-bazel_dep(name = "buildifier_prebuilt", version = "8.2.1.1", dev_dependency = True, repo_name = "buildtools")
+bazel_dep(name = "buildifier_prebuilt", version = "8.2.1.2", dev_dependency = True, repo_name = "buildtools")
 
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 single_version_override(
@@ -11,13 +11,13 @@ single_version_override(
 )
 
 bazel_dep(name = "gazelle", version = "0.47.0")
-bazel_dep(name = "googleapis", version = "0.0.0-20260109-6145b5ff")
+bazel_dep(name = "googleapis", version = "0.0.0-20260130-c0fcb356")
 bazel_dep(name = "googleapis-go", version = "1.0.0")
 bazel_dep(name = "grpc", version = "1.76.0.bcr.1")
 bazel_dep(name = "hermetic_cc_toolchain", version = "4.1.0")
-bazel_dep(name = "openssl", version = "3.5.4.bcr.1")
+bazel_dep(name = "openssl", version = "3.5.5.bcr.0")
 bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "protobuf", version = "33.4")
+bazel_dep(name = "protobuf", version = "33.5")
 single_version_override(
     module_name = "protobuf",
     patches = [
@@ -41,7 +41,7 @@ single_version_override(
 )
 
 bazel_dep(name = "rules_pkg", version = "1.2.0")
-bazel_dep(name = "rules_python", version = "1.8.1")
+bazel_dep(name = "rules_python", version = "1.8.3")
 bazel_dep(name = "rules_rust", version = "0.68.1")
 bazel_dep(name = "rules_rust_prost", version = "0.68.1")
 bazel_dep(name = "rules_shell", version = "0.6.1")
@@ -101,6 +101,7 @@ use_repo(crate, "crates")
 
 # Use a Go toolchain satisfying the SDK version specified in `go.mod`.
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(name = "go_sdk", version = "1.25.6")
 go_sdk.from_file(go_mod = "//:go.mod")
 
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")

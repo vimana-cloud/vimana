@@ -1,5 +1,5 @@
 fabric==3.2.2
-google-cloud-compute==1.42.0
+google-cloud-compute==1.43.0
 google-cloud-os-login==2.19.0
 grpcio==1.76.0
 jsonschema==4.26.0
@@ -7,5 +7,5 @@ kubernetes==35.0.0
 packaging==26.0
 PyYAML==6.0.3
 requests==2.32.5
-rich==14.3.0
+rich==14.3.2
 tomlkit==0.14.0
