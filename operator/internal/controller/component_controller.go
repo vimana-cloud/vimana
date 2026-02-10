@@ -33,7 +33,7 @@ var (
 	runtimeClassNamePtr = ptr.To(runtimeClassName)
 )
 
-// ComponentReconciler reconciles a Component object
+// ComponentReconciler reconciles a Component object.
 type ComponentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -72,19 +72,19 @@ func serviceCopySpec(receiver, giver *corev1.Service) {
 // move the current state of the cluster closer to the desired state.
 //
 // For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/reconcile
-func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
+func (r *ComponentReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	component := &apiv1alpha1.Component{}
-	err := r.Get(ctx, req.NamespacedName, component)
+	err := r.Get(ctx, request.NamespacedName, component)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info("Component not found, assumed deleted", "namespace", req.Namespace, "name", req.Name)
+			logger.Info("Component not found, assumed deleted", "namespace", request.Namespace, "name", request.Name)
 			return ctrl.Result{}, nil
 		}
 		// Error reading the object; re-enqueue the request.
-		logger.Error(err, "Failed to get Component", "namespace", req.Namespace, "name", req.Name)
+		logger.Error(err, "Failed to get Component", "namespace", request.Namespace, "name", request.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -106,7 +106,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	deploymentName := prefixed(hashedName, 'd')
 	deploymentNamespacedName := types.NamespacedName{
 		Name:      deploymentName,
-		Namespace: req.Namespace,
+		Namespace: request.Namespace,
 	}
 
 	// Generate the corresponding Deployment.
@@ -162,7 +162,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	serviceName := prefixed(hashedName, 's')
 	serviceNamespacedName := types.NamespacedName{
 		Name:      serviceName,
-		Namespace: req.Namespace,
+		Namespace: request.Namespace,
 	}
 
 	// Generate the corresponding Service.

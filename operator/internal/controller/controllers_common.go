@@ -3,10 +3,14 @@ package controller
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"iter"
 	"reflect"
 	"sort"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -14,12 +18,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"vimana.host/operator/api/v1alpha1"
 )
 
 const (
 	// conditionTypeAvailable represents the steady-state existing status of a resource.
 	conditionTypeAvailable = "Available"
 
+	labelVimanaKey  = "vimana.host/vimana"
 	labelDomainKey  = "vimana.host/domain"
 	labelServerKey  = "vimana.host/server"
 	labelVersionKey = "vimana.host/version"
@@ -51,9 +57,27 @@ func gatewayName(vimanaName string) string {
 	return vimanaName + "-gateway"
 }
 
-// Return the canonical domain name of a domain, derived from the unique ID.
-func canonicalDomain(domainId string) string {
-	return fmt.Sprintf("%s.app.vimana.host", domainId)
+// Return the canonical domain name of a domain,
+// derived from the Domain's unique ID and the Vimana's canonical superdomain.
+func canonicalDomain(domainId, superdomain string) string {
+	return fmt.Sprintf("%s.%s", domainId, superdomain)
+}
+
+// Helper iterator to generate all the domain names of the given Domain under the given Vimana.
+func domainNames(domain *v1alpha1.Domain, vimana *v1alpha1.Vimana) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		if vimana.Spec.CanonicalSuperdomain != "" {
+			yield(canonicalDomain(domain.Spec.Id, vimana.Spec.CanonicalSuperdomain))
+		}
+		for _, alias := range domain.Spec.Aliases {
+			yield(alias)
+		}
+	}
+}
+
+// Return the name of the server.
+func serverName(domainId, serverId string) string {
+	return fmt.Sprintf("%s:%s", domainId, serverId)
 }
 
 // Return the name of the component.
@@ -204,4 +228,30 @@ func ensureResourceDeleted(client client.Client, ctx context.Context, namespaced
 		logger.Error(err, "Failed to delete resource", "namespace", namespacedName.Namespace, "name", namespacedName.Name)
 	}
 	return err
+}
+
+// Given a slice of base64-encoded strings,
+// decode each value, concatenate the raw bytes,
+// and re-encode the full payload using base64.
+func concatenateBase64(inputs []string, totalLength int) (string, error) {
+	// Pre-allocate a string builder with at least enough space for all the input strings.
+	var output strings.Builder
+	output.Grow(totalLength)
+	encoder := base64.NewEncoder(base64.StdEncoding, &output)
+
+	// Decode, copy, and re-encode each input string into the output string builder.
+	for _, input := range inputs {
+		decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(input))
+		if _, err := io.Copy(encoder, decoder); err != nil {
+			return "", err
+		}
+	}
+
+	// Close the encoder to flush any remaining partially-filled blocks
+	// and add required padding characters to the string builder.
+	if err := encoder.Close(); err != nil {
+		return "", err
+	}
+
+	return output.String(), nil
 }

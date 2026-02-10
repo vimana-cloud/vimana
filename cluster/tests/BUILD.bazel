@@ -3,6 +3,7 @@ load("@environment//:environment.bzl", "localhost")
 load("@rules_python//python:defs.bzl", "py_library")
 load("@rules_python//python:py_binary.bzl", "py_binary")
 load("//dev/rules:delegating-string-flag.bzl", "delegating_string_flag")
+load("//dev/rules:proto-library-including-imports.bzl", "proto_library_including_imports")
 load("//dev/rules:sprig.bzl", "expand_sprig")
 load(":test-e2e.bzl", "component", "domain", "e2e_test", "server")
 
@@ -126,11 +127,16 @@ expand_sprig(
     name = "json.yaml",
     dot = {
         "RegistryCluster": "$(REGISTRY_CLUSTER)",
-        "ProtoDescriptorPath": "$(location //cluster/tests/components:json-proto)",
+        "ProtoDescriptorPath": "$(location :json-proto)",
     },
     template = "json.yaml.tmpl",
     toolchains = [":registry-cluster"],
-    deps = ["//cluster/tests/components:json-proto"],
+    deps = [":json-proto"],
+)
+
+proto_library_including_imports(
+    name = "json-proto",
+    proto = "//cluster/tests/components:json-proto",
 )
 
 py_library(

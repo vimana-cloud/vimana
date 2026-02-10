@@ -66,6 +66,7 @@ rules:
 - apiGroups:
   - gateway.envoyproxy.io
   resources:
+  - envoypatchpolicies
   - envoyproxies
   verbs:
   - create

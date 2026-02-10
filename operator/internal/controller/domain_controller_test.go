@@ -34,8 +34,28 @@ var _ = Describe("Domain Controller", func() {
 		servers := []*apiv1alpha1.Server{}
 
 		BeforeEach(func() {
+			By("creating the parent Vimana")
+			vimanaNamespacedName := types.NamespacedName{
+				Name:      vimanaId,
+				Namespace: namespace,
+			}
+			vimana := &apiv1alpha1.Vimana{}
+			err := k8sClient.Get(ctx, vimanaNamespacedName, vimana)
+			if err != nil && errors.IsNotFound(err) {
+				vimana = &apiv1alpha1.Vimana{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      vimanaId,
+						Namespace: namespace,
+					},
+					Spec: apiv1alpha1.VimanaSpec{
+						CanonicalSuperdomain: "app.vimana.host",
+					},
+				}
+				Expect(k8sClient.Create(ctx, vimana)).To(Succeed())
+			}
+
 			By("creating the custom resource for the Kind Domain")
-			err := k8sClient.Get(ctx, typeNamespacedName, domain)
+			err = k8sClient.Get(ctx, typeNamespacedName, domain)
 			if err != nil && errors.IsNotFound(err) {
 				resource := &apiv1alpha1.Domain{
 					ObjectMeta: metav1.ObjectMeta{
@@ -75,6 +95,15 @@ var _ = Describe("Domain Controller", func() {
 
 			By("Cleanup the specific resource instance Domain")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+
+			By("Cleanup the parent Vimana")
+			vimana := &apiv1alpha1.Vimana{}
+			err = k8sClient.Get(ctx, types.NamespacedName{
+				Name:      vimanaId,
+				Namespace: namespace,
+			}, vimana)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Delete(ctx, vimana)).To(Succeed())
 		})
 
 		It("should successfully reconcile the resource with no servers", func() {

@@ -84,8 +84,8 @@ type VimanaReconciler struct {
 }
 
 // Return true iff the two objects are *not* equal.
-func envoyProxySpecDiffers(left, right *envoygateway.EnvoyProxy) bool {
-	return !reflect.DeepEqual(left.Spec, right.Spec)
+func envoyProxySpecDiffers(actual, expected *envoygateway.EnvoyProxy) bool {
+	return !reflect.DeepEqual(actual.Spec, expected.Spec)
 }
 
 // Mutate the "spec" value of the receiver to match that of the other object.
@@ -94,8 +94,8 @@ func envoyProxyCopySpec(receiver, giver *envoygateway.EnvoyProxy) {
 }
 
 // Return true iff the two objects are *not* equal.
-func gatewaySpecDiffers(left, right *gwapi.Gateway) bool {
-	return !reflect.DeepEqual(left.Spec, right.Spec)
+func gatewaySpecDiffers(actual, expected *gwapi.Gateway) bool {
+	return !reflect.DeepEqual(actual.Spec, expected.Spec)
 }
 
 // Mutate the "spec" value of the receiver to match that of the other object.
@@ -148,7 +148,7 @@ func envoyProxyResource(name string) *envoygateway.EnvoyProxy {
 // move the current state of the cluster closer to the desired state.
 //
 // For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/reconcile
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -244,11 +244,9 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	var listeners []gwapi.Listener
 	for _, domain := range domains.Items {
-		canonical := canonicalDomain(domain.Spec.Id)
 		namespace := (*gwapi.Namespace)(ptr.To(domain.GetNamespace()))
-		listeners = append(listeners, listener(canonical, namespace, allowedRoutes, secretKind))
-		for _, alias := range domain.Spec.Aliases {
-			listeners = append(listeners, listener(alias, namespace, allowedRoutes, secretKind))
+		for domainName := range domainNames(&domain, vimana) {
+			listeners = append(listeners, listener(domainName, namespace, allowedRoutes, secretKind))
 		}
 	}
 
