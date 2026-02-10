@@ -31,7 +31,6 @@ e2e_test(
 py_binary(
     name = "mvp",
     srcs = ["mvp-test.py"],
-    data = [":mvp-test.certificates"],
     main = "mvp-test.py",
     deps = [
         ":util",
@@ -73,7 +72,6 @@ e2e_test(
 py_binary(
     name = "wasi",
     srcs = ["wasi-test.py"],
-    data = [":wasi-test.certificates"],
     main = "wasi-test.py",
     deps = [
         ":util",
@@ -116,7 +114,6 @@ e2e_test(
 py_binary(
     name = "json",
     srcs = ["json-test.py"],
-    data = [":json-test.certificates"],
     main = "json-test.py",
     deps = [
         ":util",
@@ -139,7 +136,10 @@ expand_sprig(
 py_library(
     name = "util",
     srcs = ["util.py"],
-    deps = ["@pypi//grpcio"],
+    deps = [
+        "@pypi//grpcio",
+        "@pypi//kubernetes",
+    ],
 )
 
 # The registry to use for Vimana Wasm component "containers".

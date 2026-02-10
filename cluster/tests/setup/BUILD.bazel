@@ -1,0 +1,42 @@
+load("@rules_k8s//:resource.bzl", "kubectl_apply")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+package(default_visibility = ["//cluster/tests:__subpackages__"])
+
+kubectl_apply(
+    name = "deploy-pebble",
+    srcs = [":pebble.yaml"],
+)
+
+kubectl_apply(
+    name = "deploy-etcd-for-external-dns",
+    srcs = [":external-dns-etcd.yaml"],
+)
+
+sh_binary(
+    name = "install-external-dns",
+    srcs = ["external-dns-install.sh"],
+    data = [
+        "@rules_k8s//:external-dns-helm-chart",
+        "@rules_k8s//:helm",
+    ],
+    env = {
+        "external_dns_helm_chart": "$(location @rules_k8s//:external-dns-helm-chart)",
+        "helm": "$(location @rules_k8s//:helm)",
+    },
+)
+
+sh_binary(
+    name = "patch-corefile",
+    srcs = ["corefile-patch.sh"],
+    data = [
+        "@jq_toolchains//:resolved_toolchain",
+        "@rules_k8s//:kubectl",
+    ],
+    env = {
+        "jq": "$(JQ_BIN)",
+        "kubectl": "$(location @rules_k8s//:kubectl)",
+    },
+    toolchains = ["@jq_toolchains//:resolved_toolchain"],
+    deps = ["@rules_shell//shell/runfiles"],
+)

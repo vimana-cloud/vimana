@@ -1,0 +1,43 @@
+# A standalone etcd instance used as a backend for the CoreDNS `etcd` plugin.
+# ExternalDNS writes SkyDNS-format DNS entries here, and CoreDNS reads them
+# to resolve test domain names (e.g. for Pebble's ACME HTTP-01 self-check).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd-server
+  namespace: acme
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd-server
+  template:
+    metadata:
+      labels:
+        app: etcd-server
+    spec:
+      containers:
+      - name: etcd
+        image: registry.k8s.io/etcd:3.6.6-0
+        command:
+        - etcd
+        args:
+        - --listen-client-urls=http://0.0.0.0:2379
+        - --advertise-client-urls=http://etcd-server.acme.svc.cluster.local:2379
+        - --data-dir=/var/lib/etcd
+        ports:
+        - name: client
+          containerPort: 2379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd-server
+  namespace: acme
+spec:
+  selector:
+    app: etcd-server
+  ports:
+  - name: client
+    port: 2379
+    targetPort: client

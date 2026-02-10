@@ -29,10 +29,12 @@ cluster_registry="$9"
 # Path to an executable that will install the Vimana APIs and operator in our cluster.
 deploy_operator="${10}"
 # Path to a local directory containing the Envoy Gateway helm chart.
-envoy_gateway_helm_chart="${11}/gateway-helm"
+envoy_gateway_helm_chart="${11}"
+# Path to a local directory containing the `cert-manager` helm chart.
+cert_manager_helm_chart="${12}"
 # Path to the Kind cluster configuration file.
-cluster_config="${12}"
-shift 12
+cluster_config="${13}"
+shift 13
 
 # Try to delete any existing cluster so we can start fresh.
 "$kind" delete cluster 2> /dev/null || true
@@ -130,7 +132,17 @@ echo >&2 'Done'
 "$helm" install \
   envoy-gateway "$envoy_gateway_helm_chart" \
   --set=config.envoyGateway.provider.kubernetes.deploy.type=GatewayNamespace \
+  --set=config.envoyGateway.extensionApis.enableEnvoyPatchPolicy=true \
   --namespace=envoy-gateway-system \
+  --create-namespace
+
+# Install `cert-manager` with Gateway API support
+# so it can provision TLS certificates for Gateway listeners.
+"$helm" install \
+  cert-manager "$cert_manager_helm_chart" \
+  --set=crds.enabled=true \
+  --set=config.enableGatewayAPI=true \
+  --namespace=cert-manager \
   --create-namespace
 
 "$deploy_operator"

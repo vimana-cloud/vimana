@@ -5,18 +5,11 @@ from unittest import main
 
 from cluster.tests.components.wasi_pb2 import ResultResponse, StringRequest, U64Request
 from cluster.tests.components.wasi_pb2_grpc import WasiExerciseStub
-from python.runfiles import Runfiles
 
 from cluster.tests.util import E2eTestCase
 
-runfiles = Runfiles.Create()
 
-ROOT_CERTIFICATE_PATH = runfiles.Rlocation(
-    '_main/cluster/tests/wasi-test.certificates.root.cert'
-)
-
-
-class WasiTest(E2eTestCase(ROOT_CERTIFICATE_PATH)):
+class WasiTest(E2eTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

@@ -1,0 +1,118 @@
+# [Pebble](https://github.com/letsencrypt/pebble)
+# is the light-weight testing implementation of an ACME test server.
+# Installing it in the cluster is necessary to run end-to-end tests,
+# because they need to assign hostnames internally over CoreDNS
+# in order to complete the challenges to provision TLS certificates (from Pebble).
+# In a production cluster, you should instead just hook it up to Let's Encrypt.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: acme
+---
+# https://cert-manager.io/docs/reference/api-docs/#cert-manager.io/v1.ClusterIssuer
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: pebble
+spec:
+  acme:
+    email: user@pebble.test
+    server: https://pebble.acme.svc.cluster.local:14000/dir
+    skipTLSVerify: true
+    privateKeySecretRef:
+      # Secret resource that will be used to store the account's private key.
+      # This is your identity with your ACME provider.
+      # Any secret name may be chosen.
+      # It will be populated with data automatically,
+      # so generally nothing further needs to be done with the secret.
+      # If you lose this identity/secret,
+      # you will be able to generate a new one
+      # and generate certificates for any/all domains managed using your previous account,
+      # but you will be unable to revoke any certificates generated using that previous account.
+      name: pebble-account-key
+    # Pebble auto-validates all challenges (PEBBLE_VA_ALWAYS_VALID),
+    # but cert-manager still requires a solver to be configured.
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: the-vimana-gateway
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pebble-config
+  namespace: acme
+data:
+  pebble-config.json: |
+    {
+      "pebble": {
+        "listenAddress": "0.0.0.0:14000",
+        "managementListenAddress": "0.0.0.0:15000",
+        "certificate": "test/certs/localhost/cert.pem",
+        "privateKey": "test/certs/localhost/key.pem",
+        "httpPort": 5002,
+        "tlsPort": 5001,
+        "ocspResponderURL": "",
+        "externalAccountBindingRequired": false
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pebble
+  namespace: acme
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pebble
+  template:
+    metadata:
+      labels:
+        app: pebble
+    spec:
+      containers:
+      - name: pebble
+        image: ghcr.io/letsencrypt/pebble:latest
+        args:
+        - -config
+        - /test/pebble-config.json
+        ports:
+        - name: acme
+          containerPort: 14000
+        - name: management
+          containerPort: 15000
+        env:
+        # Automatically approve any requests.
+        - name: PEBBLE_VA_ALWAYS_VALID
+          value: "1"
+        - name: PEBBLE_VA_NOSLEEP
+          value: "1"
+        volumeMounts:
+        - name: config
+          mountPath: /test/pebble-config.json
+          subPath: pebble-config.json
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: pebble-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pebble
+  namespace: acme
+spec:
+  selector:
+    app: pebble
+  ports:
+  - name: acme
+    port: 14000
+    targetPort: acme
+  - name: management
+    port: 15000
+    targetPort: management

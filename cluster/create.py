@@ -29,6 +29,9 @@ OPERATOR_DEPLOY_PATH = runfiles.Rlocation('_main/operator/deploy')
 ENVOY_GATEWAY_HELM_CHART_PATH = runfiles.Rlocation(
     'rules_k8s/envoy-gateway-helm-export/gateway-helm'
 )
+CERT_MANAGER_HELM_CHART_PATH = runfiles.Rlocation(
+    'rules_k8s/cert-manager-helm-export/cert-manager'
+)
 
 # Path to the script template used to fetch the `vimanad` runtime binary on Vimana worker nodes.
 VIMANAD_FETCH_TEMPLATE_PATH = runfiles.Rlocation('_main/cluster/vimanad-fetch.sh.tmpl')
@@ -88,8 +91,10 @@ def create(profile: Dict[str, object], *args):
             # while the default worker nodes will be used for Envoy Gateway pods.
             [ociWorkerNodes] = filter(
                 (
-                    lambda resource: resource['kind'] == 'InstanceGroup'
-                    and resource['spec']['role'] == 'Node'
+                    lambda resource: (
+                        resource['kind'] == 'InstanceGroup'
+                        and resource['spec']['role'] == 'Node'
+                    )
                 ),
                 resources,
             )
@@ -301,7 +306,22 @@ def create(profile: Dict[str, object], *args):
                 # to create load balancer services in the same namespace as the Gateway resource.
                 # https://gateway.envoyproxy.io/docs/tasks/operations/gateway-namespace-mode/
                 '--set=config.envoyGateway.provider.kubernetes.deploy.type=GatewayNamespace',
+                # Enable EnvoyPatchPolicy for gRPC-JSON transcoding support.
+                # https://gateway.envoyproxy.io/latest/tasks/extensibility/envoy-patch-policy/
+                '--set=config.envoyGateway.extensionApis.enableEnvoyPatchPolicy=true',
                 '--namespace=envoy-gateway-system',
+                '--create-namespace',
+            )
+
+        with step('Installing [bold]cert-manager[/bold] using [bold]helm[/bold]'):
+            runLoggingStderr(
+                HELM_PATH,
+                'install',
+                'cert-manager',
+                CERT_MANAGER_HELM_CHART_PATH,
+                '--set=crds.enabled=true',
+                '--set=config.enableGatewayAPI=true',
+                '--namespace=cert-manager',
                 '--create-namespace',
             )
 

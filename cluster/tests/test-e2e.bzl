@@ -1,7 +1,7 @@
 """Convenience macro and helper functions to handle boilerplate in defining E2E tests."""
 
 load("@rules_k8s//:test.bzl", "k8s_cluster_test")
-load("//cluster/bootstrap:bootstrap.bzl", "self_signed_tls", "vimana_image_push")
+load("//cluster/bootstrap:bootstrap.bzl", "vimana_image_push")
 
 def domain(servers = {}, aliases = []):
     """
@@ -44,7 +44,15 @@ def component(implementation, metadata):
         metadata = metadata,
     )
 
-def e2e_test(name, executable, gateway, domains = {}, resources = [], **kwargs):
+def e2e_test(
+        name,
+        executable,
+        gateway,
+        superdomain = "",
+        domains = {},
+        setup = None,
+        resources = [],
+        **kwargs):
     """
     Convenience macro to set up and define an end-to-end test.
 
@@ -52,13 +60,23 @@ def e2e_test(name, executable, gateway, domains = {}, resources = [], **kwargs):
         name: Name for the E2E test target.
         executable: Exectuable target that exercises and tests a Vimana cluster.
         gateway: Name of the single gateway defined in the seed resources.
+        superdomain: The Vimana's canonical superdomain,
+                     used to derive canonical domain names for TLS certificates.
+                     Must match the `canonicalSuperdomain` in the Vimana spec.
         domains: Mapping from domain IDs (e.g. `0123456789abcdef0123456789abcdef`)
                  to relevant resource configurations for each Vimana domain defined in `resources`.
                  Each value must be a result returned by the `domain` function.
+        setup: List of executable targets to run at the beginning of the test
+               to set up the environment.
         resources: List of K8s resource files (YAML or JSON)
                    to apply in the cluster before running the test.
     """
-    push_names = []
+    setup = setup or [
+        Label("//cluster/tests/setup:deploy-pebble"),
+        Label("//cluster/tests/setup:deploy-etcd-for-external-dns"),
+        Label("//cluster/tests/setup:install-external-dns"),
+        Label("//cluster/tests/setup:patch-corefile"),
+    ]
     domain_names = set()
     for domain_id, domain in domains.items():
         for server_id, server in domain.servers.items():
@@ -73,26 +91,20 @@ def e2e_test(name, executable, gateway, domains = {}, resources = [], **kwargs):
                     version = version,
                     insecure_registries = Label(":registries-insecure"),
                 )
-                push_names.append(push_name)
+                setup.append(":{}".format(push_name))
 
         domain_names.add("{}.app.vimana.host".format(domain_id))
         for alias in domain.aliases:
             domain_names.add(alias)
 
-    certificates_name = "{}.certificates".format(name)
-    self_signed_tls(
-        name = certificates_name,
-        domains = domain_names,
-    )
-
     k8s_cluster_test(
         name = name,
-        objects = resources + [":{}".format(certificates_name)],
-        services = {
-            gateway: domain_names,
-        },
-        setup = [":{}".format(push_name) for push_name in push_names],
-        tags = ["external"],  # Never cache test results.
+        objects = resources,
+        services = {gateway: domain_names},
+        setup = setup,
+        # Never cache test results.
+        # There is no practical way to manage the test cache with the external cluster.
+        tags = ["external"],
         test = executable,
         **kwargs
     )

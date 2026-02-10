@@ -15,6 +15,7 @@ bazel_dep(name = "googleapis", version = "0.0.0-20260130-c0fcb356")
 bazel_dep(name = "googleapis-go", version = "1.0.0")
 bazel_dep(name = "grpc", version = "1.76.0.bcr.1")
 bazel_dep(name = "hermetic_cc_toolchain", version = "4.1.0")
+bazel_dep(name = "jq.bzl", version = "0.6.0")
 bazel_dep(name = "openssl", version = "3.5.5.bcr.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "protobuf", version = "33.5")
@@ -56,12 +57,19 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "3d485d44f2e6087297aa6f154edbc4af4387b919",
+    commit = "c88ec9fca646933a6cfe49245e3a7615d1efe996",
     remote = "https://github.com/vimana-cloud/rules_k8s.git",
 )
 
 environment = use_extension("//dev/rules:environment.bzl", "environment")
 use_repo(environment, "environment")
+
+# Toolchains
+
+jq = use_extension("@jq.bzl//jq:extensions.bzl", "toolchains")
+use_repo(jq, "jq_toolchains")
+
+register_toolchains("@jq_toolchains//:all")
 
 include("//dev:rust-cc-toolchains.MODULE.bazel")
 
