@@ -1,0 +1,19 @@
+// Verify JSON-gRPC transcoding.
+
+syntax = "proto3";
+
+package transcoding;
+
+import "google/api/annotations.proto";
+
+service JsonTranscodingService {
+  rpc Echo(EchoRequest) returns (EchoResponse) {
+    option (google.api.http) = {
+      get : "/echo"
+    };
+  }
+}
+
+message EchoRequest { string message = 1; }
+
+message EchoResponse { string message = 1; }

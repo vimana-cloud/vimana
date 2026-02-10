@@ -75,6 +75,41 @@ py_binary(
     ],
 )
 
+e2e_test(
+    name = "json-test",
+    domains = {
+        "00000000000000000000000000000001": domain(
+            aliases = ["json.test"],
+            servers = {
+                "json-server": server(
+                    versions = {
+                        "1.0.0-alpha": component(
+                            metadata = "//cluster/tests/components:json-vimana",
+                            implementation = "//cluster/tests/components:json",
+                        ),
+                    },
+                ),
+            },
+        ),
+    },
+    executable = ":json",
+    gateway = "the-vimana-gateway",
+    resources = ["json.yaml"],
+    superdomain = "app.test",
+)
+
+py_binary(
+    name = "json",
+    srcs = ["json-test.py"],
+    data = [":json-test.certificates"],
+    main = "json-test.py",
+    deps = [
+        ":util",
+        "@pypi//requests",
+        "@rules_python//python/runfiles",
+    ],
+)
+
 py_library(
     name = "util",
     srcs = ["util.py"],

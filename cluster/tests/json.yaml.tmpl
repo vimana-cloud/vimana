@@ -1,0 +1,49 @@
+apiVersion: api.vimana.host/v1alpha1
+kind: Vimana
+metadata:
+  name: the-vimana
+spec:
+  canonicalSuperdomain: "app.test"
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Domain
+metadata:
+  name: 'json-domain'
+  labels:
+    vimana.host/domain: '00000000000000000000000000000001'
+spec:
+  id: '00000000000000000000000000000001'
+  vimana: the-vimana
+  aliases:
+    - 'json.test'
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Server
+metadata:
+  name: 'json-server'
+  labels:
+    vimana.host/domain: '00000000000000000000000000000001'
+    vimana.host/server: 'json-server'
+spec:
+  id: 'json-server'
+  domain: '00000000000000000000000000000001'
+  services: ["transcoding.JsonTranscodingService"]
+  versionWeights:
+    "1.0.0-alpha": 1
+  json:
+    # Base64-encoded proto descriptor for gRPC-JSON transcoding.
+    protoDescriptorBin: "{{ readFile .ProtoDescriptorPath | b64enc }}"
+---
+apiVersion: api.vimana.host/v1alpha1
+kind: Component
+metadata:
+  name: 'json-component'
+  labels:
+    vimana.host/domain: '00000000000000000000000000000001'
+    vimana.host/server: 'json-server'
+    vimana.host/version: '1.0.0-alpha'
+spec:
+  version: "1.0.0-alpha"
+  server: "json-server"
+  domain: "00000000000000000000000000000001"
+  image: "{{ .RegistryCluster }}/00000000000000000000000000000001/json-server:1.0.0-alpha"

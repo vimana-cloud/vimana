@@ -1,6 +1,7 @@
 load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_wasm//c:defs.bzl", "c_component")
+load("@rules_wasm//go:defs.bzl", "go_component")
 load("@rules_wasm//rust:defs.bzl", "rust_component")
 load("//compiler:defs.bzl", "vimana_protoc")
 
@@ -68,4 +69,24 @@ py_grpc_library(
     name = "wasi-py-grpc",
     srcs = [":wasi-proto"],
     deps = ["wasi-py-pb2"],
+)
+
+go_component(
+    name = "json",
+    srcs = ["json.go"],
+    wit = ":json-vimana",
+    wit_module = "bar/proto/server",
+    world = "server",
+)
+
+vimana_protoc(
+    name = "json-vimana",
+    package = "bar",
+    proto = ":json-proto",
+)
+
+proto_library(
+    name = "json-proto",
+    srcs = ["json.proto"],
+    deps = ["@googleapis//google/api:annotations_proto"],
 )

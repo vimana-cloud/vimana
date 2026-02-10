@@ -46,9 +46,15 @@ const ONEOFS_INTERFACE_NAME: &str = "oneofs";
 /// WASI interface imports to include in the generated world.
 /// These provide standard WASI capabilities to components.
 const WASI_IMPORTS: &[&str] = &[
-    "wasi:http/outgoing-handler@0.2.0",
+    "wasi:cli/environment@0.2.0",
+    "wasi:cli/stderr@0.2.0",
+    "wasi:cli/stdin@0.2.0",
+    "wasi:cli/stdout@0.2.0",
     "wasi:clocks/wall-clock@0.2.0",
     "wasi:clocks/monotonic-clock@0.2.0",
+    "wasi:filesystem/preopens@0.2.0",
+    "wasi:filesystem/types@0.2.0",
+    "wasi:http/outgoing-handler@0.2.0",
     "wasi:random/random@0.2.0",
 ];
 /// Fully-qualified (and versioned) interface name for Vimana gRPC types.
