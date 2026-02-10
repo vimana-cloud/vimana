@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: domains.api.vimana.host
 spec:
   group: api.vimana.host
@@ -85,13 +85,6 @@ spec:
                   Provide an auto-generated OpenAPI Description at `/.well-known/schema.json`
                   covering all the HTTP-transcoded methods of all the servers in the domain.
                 type: boolean
-              regions:
-                description: |-
-                  Subset of regions in which servers within this domain may run.
-                  If empty, they could run anywhere globally.
-                items:
-                  type: string
-                type: array
               vimana:
                 description: |-
                   Resource name of the Vimana under which this domain exists.

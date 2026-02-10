@@ -12,10 +12,13 @@ type VimanaSpec struct {
 	// Important: Run `bazel run //operator:generate` to regenerate code
 	//   after modifying this file.
 
-	// List of names of regions that this cluster is considered a part of.
-	// The cluster will only run pods and only host data
-	// that are cleared for at least 1 of these regions.
-	Regions []string `json:"regions,omitempty"`
+	// If specified, every Domain within the Vimana is assigned a canonical domain
+	// by using the Domain ID to subdomain this "superdomain".
+	// For example, if the canonical superdomain is `vimana.host`
+	// and a Domain has ID `00000000000000000000000000000000`
+	// then the canonical domain for that Domain
+	// would be `00000000000000000000000000000000.vimana.host`.
+	CanonicalSuperdomain string `json:"canonicalSuperdomain,omitempty"`
 }
 
 // VimanaStatus defines the observed state of a Vimana cluster.

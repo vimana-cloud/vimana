@@ -30,6 +30,9 @@ type ServerSpec struct {
 	// Map from version strings to traffic weights.
 	// The traffic proportion is the weight divided by the total of all weights.
 	VersionWeights map[string]int32 `json:"versionWeights,omitempty"`
+
+	// gRPC-JSON transcoding configuration for the server.
+	JSON *ServerJSON `json:"json,omitempty"`
 }
 
 type ServerAuth struct {
@@ -62,6 +65,12 @@ type FeatureFlag struct {
 	//     - string: "good"
 	//       conditions:
 	//         ...
+}
+
+type ServerJSON struct {
+	// Base64-encoded binary proto descriptor set
+	// to use for gRPC-JSON transcoding using the built-in Envoy filter.
+	ProtoDescriptorBin string `json:"protoDescriptorBin,omitempty"`
 }
 
 // ServerStatus defines the observed state of Server

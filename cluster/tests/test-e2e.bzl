@@ -70,6 +70,9 @@ def e2e_test(
                to set up the environment.
         resources: List of K8s resource files (YAML or JSON)
                    to apply in the cluster before running the test.
+        superdomain: The Vimana's canonical superdomain,
+                     used to derive canonical domain names for TLS certificates.
+                     Must match the `canonicalSuperdomain` in the Vimana spec.
     """
     setup = setup or [
         Label("//cluster/tests/setup:deploy-pebble"),
@@ -93,7 +96,8 @@ def e2e_test(
                 )
                 setup.append(":{}".format(push_name))
 
-        domain_names.add("{}.app.vimana.host".format(domain_id))
+        if superdomain:
+            domain_names.add("{}.{}".format(domain_id, superdomain))
         for alias in domain.aliases:
             domain_names.add(alias)
 

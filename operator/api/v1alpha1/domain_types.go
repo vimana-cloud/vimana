@@ -21,10 +21,6 @@ type DomainSpec struct {
 	// List of alias domain names.
 	Aliases []string `json:"aliases,omitempty"`
 
-	// Subset of regions in which servers within this domain may run.
-	// If empty, they could run anywhere globally.
-	Regions []string `json:"regions,omitempty"`
-
 	// List of domain names to forward traffic to in case of an outage.
 	Failover []string `json:"failover,omitempty"`
 

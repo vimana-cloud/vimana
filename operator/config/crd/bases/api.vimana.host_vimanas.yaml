@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: vimanas.api.vimana.host
 spec:
   group: api.vimana.host
@@ -39,14 +39,15 @@ spec:
           spec:
             description: VimanaSpec defines the desired state of a Vimana.
             properties:
-              regions:
+              canonicalSuperdomain:
                 description: |-
-                  List of names of regions that this cluster is considered a part of.
-                  The cluster will only run pods and only host data
-                  that are cleared for at least 1 of these regions.
-                items:
-                  type: string
-                type: array
+                  If specified, every Domain within the Vimana is assigned a canonical domain
+                  by using the Domain ID to subdomain this "superdomain".
+                  For example, if the canonical superdomain is `vimana.host`
+                  and a Domain has ID `00000000000000000000000000000000`
+                  then the canonical domain for that Domain
+                  would be `00000000000000000000000000000000.vimana.host`.
+                type: string
             type: object
           status:
             description: VimanaStatus defines the observed state of a Vimana cluster.

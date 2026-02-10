@@ -22,10 +22,8 @@ var _ = Describe("Vimana Controller", func() {
 		const namespace = "default"
 		const resourceName = "test-resource"
 		const gatewayName = "test-resource-gateway"
-		vimanaRegions := []string{"/us-east", "aws/us-east"}
 		const domainId = "0123456789abcdef0123456789abcdef"
 		domainAliases := []string{"example.com", "foo.bar.whatsittoyouz.net"}
-		domainRegions := []string{"aws/us-east"}
 		domainFailover := []string{}
 		domainOpenApi := false
 
@@ -47,7 +45,7 @@ var _ = Describe("Vimana Controller", func() {
 						Namespace: namespace,
 					},
 					Spec: apiv1alpha1.VimanaSpec{
-						Regions: vimanaRegions,
+						CanonicalSuperdomain: "app.vimana.host",
 					},
 				}
 
@@ -98,7 +96,6 @@ var _ = Describe("Vimana Controller", func() {
 				Spec: apiv1alpha1.DomainSpec{
 					Id:       domainId,
 					Aliases:  domainAliases,
-					Regions:  domainRegions,
 					Failover: domainFailover,
 					Grpc:     apiv1alpha1.DomainGrpc{},
 					OpenApi:  domainOpenApi,

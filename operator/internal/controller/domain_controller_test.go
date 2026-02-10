@@ -22,7 +22,6 @@ var _ = Describe("Domain Controller", func() {
 		const domainId = "0123456789abcdef0123456789abcdef"
 		const vimanaId = "the-vimana"
 		aliases := []string{"example.com", "api.example.fersher.net"}
-		regions := []string{"/us-east", "gcp/us-west1"}
 		failover := []string{"backup.example.fersher.net"}
 
 		ctx := context.Background()
@@ -47,7 +46,6 @@ var _ = Describe("Domain Controller", func() {
 						Id:       domainId,
 						Vimana:   vimanaId,
 						Aliases:  aliases,
-						Regions:  regions,
 						Failover: failover,
 						Grpc: apiv1alpha1.DomainGrpc{
 							Reflection: apiv1alpha1.GrpcReflection{
