@@ -3,6 +3,7 @@ load("@environment//:environment.bzl", "localhost")
 load("@rules_python//python:defs.bzl", "py_library")
 load("@rules_python//python:py_binary.bzl", "py_binary")
 load("//dev/rules:delegating-string-flag.bzl", "delegating_string_flag")
+load("//dev/rules:sprig.bzl", "expand_sprig")
 load(":test-e2e.bzl", "component", "domain", "e2e_test", "server")
 
 e2e_test(
@@ -24,7 +25,7 @@ e2e_test(
     },
     executable = ":mvp",
     gateway = "the-vimana-gateway",
-    resources = ["mvp.yaml"],
+    resources = [":mvp.yaml"],
 )
 
 py_binary(
@@ -38,6 +39,13 @@ py_binary(
         "//cluster/tests/components:mvp-py-pb2",
         "@rules_python//python/runfiles",
     ],
+)
+
+expand_sprig(
+    name = "mvp.yaml",
+    dot = {"RegistryCluster": "$(REGISTRY_CLUSTER)"},
+    template = "mvp.yaml.tmpl",
+    toolchains = [":registry-cluster"],
 )
 
 e2e_test(
@@ -59,7 +67,7 @@ e2e_test(
     },
     executable = ":wasi",
     gateway = "the-vimana-gateway",
-    resources = ["wasi.yaml"],
+    resources = [":wasi.yaml"],
 )
 
 py_binary(
@@ -73,6 +81,13 @@ py_binary(
         "//cluster/tests/components:wasi-py-pb2",
         "@rules_python//python/runfiles",
     ],
+)
+
+expand_sprig(
+    name = "wasi.yaml",
+    dot = {"RegistryCluster": "$(REGISTRY_CLUSTER)"},
+    template = "wasi.yaml.tmpl",
+    toolchains = [":registry-cluster"],
 )
 
 e2e_test(
@@ -94,7 +109,7 @@ e2e_test(
     },
     executable = ":json",
     gateway = "the-vimana-gateway",
-    resources = ["json.yaml"],
+    resources = [":json.yaml"],
     superdomain = "app.test",
 )
 
@@ -108,6 +123,17 @@ py_binary(
         "@pypi//requests",
         "@rules_python//python/runfiles",
     ],
+)
+
+expand_sprig(
+    name = "json.yaml",
+    dot = {
+        "RegistryCluster": "$(REGISTRY_CLUSTER)",
+        "ProtoDescriptorPath": "$(location //cluster/tests/components:json-proto)",
+    },
+    template = "json.yaml.tmpl",
+    toolchains = [":registry-cluster"],
+    deps = ["//cluster/tests/components:json-proto"],
 )
 
 py_library(

@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_binary(
+    name = "expand-sprig",
+    embed = [":sprig-expand"],
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "sprig-expand",
+    srcs = ["sprig-expand.go"],
+    importpath = "vimana.host/dev/bin",
+    deps = ["@com_github_masterminds_sprig_v3//:sprig"],
+)

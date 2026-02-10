@@ -1,6 +1,5 @@
 """Convenience macro and helper functions to handle boilerplate in defining E2E tests."""
 
-load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
 load("@rules_k8s//:test.bzl", "k8s_cluster_test")
 load("//cluster/bootstrap:bootstrap.bzl", "self_signed_tls", "vimana_image_push")
 
@@ -56,11 +55,8 @@ def e2e_test(name, executable, gateway, domains = {}, resources = [], **kwargs):
         domains: Mapping from domain IDs (e.g. `0123456789abcdef0123456789abcdef`)
                  to relevant resource configurations for each Vimana domain defined in `resources`.
                  Each value must be a result returned by the `domain` function.
-        resources: List of filenames of expanded resources files.
-                   For each filename `foo`, a file named `foo.tmpl` must exist.
-                   It is expanded into a file named `foo` by substituting `{{.RegistryCluster}}`
-                   out for the value of the `:registry-cluster` config setting.
-                   These resources are seeded in the cluster before running the test.
+        resources: List of K8s resource files (YAML or JSON)
+                   to apply in the cluster before running the test.
     """
     push_names = []
     domain_names = set()
@@ -83,19 +79,6 @@ def e2e_test(name, executable, gateway, domains = {}, resources = [], **kwargs):
         for alias in domain.aliases:
             domain_names.add(alias)
 
-    resource_targets = []
-    for resource in resources:
-        expand_template(
-            name = resource,
-            out = resource,
-            substitutions = {
-                "{{.RegistryCluster}}": "$(REGISTRY_CLUSTER)",
-            },
-            template = "{}.tmpl".format(resource),
-            toolchains = [Label(":registry-cluster")],
-        )
-        resource_targets.append(":{}".format(resource))
-
     certificates_name = "{}.certificates".format(name)
     self_signed_tls(
         name = certificates_name,
@@ -104,7 +87,7 @@ def e2e_test(name, executable, gateway, domains = {}, resources = [], **kwargs):
 
     k8s_cluster_test(
         name = name,
-        objects = resource_targets + [":{}".format(certificates_name)],
+        objects = resources + [":{}".format(certificates_name)],
         services = {
             gateway: domain_names,
         },
