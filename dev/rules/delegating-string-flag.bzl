@@ -23,7 +23,11 @@ delegating_string_flag = rule(
     },
     doc = "A string-typed build setting that can be set on the command line." +
           " If unset, defaults to the value of a delegate build setting," +
-          " but only if that value is non-empty.",
+          " but only if that value is non-empty." +
+          "" +
+          "This allows expressing multiple build settings, with distinct default values," +
+          " that can be simultaneously overridden by a single flag" +
+          " while all being individually overridable too.",
 )
 
 # The following helper functions are adapted from Skylib.
