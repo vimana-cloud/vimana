@@ -64,6 +64,13 @@ rules:
   - update
   - watch
 - apiGroups:
+  - cert-manager.io
+  resources:
+  - certificates
+  verbs:
+  - create
+  - get
+- apiGroups:
   - gateway.envoyproxy.io
   resources:
   - envoypatchpolicies

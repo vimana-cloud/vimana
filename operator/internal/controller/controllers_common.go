@@ -168,6 +168,11 @@ func ensureResourceHasSpecAndLabels[T client.Object](
 			actual.SetLabels(expectedLabels)
 			needsUpdate = true
 		}
+		expectedAnnotations := expected.GetAnnotations()
+		if !reflect.DeepEqual(actual.GetAnnotations(), expectedAnnotations) {
+			actual.SetAnnotations(expectedAnnotations)
+			needsUpdate = true
+		}
 		if needsUpdate {
 			err = client.Update(ctx, actual)
 			if err != nil {

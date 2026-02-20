@@ -235,29 +235,60 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Construct the Gateway spec.
 	// These values are the same for every listener.
-	allowedRoutes := &gwapi.AllowedRoutes{
-		Kinds: []gwapi.RouteGroupKind{
-			{Kind: gwapi.Kind("GRPCRoute")},
-		},
-	}
 	secretKind := (*gwapi.Kind)(ptr.To("Secret"))
 
-	var listeners []gwapi.Listener
+	certificates := make([]gwapi.SecretObjectReference, 0, len(domains.Items))
 	for _, domain := range domains.Items {
 		namespace := (*gwapi.Namespace)(ptr.To(domain.GetNamespace()))
 		for domainName := range domainNames(&domain, vimana) {
-			listeners = append(listeners, listener(domainName, namespace, allowedRoutes, secretKind))
+			certificates = append(certificates, gwapi.SecretObjectReference{
+				Kind:      secretKind,
+				Name:      gwapi.ObjectName(prefixed(hashed(domainName), 'c')),
+				Namespace: namespace,
+			})
 		}
 	}
 
 	expectedGateway := &gwapi.Gateway{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      gatewayNamespacedName.Name,
-			Namespace: gatewayNamespacedName.Namespace,
+			Name:        gatewayNamespacedName.Name,
+			Namespace:   gatewayNamespacedName.Namespace,
+			Annotations: issuerAnnotations(vimana),
 		},
 		Spec: gwapi.GatewaySpec{
 			GatewayClassName: gatewayClassName,
-			Listeners:        listeners,
+			Listeners: []gwapi.Listener{
+				// The HTTP listener enables ACME HTTP-01 challenge solving.
+				// cert-manager creates temporary cleartext HTTPRoutes
+				// that attach to this listener to serve challenge tokens.
+				// When no HTTPRoutes are attached, clients receive 404 from Envoy.
+				{
+					Name:     "http-clear",
+					Protocol: gwapi.HTTPProtocolType,
+					Port:     80,
+					AllowedRoutes: &gwapi.AllowedRoutes{
+						Kinds: []gwapi.RouteGroupKind{
+							{Kind: gwapi.Kind("HTTPRoute")},
+						},
+					},
+				},
+				// The HTTPS listener handles all data-plane traffic,
+				// including gRPC and the gRPC-JSON transcoder.
+				{
+					Name:     "https",
+					Protocol: gwapi.HTTPSProtocolType,
+					Port:     443,
+					AllowedRoutes: &gwapi.AllowedRoutes{
+						Kinds: []gwapi.RouteGroupKind{
+							{Kind: gwapi.Kind("GRPCRoute")},
+							{Kind: gwapi.Kind("HTTPRoute")},
+						},
+					},
+					TLS: &gwapi.ListenerTLSConfig{
+						CertificateRefs: certificates,
+					},
+				},
+			},
 		},
 	}
 
@@ -279,27 +310,18 @@ func (r *VimanaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return ctrl.Result{}, err
 }
 
-// Return the Gateway Listener object for the given domain name in the given namespace.
-// This will have a specific name that looks like `l-<hash>` with the hex-encoded SHA-256 hash of the domain name;
-// guaranteed valid and *probably* unique per domain.
-// The associated certificate is expected to have the name `c-<hash>` for the same reasons.
-func listener(domain string, namespace *gwapi.Namespace, allowedRoutes *gwapi.AllowedRoutes, secretKind *gwapi.Kind) gwapi.Listener {
-	hashHex := hashed(domain)
-	return gwapi.Listener{
-		Name:     gwapi.SectionName(prefixed(hashHex, 'l')),
-		Protocol: gwapi.HTTPSProtocolType,
-		Port:     443,
-		Hostname: (*gwapi.Hostname)(ptr.To(domain)),
-		TLS: &gwapi.ListenerTLSConfig{
-			CertificateRefs: []gwapi.SecretObjectReference{
-				{
-					Kind:      secretKind,
-					Name:      gwapi.ObjectName(prefixed(hashHex, 'c')),
-					Namespace: namespace,
-				},
-			},
-		},
-		AllowedRoutes: allowedRoutes,
+// Return the cert-manager annotations for the Gateway based on the Vimana's issuer reference.
+// Returns nil if no issuer is configured.
+func issuerAnnotations(vimana *apiv1alpha1.Vimana) map[string]string {
+	ref := vimana.Spec.IssuerRef
+	if ref == nil {
+		return nil
+	}
+	switch ref.Kind {
+	case "ClusterIssuer":
+		return map[string]string{"cert-manager.io/cluster-issuer": ref.Name}
+	default:
+		return map[string]string{"cert-manager.io/issuer": ref.Name}
 	}
 }
 

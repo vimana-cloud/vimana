@@ -175,8 +175,24 @@ var _ = Describe("Vimana Controller", func() {
 					GatewayClassName: "envoy-gateway",
 					Listeners: []gwapi.Listener{
 						{
-							Name:     "l-2faea48d4e045fe446ced7b27c43b8b700df1dc879a010aa2eef1b1b",
-							Hostname: (*gwapi.Hostname)(ptr.To(domainId + ".app.vimana.host")),
+							Name:     "http-clear",
+							Port:     80,
+							Protocol: "HTTP",
+							AllowedRoutes: &gwapi.AllowedRoutes{
+								Namespaces: &gwapi.RouteNamespaces{
+									From:     (*gwapi.FromNamespaces)(ptr.To("Same")),
+									Selector: nil,
+								},
+								Kinds: []gwapi.RouteGroupKind{
+									{
+										Group: (*gwapi.Group)(ptr.To("gateway.networking.k8s.io")),
+										Kind:  "HTTPRoute",
+									},
+								},
+							},
+						},
+						{
+							Name:     "https",
 							Port:     443,
 							Protocol: "HTTPS",
 							TLS: &gwapi.ListenerTLSConfig{
@@ -188,60 +204,12 @@ var _ = Describe("Vimana Controller", func() {
 										Name:      "c-2faea48d4e045fe446ced7b27c43b8b700df1dc879a010aa2eef1b1b",
 										Namespace: (*gwapi.Namespace)(ptr.To(namespace)),
 									},
-								},
-								Options: nil,
-							},
-							AllowedRoutes: &gwapi.AllowedRoutes{
-								Namespaces: &gwapi.RouteNamespaces{
-									From:     (*gwapi.FromNamespaces)(ptr.To("Same")),
-									Selector: nil,
-								},
-								Kinds: []gwapi.RouteGroupKind{
-									{
-										Group: (*gwapi.Group)(ptr.To("gateway.networking.k8s.io")),
-										Kind:  "GRPCRoute",
-									},
-								},
-							},
-						},
-						{
-							Name:     "l-79a39cdf648170c4d55ca8e36fc9084353b9114a879f07d08bceaf47",
-							Hostname: (*gwapi.Hostname)(ptr.To("example.com")),
-							Port:     443,
-							Protocol: "HTTPS",
-							TLS: &gwapi.ListenerTLSConfig{
-								Mode: (*gwapi.TLSModeType)(ptr.To("Terminate")),
-								CertificateRefs: []gwapi.SecretObjectReference{
 									{
 										Group:     (*gwapi.Group)(ptr.To("")),
 										Kind:      (*gwapi.Kind)(ptr.To("Secret")),
 										Name:      "c-79a39cdf648170c4d55ca8e36fc9084353b9114a879f07d08bceaf47",
 										Namespace: (*gwapi.Namespace)(ptr.To(namespace)),
 									},
-								},
-								Options: nil,
-							},
-							AllowedRoutes: &gwapi.AllowedRoutes{
-								Namespaces: &gwapi.RouteNamespaces{
-									From:     (*gwapi.FromNamespaces)(ptr.To("Same")),
-									Selector: nil,
-								},
-								Kinds: []gwapi.RouteGroupKind{
-									{
-										Group: (*gwapi.Group)(ptr.To("gateway.networking.k8s.io")),
-										Kind:  "GRPCRoute",
-									},
-								},
-							},
-						},
-						{
-							Name:     "l-92ab40422e6b25e262ad453164d1cf7641a70c43e4f0f73b9da4547d",
-							Hostname: (*gwapi.Hostname)(ptr.To("foo.bar.whatsittoyouz.net")),
-							Port:     443,
-							Protocol: "HTTPS",
-							TLS: &gwapi.ListenerTLSConfig{
-								Mode: (*gwapi.TLSModeType)(ptr.To("Terminate")),
-								CertificateRefs: []gwapi.SecretObjectReference{
 									{
 										Group:     (*gwapi.Group)(ptr.To("")),
 										Kind:      (*gwapi.Kind)(ptr.To("Secret")),
@@ -260,6 +228,10 @@ var _ = Describe("Vimana Controller", func() {
 									{
 										Group: (*gwapi.Group)(ptr.To("gateway.networking.k8s.io")),
 										Kind:  "GRPCRoute",
+									},
+									{
+										Group: (*gwapi.Group)(ptr.To("gateway.networking.k8s.io")),
+										Kind:  "HTTPRoute",
 									},
 								},
 							},

@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -19,6 +20,13 @@ type VimanaSpec struct {
 	// then the canonical domain for that Domain
 	// would be `00000000000000000000000000000000.vimana.host`.
 	CanonicalSuperdomain string `json:"canonicalSuperdomain,omitempty"`
+
+	// Reference to a cert-manager Issuer or ClusterIssuer
+	// used to provision TLS certificates for the Gateway.
+	// When set, the Gateway is annotated so that cert-manager
+	// automatically creates Certificate resources for each listener.
+	// Only `Name` and `Kind` are used.
+	IssuerRef *corev1.ObjectReference `json:"issuerRef,omitempty"`
 }
 
 // VimanaStatus defines the observed state of a Vimana cluster.

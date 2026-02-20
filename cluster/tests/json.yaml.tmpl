@@ -4,6 +4,9 @@ metadata:
   name: the-vimana
 spec:
   canonicalSuperdomain: "app.test"
+  issuerRef:
+    name: pebble
+    kind: ClusterIssuer
 ---
 apiVersion: api.vimana.host/v1alpha1
 kind: Domain

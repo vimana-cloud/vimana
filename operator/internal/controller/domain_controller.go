@@ -10,7 +10,9 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -73,6 +75,7 @@ func envoyPatchPolicyCopySpec(receiver, giver *envoygateway.EnvoyPatchPolicy) {
 // +kubebuilder:rbac:groups=api.vimana.host,resources=servers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=grpcroutes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.envoyproxy.io,resources=envoypatchpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -310,28 +313,8 @@ func (r *DomainReconciler) reconcileGatewayJsonPatch(
 		return fmt.Errorf("Failed to marshal transcoder config: %w", err)
 	}
 
-	jsonPatches := make([]envoygateway.EnvoyJSONPatchConfig, 0, len(domain.Spec.Aliases)+1)
 	gatewayName := gatewayName(domain.Spec.Vimana)
-	for domainName := range domainNames(domain, vimana) {
-		listenerSectionName := prefixed(hashed(domainName), 'l')
-		listenerName := fmt.Sprintf("%s/%s/%s", request.Namespace, gatewayName, listenerSectionName)
-		jsonPatches = append(
-			jsonPatches,
-			envoygateway.EnvoyJSONPatchConfig{
-				Type: envoygateway.ListenerEnvoyResourceType,
-				Name: listenerName,
-				Operation: envoygateway.JSONPatchOperation{
-					Op: "add",
-					// Insert at the beginning of the HTTP filter chain,
-					// before the router filter.
-					Path: ptr.To("/default_filter_chain/filters/0/typed_config/http_filters/0"),
-					Value: &apiextensionsv1.JSON{
-						Raw: transcoderJSON,
-					},
-				},
-			},
-		)
-	}
+	listenerName := fmt.Sprintf("%s/%s/https", request.Namespace, gatewayName)
 
 	expectedPatchPolicy := &envoygateway.EnvoyPatchPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -348,7 +331,21 @@ func (r *DomainReconciler) reconcileGatewayJsonPatch(
 				Kind:  "Gateway",
 				Name:  gwapiv1.ObjectName(gatewayName),
 			},
-			JSONPatches: jsonPatches,
+			JSONPatches: []envoygateway.EnvoyJSONPatchConfig{
+				{
+					Type: envoygateway.ListenerEnvoyResourceType,
+					Name: listenerName,
+					Operation: envoygateway.JSONPatchOperation{
+						Op: "add",
+						// Insert before the router filter.
+						Path: ptr.To(
+							"/filter_chains/0/filters/0/typed_config/http_filters/0"),
+						Value: &apiextensionsv1.JSON{
+							Raw: transcoderJSON,
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -374,6 +371,57 @@ func (r *DomainReconciler) reconcileCertificates(
 	vimana *apiv1alpha1.Vimana,
 	domain *apiv1alpha1.Domain,
 ) error {
+	if vimana.Spec.IssuerRef == nil {
+		return nil
+	}
+
+	for domainName := range domainNames(domain, vimana) {
+		certName := prefixed(hashed(domainName), 'c')
+		namespacedName := types.NamespacedName{
+			Name:      certName,
+			Namespace: request.Namespace,
+		}
+
+		existing := &unstructured.Unstructured{}
+		existing.SetGroupVersionKind(schema.GroupVersionKind{
+			Group:   "cert-manager.io",
+			Version: "v1",
+			Kind:    "Certificate",
+		})
+		err := r.Get(ctx, namespacedName, existing)
+		if err == nil {
+			continue // already exists
+		}
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+
+		cert := &unstructured.Unstructured{}
+		cert.SetGroupVersionKind(schema.GroupVersionKind{
+			Group:   "cert-manager.io",
+			Version: "v1",
+			Kind:    "Certificate",
+		})
+		cert.SetName(certName)
+		cert.SetNamespace(request.Namespace)
+		cert.Object["spec"] = map[string]any{
+			"secretName": certName,
+			"dnsNames":   []any{domainName},
+			"issuerRef": map[string]any{
+				"name":  vimana.Spec.IssuerRef.Name,
+				"kind":  vimana.Spec.IssuerRef.Kind,
+				"group": "cert-manager.io",
+			},
+		}
+
+		if err = ctrl.SetControllerReference(domain, cert, r.Scheme); err != nil {
+			return err
+		}
+		if err = r.Create(ctx, cert); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

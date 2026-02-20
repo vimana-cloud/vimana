@@ -2,7 +2,10 @@ apiVersion: api.vimana.host/v1alpha1
 kind: Vimana
 metadata:
   name: the-vimana
-spec: {}
+spec:
+  issuerRef:
+    name: pebble
+    kind: ClusterIssuer
 ---
 apiVersion: api.vimana.host/v1alpha1
 kind: Domain
