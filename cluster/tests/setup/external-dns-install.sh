@@ -1,6 +1,12 @@
 # Install the ExternalDNS Helm chart in the current cluster.
 # https://kubernetes-sigs.github.io/external-dns/latest/
 
+# Skip if already deployed; multiple tests may run this setup step in parallel.
+if "$helm" status external-dns --namespace='kube-system' 2>/dev/null | grep -q 'STATUS: deployed'
+then
+  exit 0
+fi
+
 # Configure ExternalDNS to watch for DNSEndpoint CRDs
 # and write SkyDNS-formatted entries to etcd.
 # Silence some noisy warnings about normal symlinks in the Bazel sandbox.
