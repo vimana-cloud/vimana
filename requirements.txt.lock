@@ -348,9 +348,9 @@ google-auth==2.47.0 \
     #   google-api-core
     #   google-cloud-compute
     #   google-cloud-os-login
-google-cloud-compute==1.42.0 \
-    --hash=sha256:08b1dbc5758baa5491087bcefb574e59d911520b714eda79b4ebf1cb429d8d98 \
-    --hash=sha256:a244bf6ca3cc1bbd45b400eccba40864879b84d78125b59d42b9be1ed74582b2
+google-cloud-compute==1.43.0 \
+    --hash=sha256:113fd6a5e1832e5d032b94e391c3bd7e3b06e1bee0ed6665085dfefffb41360a \
+    --hash=sha256:cbf25521cffff64bced7b8ce2ccde4d95c72edb6d95b566bbf9c116abd2a45b8
     # via -r requirements.txt
 google-cloud-os-login==2.19.0 \
     --hash=sha256:7210257aa325609785a673bd5aa57f3464caa5e22b1d93ec80228c97dc6ca0ba \
@@ -646,9 +646,9 @@ requests-oauthlib==2.0.0 \
     --hash=sha256:7dd8a5c40426b779b0868c404bdef9768deccf22749cde15852df527e6269b36 \
     --hash=sha256:b3dffaebd884d8cd778494369603a9e7b58d29111bf6b41bdc2dcd87203af4e9
     # via kubernetes
-rich==14.3.0 \
-    --hash=sha256:0b8c1e368c1125b9e993c2d2f1342802525f4853fc6dac2e8e9e88bac0f45bce \
-    --hash=sha256:b75e54d3abbcc49137e83e4db54dc86c5e47687eebc95aa0305363231a36e699
+rich==14.3.2 \
+    --hash=sha256:08e67c3e90884651da3239ea668222d19bea7b589149d8014a21c633420dbb69 \
+    --hash=sha256:e712f11c1a562a11843306f5ed999475f09ac31ffb64281f73ab29ffdda8b3b8
     # via -r requirements.txt
 rpds-py==0.26.0 \
     --hash=sha256:0919f38f5542c0a87e7b4afcafab6fd2c15386632d249e9a087498571250abe3 \

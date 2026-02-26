@@ -10,5 +10,6 @@ go_library(
     name = "sprig-expand",
     srcs = ["sprig-expand.go"],
     importpath = "vimana.host/dev/bin",
+    visibility = ["//visibility:private"],
     deps = ["@com_github_masterminds_sprig_v3//:sprig"],
 )

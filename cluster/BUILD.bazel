@@ -8,8 +8,8 @@ py_binary(
     data = [
         ":vimanad-fetch.sh.tmpl",
         "//operator:deploy",
-        "@rules_k8s//:cert-manager-helm-export",
-        "@rules_k8s//:envoy-gateway-helm-export",
+        "@rules_k8s//:cert-manager-helm-chart",
+        "@rules_k8s//:envoy-gateway-helm-chart",
         "@rules_k8s//:helm",
         "@rules_k8s//:kops",
     ],
