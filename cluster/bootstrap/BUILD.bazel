@@ -1,5 +1,4 @@
 load("@rules_python//python:defs.bzl", "py_binary")
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 py_binary(
     name = "push-image",
@@ -7,17 +6,4 @@ py_binary(
     main = "image-push.py",
     visibility = ["//visibility:public"],
     deps = ["//dev/lib:util-python"],
-)
-
-sh_binary(
-    name = "self-signed-tls",
-    srcs = ["self-signed-tls.sh"],
-    args = [
-        "$(location @rules_k8s//:tls-generate)",
-        "$(location @openssl)",
-    ],
-    data = [
-        "@openssl",
-        "@rules_k8s//:tls-generate",
-    ],
 )

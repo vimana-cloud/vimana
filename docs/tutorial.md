@@ -149,7 +149,8 @@ Vimana provides an easy script for that:
 
 ```bash
 bazel run //cluster/bootstrap:push-image -- \
-  --repository=http://localhost:5000/hello-world-example \
+  --repository=localhost:5000/hello-world-example \
+  --insecure-registry=localhost:5000 \
   --version=1.0.0 \
   --component="$(pwd)/tmp/component.wasm" \
   --metadata="$(pwd)/tmp/metadata.binpb"
@@ -183,21 +184,41 @@ This convenient command chain:
 
 Vimana currently insists on using TLS at the gateway.
 This doesn't have to be scary, though,
-because it comes with a script to conveniently manage self-signed certificates
+because `cert-manager` can automatically issue self-signed certificates
 for testing:
 
-```bash
-# Generate the root CA credentials
-# and TLS credentials for the domain `mvp.test` as a K8s `Secret` object.
-bazel run //cluster/bootstrap:self-signed-tls -- \
-  "$(pwd)/tmp/self-signed-root.key" \
-  "$(pwd)/tmp/self-signed-root.cert" \
-  "$(pwd)/tmp/self-signed-certificates.json" \
-  00000000000000000000000000000001.app.vimana.host \
-  mvp.test
-
-# Upload the domain's TLS credentials to the cluster.
-kubectl apply -f "$(pwd)/tmp/self-signed-certificates.json"
+```yaml
+# Bootstrap issuer used only to sign the CA certificate below.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}
+---
+# CA certificate for signing endpoint TLS certificates.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: test-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: test-ca
+  secretName: test-ca
+  issuerRef:
+    name: selfsigned
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# ClusterIssuer for endpoint TLS certificates.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: test-issuer
+spec:
+  ca:
+    secretName: test-ca
 ```
 
 ## 6. Run the Service
