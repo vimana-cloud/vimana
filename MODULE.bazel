@@ -57,7 +57,7 @@ git_override(
 bazel_dep(name = "rules_k8s")
 git_override(
     module_name = "rules_k8s",
-    commit = "c88ec9fca646933a6cfe49245e3a7615d1efe996",
+    commit = "267bc4be3400a43df11b6636e30851706b5f3f75",
     remote = "https://github.com/vimana-cloud/rules_k8s.git",
 )
 

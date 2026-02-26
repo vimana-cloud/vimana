@@ -1,0 +1,110 @@
+# Configure cert-manager to automatically issue TLS certificates for DNSEndpoints
+# using a self-signed CA.
+# This is the fastest option.
+# A more faithful, but slower, option is to use `pebble.yaml` instead,
+# which exercises the ACME flow using a test ACME server implementation.
+
+# Bootstrap issuer used only to sign the CA certificate below.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}
+---
+# CA certificate for signing test-domain TLS certificates.
+# Stored in the cert-manager namespace,
+# because that is where CA ClusterIssuers must read their signing key from.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: test-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: test-ca
+  secretName: test-ca
+  issuerRef:
+    name: selfsigned
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# ClusterIssuer for test TLS certificates.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  # The special name `test-issuer` is used here, and in `pebble.yaml`, and in the tests.
+  name: test-issuer
+spec:
+  ca:
+    secretName: test-ca
+---
+# Set up a fake "Pebble" management server that only serves the path `/roots/0` on port 15000
+# using the contents of the secret called `test-ca`.
+# This provides uniform access to the root CA no matter which issuer the test is using.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pebble
+  namespace: cert-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pebble
+  template:
+    metadata:
+      labels:
+        app: pebble
+    spec:
+      containers:
+      - name: nginx-bridge
+        image: nginx:alpine
+        ports:
+        - name: management
+          containerPort: 15000
+        volumeMounts:
+        - name: ca-tls
+          mountPath: /certs
+          readOnly: true
+        - name: ca-content
+          mountPath: /usr/share/nginx/html/roots
+          readOnly: true
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            cat > /etc/nginx/nginx.conf << 'EOF'
+            events {}
+            http {
+              server {
+                listen 15000 ssl;
+                ssl_certificate /certs/tls.crt;
+                ssl_certificate_key /certs/tls.key;
+                root /usr/share/nginx/html;
+              }
+            }
+            EOF
+            nginx -g 'daemon off;'
+      volumes:
+      - name: ca-tls
+        secret:
+          secretName: test-ca
+      - name: ca-content
+        secret:
+          secretName: test-ca
+          items:
+          - key: tls.crt
+            path: "0"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pebble
+  namespace: cert-manager
+spec:
+  selector:
+    app: pebble
+  ports:
+  - name: management
+    port: 15000
+    targetPort: management

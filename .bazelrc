@@ -13,3 +13,7 @@ build:release --compilation_mode=opt --strip=always --stamp
 
 # Building `protoc` from source on Mac requires this minimum OS version.
 build:macos --host_cxxopt='-mmacosx-version-min=10.13'
+
+# Use --config=pebble to run end-to-end tests using Pebble
+# and a proper ACME flow (better coverage, higher latency).
+test:pebble --//cluster/tests:issuer-setup=//cluster/tests/setup:deploy-pebble

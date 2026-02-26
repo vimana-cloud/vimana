@@ -1,8 +1,9 @@
 """Test harness and helper functions for E2E tests."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import cache
 from sys import stderr
+from time import sleep
 from typing import Optional
 from unittest import TestCase
 
@@ -33,15 +34,26 @@ class E2eTestCase(TestCase):
     @classmethod
     @cache
     def additionalCas(cls) -> Optional[bytes]:
-        # Pull the CA certificate from Pebble if it's running.
+        # Pull the CA certificate from the pebble management service.
         # https://github.com/letsencrypt/pebble/blob/v2.9.0/README.md#ca-root-and-intermediate-certificates
-        return cls.getFromService(
-            namespace='acme',
-            name='pebble',
-            path='roots/0',
-            port=15000,
-            scheme='https',
-        )
+        # Retry for up to 30 seconds since the pod may not be ready immediately.
+        deadline = datetime.now() + timedelta(seconds=15)
+        interval = timedelta(seconds=1)
+        while True:
+            if datetime.now() > deadline:
+                return None
+            result = cls.getFromService(
+                namespace='cert-manager',
+                name='pebble',
+                path='roots/0',
+                port=15000,
+                scheme='https',
+            )
+            if result is not None:
+                return result
+            if deadline - datetime.now() < interval:
+                return None
+            sleep(interval.total_seconds())
 
     @classmethod
     def getFromService(
@@ -69,6 +81,7 @@ class E2eTestCase(TestCase):
                 name=name,
                 path=path,
             ).encode()
+
         except ApiException as error:
             if error.status == 404:
                 print(
@@ -80,3 +93,4 @@ class E2eTestCase(TestCase):
                     f'Error connecting to service proxy for {namespace}/{name}: {error}',
                     file=stderr,
                 )
+            return None

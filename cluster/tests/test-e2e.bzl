@@ -52,6 +52,7 @@ def e2e_test(
         domains = {},
         setup = None,
         resources = [],
+        tags = [],
         **kwargs):
     """
     Convenience macro to set up and define an end-to-end test.
@@ -75,7 +76,7 @@ def e2e_test(
                      Must match the `canonicalSuperdomain` in the Vimana spec.
     """
     setup = setup or [
-        Label("//cluster/tests/setup:deploy-pebble"),
+        Label("//cluster/tests:issuer-setup"),
         Label("//cluster/tests/setup:deploy-etcd-for-external-dns"),
         Label("//cluster/tests/setup:install-external-dns"),
         Label("//cluster/tests/setup:patch-corefile"),
@@ -106,9 +107,9 @@ def e2e_test(
         objects = resources,
         services = {gateway: domain_names},
         setup = setup,
-        # Never cache test results.
-        # There is no practical way to manage the test cache with the external cluster.
-        tags = ["external"],
+        # The `external` tag causes the test to never cache its results.
+        # There is no practical way to manage the test cache with an external cluster.
+        tags = tags + ["external"],
         test = executable,
         **kwargs
     )

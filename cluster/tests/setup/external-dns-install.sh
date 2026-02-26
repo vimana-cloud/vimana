@@ -11,6 +11,6 @@
   --set=sources='{crd}' \
   --set=extraArgs.coredns-prefix='/skydns/' \
   --set=env[0].name=ETCD_URLS \
-  --set='env[0].value=http://etcd-server.acme.svc.cluster.local:2379' \
+  --set='env[0].value=http://etcd-server.cert-manager.svc.cluster.local:2379' \
   --set=rbac.create=true \
   2> >(sed '/found symbolic link in path\. Contents of linked file included and used/d' >&2)

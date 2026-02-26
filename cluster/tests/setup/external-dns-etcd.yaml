@@ -5,7 +5,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: etcd-server
-  namespace: acme
+  namespace: cert-manager
 spec:
   replicas: 1
   selector:
@@ -23,7 +23,7 @@ spec:
         - etcd
         args:
         - --listen-client-urls=http://0.0.0.0:2379
-        - --advertise-client-urls=http://etcd-server.acme.svc.cluster.local:2379
+        - --advertise-client-urls=http://etcd-server.cert-manager.svc.cluster.local:2379
         - --data-dir=/var/lib/etcd
         ports:
         - name: client
@@ -33,7 +33,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: etcd-server
-  namespace: acme
+  namespace: cert-manager
 spec:
   selector:
     app: etcd-server

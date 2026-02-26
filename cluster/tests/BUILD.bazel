@@ -194,3 +194,12 @@ repeatable_string_flag(
     name = "registries-insecure",
     build_setting_default = [registry_host_default],
 )
+
+# The issuer setup action to run before each test.
+# Defaults to the fast self-signed auto-issuer.
+# to exercise the full ACME HTTP-01 challenge flow with Pebble, override to:
+#     //cluster/tests/setup:deploy-pebble
+label_flag(
+    name = "issuer-setup",
+    build_setting_default = "//cluster/tests/setup:deploy-auto-issuer",
+)

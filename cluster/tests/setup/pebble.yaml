@@ -1,35 +1,22 @@
 # [Pebble](https://github.com/letsencrypt/pebble)
 # is the light-weight testing implementation of an ACME test server.
-# Installing it in the cluster is necessary to run end-to-end tests,
-# because they need to assign hostnames internally over CoreDNS
-# in order to complete the challenges to provision TLS certificates (from Pebble).
-# In a production cluster, you should instead just hook it up to Let's Encrypt.
+# Installing it in the cluster increases end-to-end test coverage
+# by exercising the cert-manager machinery properly,
+# compared to the auto-issuer setup.
 
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: acme
----
+# ClusterIssuer for test TLS certificates, backed by Pebble's ACME server.
 # https://cert-manager.io/docs/reference/api-docs/#cert-manager.io/v1.ClusterIssuer
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: pebble
+  # The special name `test-issuer` is used here, and in `auto-issuer.yaml`, and in the tests.
+  name: test-issuer
 spec:
   acme:
     email: user@pebble.test
-    server: https://pebble.acme.svc.cluster.local:14000/dir
+    server: https://pebble.cert-manager.svc.cluster.local:14000/dir
     skipTLSVerify: true
     privateKeySecretRef:
-      # Secret resource that will be used to store the account's private key.
-      # This is your identity with your ACME provider.
-      # Any secret name may be chosen.
-      # It will be populated with data automatically,
-      # so generally nothing further needs to be done with the secret.
-      # If you lose this identity/secret,
-      # you will be able to generate a new one
-      # and generate certificates for any/all domains managed using your previous account,
-      # but you will be unable to revoke any certificates generated using that previous account.
       name: pebble-account-key
     # Pebble auto-validates all challenges (PEBBLE_VA_ALWAYS_VALID),
     # but cert-manager still requires a solver to be configured.
@@ -43,7 +30,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: pebble-config
-  namespace: acme
+  namespace: cert-manager
 data:
   pebble-config.json: |
     {
@@ -63,7 +50,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: pebble
-  namespace: acme
+  namespace: cert-manager
 spec:
   replicas: 1
   selector:
@@ -89,6 +76,7 @@ spec:
         # Automatically approve any requests.
         - name: PEBBLE_VA_ALWAYS_VALID
           value: "1"
+        # Skip validation delays.
         - name: PEBBLE_VA_NOSLEEP
           value: "1"
         volumeMounts:
@@ -105,7 +93,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: pebble
-  namespace: acme
+  namespace: cert-manager
 spec:
   selector:
     app: pebble

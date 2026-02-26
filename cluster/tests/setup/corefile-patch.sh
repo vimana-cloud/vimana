@@ -1,7 +1,7 @@
 # Patch the CoreDNS Corefile.
 
 # Patch CoreDNS' Corefile to include an etcd source,
-# pointing to a dedicated etcd instance called 'acme/etcd-server'.
+# pointing to a dedicated etcd instance called 'cert-manager/etcd-server'.
 # This works in concert with ExternalDNS,
 # which will keep the etcd directory up-to-date in SkyDNS format
 # according to declared DNSEndpoint resources.
@@ -29,8 +29,8 @@ jq="$(rlocation "${jq#external/}")"
 # Look up the etcd server's ClusterIP so that CoreDNS can connect to it
 # without needing to resolve a hostname via DNS (which it can't do for its own
 # cluster-internal names during bootstrap).
-etcd_ip="$("$kubectl" get service etcd-server --namespace='acme' --output=jsonpath='{.spec.clusterIP}')" || {
-  echo >&2 "Failed to look up etcd-server service ClusterIP in namespace 'acme'."
+etcd_ip="$("$kubectl" get service etcd-server --namespace='cert-manager' --output=jsonpath='{.spec.clusterIP}')" || {
+  echo >&2 "Failed to look up etcd-server service ClusterIP in namespace 'cert-manager'."
   exit 1
 }
 
@@ -90,7 +90,8 @@ function corefile-augment {
   if [[ "$corefile" == *"$augmentation"* ]]
   then
     echo >&2 "CoreDNS already patched for end-to-end testing"
-    exit 0
+    # Use this magic status code to indicate "all good".
+    return 66
   fi
 
   # Insert the augmentation above the trigger line.
@@ -104,4 +105,8 @@ function corefile-augment {
   rm -f "$script"
 }
 
-corefile-patch corefile-augment
+corefile-patch corefile-augment || {
+  status=$?
+  # Check for the magic "all good" status code.
+  [[ $status == 66 ]] || exit $status
+}

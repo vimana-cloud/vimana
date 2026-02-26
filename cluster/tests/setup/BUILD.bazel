@@ -9,6 +9,11 @@ kubectl_apply(
 )
 
 kubectl_apply(
+    name = "deploy-auto-issuer",
+    srcs = [":auto-issuer.yaml"],
+)
+
+kubectl_apply(
     name = "deploy-etcd-for-external-dns",
     srcs = [":external-dns-etcd.yaml"],
 )
