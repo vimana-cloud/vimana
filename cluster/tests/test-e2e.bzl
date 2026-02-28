@@ -47,7 +47,7 @@ def component(implementation, metadata):
 def e2e_test(
         name,
         executable,
-        gateway,
+        vimana,
         superdomain = "",
         domains = {},
         setup = None,
@@ -60,7 +60,7 @@ def e2e_test(
     Args:
         name: Name for the E2E test target.
         executable: Exectuable target that exercises and tests a Vimana cluster.
-        gateway: Name of the single gateway defined in the seed resources.
+        vimana: The name of the Vimana resource for this test.
         superdomain: The Vimana's canonical superdomain,
                      used to derive canonical domain names for TLS certificates.
                      Must match the `canonicalSuperdomain` in the Vimana spec.
@@ -102,10 +102,18 @@ def e2e_test(
         for alias in domain.aliases:
             domain_names.add(alias)
 
+    # The Vimana operator always gives the Gateway the same name as the Vimana
+    # plus the `-gateway` suffix.
+    gateway_name = "{}-gateway".format(vimana)
     k8s_cluster_test(
         name = name,
         objects = resources,
-        services = {gateway: domain_names},
+        gateway_domains = {
+            gateway_name: domain_names,
+        },
+        gateway_service_selectors = {
+            gateway_name: "gateway.envoyproxy.io/owning-gateway-name={}".format(gateway_name),
+        },
         setup = setup,
         # The `external` tag causes the test to never cache its results.
         # There is no practical way to manage the test cache with an external cluster.

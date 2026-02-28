@@ -25,8 +25,8 @@ e2e_test(
         ),
     },
     executable = ":mvp",
-    gateway = "the-vimana-gateway",
     resources = [":mvp.yaml"],
+    vimana = "the-vimana",
 )
 
 py_binary(
@@ -66,8 +66,8 @@ e2e_test(
         ),
     },
     executable = ":wasi",
-    gateway = "the-vimana-gateway",
     resources = [":wasi.yaml"],
+    vimana = "the-vimana",
 )
 
 py_binary(
@@ -107,9 +107,9 @@ e2e_test(
         ),
     },
     executable = ":json",
-    gateway = "the-vimana-gateway",
     resources = [":json.yaml"],
     superdomain = "app.test",
+    vimana = "the-vimana",
 )
 
 py_binary(

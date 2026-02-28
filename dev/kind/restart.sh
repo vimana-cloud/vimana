@@ -131,7 +131,6 @@ echo >&2 'Done'
 # https://gateway.envoyproxy.io/docs/tasks/operations/gateway-namespace-mode/.
 "$helm" install \
   envoy-gateway "$envoy_gateway_helm_chart" \
-  --set=config.envoyGateway.provider.kubernetes.deploy.type=GatewayNamespace \
   --set=config.envoyGateway.extensionApis.enableEnvoyPatchPolicy=true \
   --namespace=envoy-gateway-system \
   --create-namespace
