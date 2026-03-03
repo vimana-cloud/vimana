@@ -3,13 +3,6 @@ module(name = "vimana")
 bazel_dep(name = "buildifier_prebuilt", version = "8.2.1.2", dev_dependency = True, repo_name = "buildtools")
 
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
-single_version_override(
-    module_name = "bazel_skylib",
-    # TODO: Delete this patch once functionality is upstreamed.
-    #   https://github.com/bazelbuild/bazel-skylib/issues/442
-    patches = ["//dev/patches:skylib-expand-template-make-variables.patch"],
-)
-
 bazel_dep(name = "gazelle", version = "0.47.0")
 bazel_dep(name = "googleapis", version = "0.0.0-20260130-c0fcb356")
 bazel_dep(name = "googleapis-go", version = "1.0.0")
