@@ -81,15 +81,15 @@ py_grpc_library(
 
 proto_library(
     name = "cri-api-proto",
-    # TODO: Use `copy_file` to import the Protobuf source file (see below).
+    # TODO: Use `copy_file` to import the Protobuf source file.
+    #    https://github.com/grpc/grpc/issues/41792
     srcs = ["api.proto"],
 )
 
-# Copy the source Protobuf because importing externally is broken:
+# Copy the source Protobuf because importing externally is broken.
 # https://github.com/bazelbuild/rules_python/issues/1679
-# At least this could be used instead of checking in the CRI API proto.
 #copy_file(
 #    name = "cri-api.proto",
-#    src = "@cri-api//pkg/apis/runtime/v1:api.proto",
+#    src = "@rules_k8s//:cri-api-source",
 #    out = "api.proto",
 #)

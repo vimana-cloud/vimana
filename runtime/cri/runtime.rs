@@ -14,8 +14,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
-use api_proto::runtime::v1;
-use api_proto::runtime::v1::runtime_service_server::RuntimeService;
+use cri_api_proto::runtime::v1;
+use cri_api_proto::runtime::v1::runtime_service_server::RuntimeService;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, async_trait};
 

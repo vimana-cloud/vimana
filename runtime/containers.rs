@@ -15,8 +15,8 @@ use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
 
 use anyhow::{Context, Error, Result, anyhow};
-use api_proto::runtime::v1;
 use bytes::Bytes;
+use cri_api_proto::runtime::v1;
 use futures::Stream;
 use prost::Message;
 use reqwest::header::ACCEPT;

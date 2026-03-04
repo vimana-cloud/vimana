@@ -112,7 +112,7 @@ rust_prost_library(
 
 rust_prost_library(
     name = "cri-api-prost",
-    proto = "@cri-api//pkg/apis/runtime/v1:api-proto",
+    proto = "@rules_k8s//:cri-api-proto",
 )
 
 # Cross-compile the runtime binary to deploy it to most cloud hardware.

@@ -40,19 +40,9 @@ bazel_dep(name = "rules_rust", version = "0.68.1")
 bazel_dep(name = "rules_rust_prost", version = "0.68.1")
 bazel_dep(name = "rules_shell", version = "0.6.1")
 bazel_dep(name = "rules_wasm", version = "2.1.1")
-bazel_dep(name = "cri-api")
-git_override(
-    module_name = "cri-api",
-    commit = "c133bdabf253886f640d764d1748aa9ac644ab1c",
-    remote = "https://github.com/vimana-cloud/cri-api.git",
-)
 
-bazel_dep(name = "rules_k8s")
-git_override(
-    module_name = "rules_k8s",
-    commit = "048baf4296831413ad145977b9b6fd527724d517",
-    remote = "https://github.com/vimana-cloud/rules_k8s.git",
-)
+# Fetched from a custom Bzlmod registry hosted on GitHub Pages.
+bazel_dep(name = "rules_k8s", version = "ca5a144")
 
 environment = use_extension("//dev/rules:environment.bzl", "environment")
 use_repo(environment, "environment")

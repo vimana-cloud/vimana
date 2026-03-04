@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::io::{Error as IoError, ErrorKind};
 
 use anyhow::{Context, Result, anyhow};
-use api_proto::runtime::v1;
-use api_proto::runtime::v1::image_service_server::ImageService;
+use cri_api_proto::runtime::v1;
+use cri_api_proto::runtime::v1::image_service_server::ImageService;
 use lazy_static::lazy_static;
 use regex::Regex;
 use tokio_stream::StreamExt;

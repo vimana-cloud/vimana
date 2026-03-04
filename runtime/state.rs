@@ -23,7 +23,7 @@ use wasmtime::Engine as WasmEngine;
 use crate::containers::ContainerStore;
 use crate::ipam::{IpAddress, Ipam};
 use crate::pods::{GRPC_PORT, PodInitializer, SharedResultFuture};
-use api_proto::runtime::v1::{ContainerMetadata, ImageSpec, PodSandboxMetadata};
+use cri_api_proto::runtime::v1::{ContainerMetadata, ImageSpec, PodSandboxMetadata};
 use logging::{log_info, log_warn};
 use names::{ComponentName, PodId, PodName};
 

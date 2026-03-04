@@ -23,11 +23,11 @@ use std::path::Path;
 use std::result::Result as StdResult;
 
 use anyhow::Context;
-use api_proto::runtime::v1::image_service_client::ImageServiceClient;
-use api_proto::runtime::v1::image_service_server::ImageServiceServer;
-use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
-use api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
 use clap::Parser;
+use cri_api_proto::runtime::v1::image_service_client::ImageServiceClient;
+use cri_api_proto::runtime::v1::image_service_server::ImageServiceServer;
+use cri_api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
+use cri_api_proto::runtime::v1::runtime_service_server::RuntimeServiceServer;
 use futures::FutureExt;
 use hyper_util::rt::TokioIo;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;

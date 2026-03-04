@@ -9,11 +9,11 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use api_proto::runtime::v1;
-use api_proto::runtime::v1::image_service_client::ImageServiceClient;
-use api_proto::runtime::v1::image_service_server::ImageService;
-use api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
-use api_proto::runtime::v1::runtime_service_server::RuntimeService;
+use cri_api_proto::runtime::v1;
+use cri_api_proto::runtime::v1::image_service_client::ImageServiceClient;
+use cri_api_proto::runtime::v1::image_service_server::ImageService;
+use cri_api_proto::runtime::v1::runtime_service_client::RuntimeServiceClient;
+use cri_api_proto::runtime::v1::runtime_service_server::RuntimeService;
 use papaya::HashSet as LockFreeConcurrentHashSet;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::spawn;

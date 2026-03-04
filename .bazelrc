@@ -1,3 +1,8 @@
+# Add custom registries in addition to the BCR.
+# Bazel checks these in order from first to last.
+common --registry=https://vimana-cloud.github.io/rules_k8s
+common --registry=https://bcr.bazel.build
+
 # Enable `--config=macos` automatically on Mac, `--config=linux` on Linux.
 common --enable_platform_specific_config
 
