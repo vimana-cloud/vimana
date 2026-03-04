@@ -24,7 +24,7 @@
         {
             "label": "bazel: Build Current File",
             "type": "shell",
-            "command": "./dev/file.sh",
+            "command": "./dev/bin/file.sh",
             "args": [
                 "build",
                 "${relativeFile}"
@@ -40,7 +40,7 @@
         {
             "label": "bazel: Test Current File",
             "type": "shell",
-            "command": "./dev/file.sh",
+            "command": "./dev/bin/file.sh",
             "args": [
                 "test",
                 "${relativeFile}"

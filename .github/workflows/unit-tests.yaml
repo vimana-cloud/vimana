@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Set up environment
-        run: ./dev/container-setup.sh
+        run: ./dev/bin/container-setup.sh
 
       - name: Build everything
         run: |

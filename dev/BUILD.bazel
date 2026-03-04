@@ -1,5 +1,4 @@
 load("@buildtools//:rules.bzl", "buildifier")
-load("@rules_python//python:defs.bzl", "py_binary")
 
 # Format all Bazel files.
 buildifier(
@@ -9,22 +8,6 @@ buildifier(
     ],
     lint_mode = "fix",
     mode = "fix",
-)
-
-py_binary(
-    name = "upgrade-dependencies",
-    srcs = ["dependencies-upgrade.py"],
-    data = [
-        "@buildtools//:buildozer",
-        "@rules_go//go",
-    ],
-    main = "dependencies-upgrade.py",
-    deps = [
-        "//dev/lib:util-python",
-        "@pypi//packaging",
-        "@pypi//tomlkit",
-        "@rules_python//python/runfiles",
-    ],
 )
 
 # The following 4 platforms may be targeted explicitly from various execution platforms.

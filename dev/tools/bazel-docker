@@ -134,7 +134,7 @@ function start-bazel {
   docker exec \
     --user=0 \
     "$bazel_name" \
-    bash -c "$(< "${repository_root}/dev/container-setup.sh")"
+    bash -c "$(< "${repository_root}/dev/bin/container-setup.sh")"
 }
 ensure-container-running "$bazel_name" start-bazel
 

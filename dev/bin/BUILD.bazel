@@ -1,4 +1,21 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "upgrade-dependencies",
+    srcs = ["dependencies-upgrade.py"],
+    data = [
+        "@buildtools//:buildozer",
+        "@rules_go//go",
+    ],
+    main = "dependencies-upgrade.py",
+    deps = [
+        "//dev/lib:util-python",
+        "@pypi//packaging",
+        "@pypi//tomlkit",
+        "@rules_python//python/runfiles",
+    ],
+)
 
 go_binary(
     name = "expand-sprig",
