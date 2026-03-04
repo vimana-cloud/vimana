@@ -44,22 +44,47 @@ bazel_dep(name = "rules_wasm", version = "2.1.1")
 # Fetched from a custom Bzlmod registry hosted on GitHub Pages.
 bazel_dep(name = "rules_k8s", version = "ca5a144")
 
+# BoringSSL is a transitive dependency,
+# but the version(s) in the dependency graph are old
+# and fail(s) to build against modern versions of GlibC.
+# Opt for a newer version.
+bazel_dep(name = "boringssl", version = "0.20260211.0")
+
+# Determine information about the environment Bazel is running in,
+# like whether it's running inside a container.
 environment = use_extension("//dev/rules:environment.bzl", "environment")
 use_repo(environment, "environment")
 
-# Toolchains
+# Download hermetic CC toolchains for each supported execution platform,
+# and create all Rust cross-compilation toolchain repositories.
+toolchains = use_extension("//dev/rules:toolchains.bzl", "toolchains")
+use_repo(toolchains, "vimana_toolchains", "zig_sdk")
 
 jq = use_extension("@jq.bzl//jq:extensions.bzl", "toolchains")
 use_repo(jq, "jq_toolchains")
 
-register_toolchains("@jq_toolchains//:all")
-
-include("//dev:rust-cc-toolchains.MODULE.bazel")
+register_toolchains(
+    # Only register libc-aware C++ toolchains so that zig is used exclusively for musl targets,
+    # not for host tool builds (where the system toolchain is fine).
+    # On MacOS, the native clang toolchain can always cross-compile.
+    "@zig_sdk//libc_aware/toolchain/...",
+    # On Linux platforms, both the target toolchain *and* the more-permissive exec toolchain
+    # would match when building against musl.
+    # Bazel selects the first matching toolchain,
+    # so by registering the musl-specific toolchains first,
+    # we can cause them to be matched preferentially.
+    # https://github.com/bazelbuild/rules_rust/issues/3831
+    # Pattern: rust.{exec_triple}.{target_triple}__{target_triple}__nightly
+    "@vimana_toolchains//:rust.x86_64-unknown-linux-gnu.x86_64-unknown-linux-musl__x86_64-unknown-linux-musl__nightly",
+    "@vimana_toolchains//:rust.x86_64-unknown-linux-gnu.aarch64-unknown-linux-musl__aarch64-unknown-linux-musl__nightly",
+    "@vimana_toolchains//:rust.aarch64-unknown-linux-gnu.x86_64-unknown-linux-musl__x86_64-unknown-linux-musl__nightly",
+    "@vimana_toolchains//:rust.aarch64-unknown-linux-gnu.aarch64-unknown-linux-musl__aarch64-unknown-linux-musl__nightly",
+    "@vimana_toolchains//:all",
+    "@jq_toolchains//:all",
+    "//:protoc-rust-toolchain",
+)
 
 # Rust setup:
-
-# Register Prost Protobuf toolchain.
-register_toolchains("//:protoc-rust-toolchain")
 
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 crate.from_cargo(
@@ -155,7 +180,7 @@ pip.parse(
 )
 use_repo(pip, "pypi")
 
-# Docker setup
+# Docker setup:
 
 oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 
