@@ -95,6 +95,7 @@ async fn initialize_grpc(
     let linker = grpc_linker(&wasmtime)?;
     let instantiator = linker
         .instantiate_pre(&container.component)
+        .map_err(Error::from)
         .context("Linking error")?;
 
     let mut service_router = Routes::default().into_axum_router();

@@ -15,6 +15,7 @@ from typing import Dict
 
 from packaging.requirements import Requirement, SpecifierSet
 from python.runfiles import Runfiles
+from requests import get
 from tomlkit import dump as dumpToml
 from tomlkit import load as loadToml
 
@@ -25,6 +26,13 @@ runfiles = Runfiles.Create()
 # Absolute paths to tool binaries.
 BUILDOZER_PATH = realpath(runfiles.Rlocation('buildtools/buildozer/buildozer'))
 GO_PATH = realpath(runfiles.Rlocation('rules_go/go/tools/go_bin_runner/bin/go'))
+
+# Bazel registries to check for module version updates.
+# Should be the same values in the same order as the registries specified in `.bazelrc`.
+BAZEL_REGISTRIES = [
+    'https://vimana-cloud.github.io/rules_k8s',
+    'https://bcr.bazel.build',
+]
 
 
 def main(bazel: bool = True, rust: bool = True, python: bool = True, go: bool = True):
@@ -48,6 +56,21 @@ def main(bazel: bool = True, rust: bool = True, python: bool = True, go: bool = 
             upgradeGoModules()
 
 
+def latestBazelVersion(name: str) -> str:
+    """
+    Return the latest valid version of the named module
+    that's available in any of the Bazel registries.
+    """
+    for registry in BAZEL_REGISTRIES:
+        response = get(f'{registry}/modules/{name}/metadata.json')
+        if response.ok:
+            response = response.json()
+            for version in reversed(response.get('versions', [])):
+                if version not in response.get('yanked_versions', {}):
+                    return version
+    raise RuntimeError(f"No valid versions found for Bazel module '{name}'")
+
+
 def upgradeBazelModules():
     # Read the name and version of each `bazel_dep` in `MODULE.bazel`.
     result = runOrDie(
@@ -67,12 +90,7 @@ def upgradeBazelModules():
             )
             continue
 
-        # Get the latest version from the registry.
-        latestVersion = requestOrDie(
-            'GET',
-            f'https://raw.githubusercontent.com/bazelbuild/bazel-central-registry/main/modules/{name}/metadata.json',
-        ).json()['versions'][-1]
-
+        latestVersion = latestBazelVersion(name)
         if currentVersion != latestVersion:
             updates.append(
                 f'replace version {currentVersion} {latestVersion}|//MODULE.bazel:{name}\n'
@@ -254,7 +272,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # If no languages were specified,
-    # upgrade dependencies for all languages.
+    # upgrade dependencies for all languages by default.
     if not any([args.bazel, args.rust, args.python, args.go]):
         args.rust = args.bazel = args.python = args.go = True
 

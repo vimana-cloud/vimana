@@ -201,9 +201,6 @@ async fn main() -> StdResult<(), Box<dyn StdError>> {
     // A new instance of the default engine for this runtime.
     let wasmtime = WasmEngine::new(
         WasmConfig::new()
-            // Allow host functions to be `async` Rust.
-            // Means you have to use `Func::call_async` instead of `Func::call`.
-            .async_support(true)
             // Epoch interruption for preemptive multithreading.
             // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.epoch_interruption
             //.epoch_interruption(true)

@@ -10,11 +10,11 @@ name = "runtime"
 path = "runtime"
 
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.102"
 axum = "0.8.8"
 bytes = "1.11.1"
-clap = { version = "4.5.57", features = ["derive"] }
-futures = "0.3.31"
+clap = { version = "4.5.60", features = ["derive"] }
+futures = "0.3.32"
 heck = "0.5.0"
 http = "1.4.0"
 http-body = "1.0.1"
@@ -34,21 +34,21 @@ prost-types = "0.14.3"
 protoc-gen-prost = "0.5.0"
 protoc-gen-tonic = "0.5.0"
 regex = "1.12.3"
-reqwest = { version = "0.13.1", features = ["blocking", "json"] }
+reqwest = { version = "0.13.2", features = ["blocking", "json"] }
 rtnetlink = "0.20.0"
 semver = "1.0.27"
 serde = "1.0.228"
 serde_json = { version = "1.0.149", features = ["std"] }
 sha2 = "0.11.0-rc.5"
-tokio = { version = "1.49.0", features = ["macros", "process", "rt-multi-thread", "signal", "fs", "sync"] }
+tokio = { version = "1.50.0", features = ["macros", "process", "rt-multi-thread", "signal", "fs", "sync"] }
 tokio-stream = { version = "0.1.18", features = ["net"] }
-tonic = "0.14.3"
-tonic-prost = "0.14.3"
+tonic = "0.14.5"
+tonic-prost = "0.14.5"
 tower = "0.5.3"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["json"] }
 url = "2.5.8"
-wasmtime = "41.0.3"
-wasmtime-wasi = "41.0.3"
-wasmtime-wasi-http = "41.0.3"
-wit-encoder = "0.244.0"
+wasmtime = "42.0.1"
+wasmtime-wasi = "42.0.1"
+wasmtime-wasi-http = "42.0.1"
+wit-encoder = "0.245.1"

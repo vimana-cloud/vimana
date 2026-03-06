@@ -252,6 +252,7 @@ impl ContainerStore {
         .context("Failed joining blocking thread to read image")??;
 
         let component = unsafe { Component::deserialize(&self.wasmtime, &serialized_component) }
+            .map_err(Error::from)
             .with_context(|| {
                 format!(
                     "Failed deserializing component (length = {})",
@@ -558,6 +559,7 @@ impl ContainerClient {
                 .await
                 .with_context(|| format!("Failure fetching component: {:?}", url))?,
         )
+        .map_err(Error::from)
         .context("Component compilation error")
     }
 
