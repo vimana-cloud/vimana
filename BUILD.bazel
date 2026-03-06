@@ -75,7 +75,7 @@ rust_prost_toolchain(
 )
 
 toolchain(
-    name = "protoc-rust-toolchain",
+    name = "prost-toolchain",
     toolchain = "prost-toolchain-impl",
     toolchain_type = "@rules_rust_prost//:toolchain_type",
 )

@@ -81,7 +81,7 @@ register_toolchains(
     "@vimana_toolchains//:rust.aarch64-unknown-linux-gnu.aarch64-unknown-linux-musl__aarch64-unknown-linux-musl__nightly",
     "@vimana_toolchains//:all",
     "@jq_toolchains//:all",
-    "//:protoc-rust-toolchain",
+    "//:prost-toolchain",
 )
 
 # Rust setup:
