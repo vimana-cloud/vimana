@@ -67,10 +67,7 @@ rust_binary(
 rust_library(
     name = "names",
     srcs = ["names.rs"],
-    visibility = [
-        ":__subpackages__",
-        "//compiler/tests:__pkg__",
-    ],
+    visibility = ["//visibility:public"],
     deps = [
         "@crates//:anyhow",
         "@crates//:lazy_static",

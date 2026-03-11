@@ -174,9 +174,9 @@ impl DomainUuid {
         }
     }
 
-    pub fn new(bytes: &[u8; 16]) -> Self {
+    pub fn new(bytes: [u8; 16]) -> Self {
         Self {
-            uuid: u8x16::from_array(*bytes),
+            uuid: u8x16::from_array(bytes),
         }
     }
 }
