@@ -235,6 +235,15 @@ impl<'a> WitFile<'a> {
         );
 
         for used_type in into_sorted_set_values(types_used) {
+            // Compile the referenced type if it hasn't been compiled yet.
+            // This handles types that only appear as service method inputs or outputs,
+            // but are never referenced as a field type of any compiled message.
+            let (type_descriptor, type_syntax) = self
+                .descriptors
+                .get_message(&used_type)
+                .ok_or_else(|| anyhow!("Unknown type {used_type}"))?;
+            self.compile_message(type_descriptor, &used_type.qualifier, type_syntax)?;
+
             service.use_type(
                 used_type.use_type_target(&used_type.qualifier == package_qualifier),
                 used_type.use_item(),
