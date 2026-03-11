@@ -1,19 +1,19 @@
 use std::fs::File;
 
+use server::bar::proto::types::{Empty, StringRequest, U64Request};
+use server::exports::wasi_exercise::Guest;
+use server::vimana::grpc::types::{Context, Status, StatusCode};
 use server::wasi::clocks::wall_clock::now;
 use server::wasi::http::outgoing_handler::handle as http_handle;
 use server::wasi::http::types::{Headers, OutgoingRequest, Scheme};
 use server::wasi::io::poll::poll;
 use url::Url;
 
-use server::bar::proto::types::{ResultResponse, StringRequest, U64Request};
-use server::exports::wasi_exercise::Guest;
-use server::vimana::grpc::types::Context;
-
 struct WasiExercise;
+server::export!(WasiExercise);
 
 impl Guest for WasiExercise {
-    fn assert_no_filesystem(request: StringRequest, _context: Context) -> ResultResponse {
+    fn assert_no_filesystem(request: StringRequest, _context: Context) -> Result<Empty, Status> {
         result_fail(if File::open(&request.input).is_ok() {
             "File can be opened via stdlib"
         } else if File::create(&request.input).is_ok() {
@@ -23,7 +23,7 @@ impl Guest for WasiExercise {
         })
     }
 
-    fn assert_internet_access(request: StringRequest, _context: Context) -> ResultResponse {
+    fn assert_internet_access(request: StringRequest, _context: Context) -> Result<Empty, Status> {
         result_fail(if let Ok(url) = Url::parse(&request.input) {
             let http_request = OutgoingRequest::new(Headers::new());
             let scheme = match url.scheme() {
@@ -64,7 +64,7 @@ impl Guest for WasiExercise {
         })
     }
 
-    fn assert_clock_access(request: U64Request, _context: Context) -> ResultResponse {
+    fn assert_clock_access(request: U64Request, _context: Context) -> Result<Empty, Status> {
         let seconds = now().seconds;
         const DELTA: u64 = 3;
         result_fail(
@@ -77,18 +77,13 @@ impl Guest for WasiExercise {
     }
 }
 
-fn result_pass() -> ResultResponse {
-    ResultResponse {
-        passed: true,
-        reason: String::default(),
-    }
+fn result_pass() -> Result<Empty, Status> {
+    Ok(Empty { empty: None })
 }
 
-fn result_fail<S: Into<String>>(reason: S) -> ResultResponse {
-    ResultResponse {
-        passed: false,
-        reason: reason.into(),
-    }
+fn result_fail<S: Into<String>>(message: S) -> Result<Empty, Status> {
+    Err(Status {
+        code: StatusCode::Internal,
+        message: message.into(),
+    })
 }
-
-server::export!(WasiExercise);

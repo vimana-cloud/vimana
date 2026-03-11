@@ -12,9 +12,9 @@ world server {
   import wasi:http/outgoing-handler@0.2.0;
   import wasi:random/random@0.2.0;
   export all-scalars-service: interface {
-    use vimana:grpc/types@0.0.0.{ context };
+    use vimana:grpc/types@0.0.0.{ context, status };
     use types.{ all-scalars-type };
-    do-something: func(request: all-scalars-type, context: context) -> all-scalars-type;
+    do-something: func(request: all-scalars-type, context: context) -> result<all-scalars-type, status>;
   }
 }
 

@@ -1,5 +1,7 @@
 //! General server boilerplate for all data-plane services.
 
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
@@ -12,13 +14,14 @@ use axum::routing::method_routing::post;
 use futures::FutureExt;
 use futures::future::Shared;
 use http::{Request as HttpRequest, Response as HttpResponse};
+use lazy_static::lazy_static;
 use tokio::task::spawn;
 use tonic::body::Body;
 use tonic::codec::{Codec as TonicCodec, EnabledCompressionEncodings};
 use tonic::metadata::KeyAndValueRef;
 use tonic::server::{Grpc, UnaryService};
 use tonic::service::Routes;
-use tonic::{Request as TonicRequest, Response as TonicResponse, Status};
+use tonic::{Code, Request as TonicRequest, Response as TonicResponse, Status};
 use wasmtime::component::{ComponentExportIndex, InstancePre, Val};
 use wasmtime::{Engine as WasmEngine, Store};
 
@@ -27,7 +30,7 @@ use crate::state::SingleUse;
 use decode::RequestDecoder;
 use encode::ResponseEncoder;
 use host::{HostState, grpc_linker};
-use logging::log_warn;
+use logging::{log_error, log_warn};
 use metadata_proto::vimana::runtime::ProtoMessage;
 use names::ComponentName;
 
@@ -313,11 +316,95 @@ impl UnaryService<Val> for Method {
                     Status::internal("Function invocation error")
                 })?;
 
-            let response = TonicResponse::new(
-                // Should be safe to pop since we initialized it with an item.
-                results.pop().unwrap(),
-            );
-            Ok(response)
+            // Should be safe to pop `results` since we initialized it with an item.
+            if let Val::Result(result) = results.pop().unwrap() {
+                match result {
+                    Ok(response) => {
+                        if let Some(response) = response {
+                            Ok(TonicResponse::new(*response))
+                        } else {
+                            // This should be impossible.
+                            Err(Status::internal("RPC returned no response"))
+                        }
+                    }
+                    // An error status was returned by the component.
+                    Err(status) => {
+                        if let Some(status) = status {
+                            Err(convert_status(status.as_ref(), method.0.component.as_ref()))
+                        } else {
+                            // This should be impossible.
+                            Err(Status::internal("RPC returned no status"))
+                        }
+                    }
+                }
+            } else {
+                // This would indicate a breaking change in the compiler
+                // that was not properly handled.
+                Err(Status::internal("RPC method has unexpected type signature"))
+            }
         })
     }
+}
+
+/// Convert a Wasm component value representing a gRPC Status
+/// to Tonic's representation of a Status.
+#[cold]
+fn convert_status(status: &Val, component: &ComponentName) -> Status {
+    lazy_static! {
+        static ref CODE_MAP: HashMap<&'static str, Code> = HashMap::from([
+            ("ok", Code::Ok),
+            ("cancelled", Code::Cancelled),
+            ("unknown", Code::Unknown),
+            ("invalid-argument", Code::InvalidArgument),
+            ("deadline-exceeded", Code::DeadlineExceeded),
+            ("not-found", Code::NotFound),
+            ("already-exists", Code::AlreadyExists),
+            ("permission-denied", Code::PermissionDenied),
+            ("resource-exhausted", Code::ResourceExhausted),
+            ("failed-precondition", Code::FailedPrecondition),
+            ("aborted", Code::Aborted),
+            ("out-of-range", Code::OutOfRange),
+            ("unimplemented", Code::Unimplemented),
+            ("internal", Code::Internal),
+            ("unavailable", Code::Unavailable),
+            ("data-loss", Code::DataLoss),
+            ("unauthenticated", Code::Unauthenticated),
+        ]);
+    }
+
+    // Default fields for an error status.
+    let mut code = Code::Internal;
+    let mut message = Cow::from("");
+
+    if let Val::Record(status) = status {
+        for (field, value) in status {
+            match field.as_ref() {
+                "code" => {
+                    if let Val::Enum(value) = value {
+                        if let Some(value) = CODE_MAP.get(value.as_str()) {
+                            code = *value;
+                        } else {
+                            log_error!(component: component, "Unexpected status code value: {:?}", value);
+                        }
+                    } else {
+                        log_error!(component: component, "Unexpected status code type: {:?}", value);
+                    }
+                }
+                "message" => {
+                    if let Val::String(value) = value {
+                        message = Cow::from(value);
+                    } else {
+                        log_error!(component: component, "Unexpected status message type: {:?}", value);
+                    }
+                }
+                _ => {
+                    log_error!(component: component, "Unexpected status field: {:?}", field);
+                }
+            }
+        }
+    } else {
+        message = Cow::from("RPC method returned unexpected error type");
+    }
+
+    Status::new(code, message)
 }

@@ -8,7 +8,7 @@ use prost_types::compiler::code_generator_response::File;
 use prost_types::field_descriptor_proto::{Label, Type as ProtoType};
 use prost_types::{DescriptorProto, EnumDescriptorProto, ServiceDescriptorProto};
 use wit_encoder::{
-    Enum, Field, Ident, Interface, NestedPackage, Package, PackageName, Params, Record,
+    Enum, Field, Ident, Interface, NestedPackage, Package, PackageName, Params, Record, Result_,
     StandaloneFunc, Type, TypeDef, TypeDefKind, Variant, VariantCase, World, WorldItem,
     WorldNamedInterface,
 };
@@ -60,8 +60,10 @@ const WASI_IMPORTS: &[&str] = &[
 /// Fully-qualified (and versioned) interface name for Vimana gRPC types.
 /// This must exactly match the values in `grpc.wit`.
 const VIMANA_GRPC_TYPES_TARGET: &str = "vimana:grpc/types@0.0.0";
-/// ame of the context type within the interface identified by [`VIMANA_GRPC_TYPES_TARGET`].
+/// Name of the context type within the interface identified by [`VIMANA_GRPC_TYPES_TARGET`].
 const VIMANA_GRPC_TYPES_CONTEXT_ITEM: &str = "context";
+/// Name of the status type within the interface identified by [`VIMANA_GRPC_TYPES_TARGET`].
+const VIMANA_GRPC_TYPES_STATUS_ITEM: &str = "status";
 
 /// Name of the context parameter of each method handler function.
 const CONTEXT_PARAMETER_NAME: &str = "context";
@@ -211,9 +213,10 @@ impl<'a> WitFile<'a> {
                 .into_iter()
                 .collect::<Params>(),
             );
-            function.set_result(Some(Type::Named(Ident::from(
-                response_type.name.to_kebab_case(),
-            ))));
+            function.set_result(Some(Type::Result(Box::new(Result_::both(
+                Type::Named(Ident::from(response_type.name.to_kebab_case())),
+                Type::Named(Ident::from(VIMANA_GRPC_TYPES_STATUS_ITEM)),
+            )))));
             service.function(function);
 
             types_used.insert(request_type);
@@ -223,6 +226,11 @@ impl<'a> WitFile<'a> {
         service.use_type(
             VIMANA_GRPC_TYPES_TARGET,
             VIMANA_GRPC_TYPES_CONTEXT_ITEM,
+            None,
+        );
+        service.use_type(
+            VIMANA_GRPC_TYPES_TARGET,
+            VIMANA_GRPC_TYPES_STATUS_ITEM,
             None,
         );
 

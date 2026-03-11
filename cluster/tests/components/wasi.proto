@@ -13,26 +13,26 @@ service WasiExercise {
   // Components should *not* have filesystem access.
   // The test passes if opening the file at the given path fails
   // and trying to create the file at the given path also fails.
-  rpc AssertNoFilesystem(StringRequest) returns (ResultResponse) {}
+  rpc AssertNoFilesystem(StringRequest) returns (Empty) {}
 
   // Components should have internet access.
   // The test passes if GET-requesting the given URL
   // returns a successful response.
-  rpc AssertInternetAccess(StringRequest) returns (ResultResponse) {}
+  rpc AssertInternetAccess(StringRequest) returns (Empty) {}
 
   // Components should have clock access.
   // The test passes if the current UNIX time in the componentj
   // is within 3 seconds of the given UNIX time.
-  rpc AssertClockAccess(U64Request) returns (ResultResponse) {}
+  rpc AssertClockAccess(U64Request) returns (Empty) {}
 }
 
-message ResultResponse {
-  // Whether the test case was successful.
-  bool passed = 1;
-  // If the test case failed, this is the reason why.
-  string reason = 2;
-}
+// RPCs in this service generally represent test cases
+// that simply return empty responses on success.
+// On failure, they would return a failed gRPC Status.
+message Empty {}
 
+// A generic request type that includes a string.
 message StringRequest { string input = 1; }
 
+// A generic request type that includes a 64-bit unsigned integer.
 message U64Request { uint64 input = 1; }

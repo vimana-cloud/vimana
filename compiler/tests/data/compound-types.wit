@@ -12,9 +12,9 @@ world server {
   import wasi:http/outgoing-handler@0.2.0;
   import wasi:random/random@0.2.0;
   export compound-types-service: interface {
-    use vimana:grpc/types@0.0.0.{ context };
+    use vimana:grpc/types@0.0.0.{ context, status };
     use types.{ inner-message, outer-message };
-    do-a-thing: func(request: outer-message, context: context) -> inner-message;
+    do-a-thing: func(request: outer-message, context: context) -> result<inner-message, status>;
   }
 }
 
