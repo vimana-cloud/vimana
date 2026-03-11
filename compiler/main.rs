@@ -23,8 +23,14 @@ const SUPPORTED_FEATURES: u64 = Feature::Proto3Optional as u64;
 pub(crate) struct PluginParameters {
     /// Ignore group-typed fields in proto2 instead of failing.
     pub(crate) ignore_groups: bool,
+
     /// Ignore required fields in proto2 instead of failing.
     pub(crate) ignore_required: bool,
+
+    /// Support empty Protobuf messages
+    /// by inserting an unused value in the generated record type definition.
+    /// but only when used exclusively for request / response types.
+    pub(crate) allow_empty: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -83,6 +89,7 @@ impl PluginParameters {
         let result = Self {
             ignore_groups: parameters.remove("ignore-groups"),
             ignore_required: parameters.remove("ignore-required"),
+            allow_empty: parameters.remove("allow-empty"),
         };
         if !parameters.is_empty() {
             bail!(

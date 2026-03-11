@@ -25,7 +25,7 @@ class ProtocOutput:
     metadata: str
 
 
-def protoc(*files, include=None) -> ProtocOutput:
+def protoc(*files, include=None, vimanaOptions=None) -> ProtocOutput:
     """
     Helper method to invoke `protoc` with the Vimana plugin.
 
@@ -35,6 +35,11 @@ def protoc(*files, include=None) -> ProtocOutput:
     """
     includeOptions = [f'--proto_path={path}' for path in (include or [])]
 
+    if vimanaOptions is None:
+        vimanaOptions = []
+    else:
+        vimanaOptions = [f'--vimana_opt={",".join(vimanaOptions)}']
+
     with TemporaryDirectory() as output:
         # Generate the actual results by invoking `protoc`.
         run(
@@ -42,6 +47,7 @@ def protoc(*files, include=None) -> ProtocOutput:
                 PROTOC_PATH,
                 f'--plugin={abspath(PLUGIN_PATH)}',
                 f'--vimana_out={output}',
+                *vimanaOptions,
                 *includeOptions,
                 *files,
             ],

@@ -51,6 +51,7 @@ rust_component(
 
 vimana_protoc(
     name = "wasi-vimana",
+    allow_empty = True,
     package = "bar",
     proto = ":wasi-proto",
 )

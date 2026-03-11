@@ -28,8 +28,13 @@ def _proto_to_wit_package_name(proto_name):
 
 def _vimana_protoc_impl(ctx):
     parameters = []
+    if ctx.attr.allow_empty:
+        parameters.append("allow-empty")
     if ctx.attr.ignore_unsupported_features:
-        parameters.append("--vimana_opt=ignore-groups,ignore-required")
+        parameters.extend(["ignore-groups", "ignore-required"])
+    if parameters:
+        parameters = ["--vimana_opt={}".format(",".join(parameters))]
+
     protoc = ctx.toolchains[PROTOC_TOOLCHAIN].proto.proto_compiler
     proto_info = ctx.attr.proto[ProtoInfo]
 
@@ -80,6 +85,11 @@ vimana_protoc = rule(
         "package": attr.string(
             doc = "The Protobuf package name of the services being compiled.",
             mandatory = True,
+        ),
+        "allow_empty": attr.bool(
+            doc = "Support compiling empty messages by automatically adding a dummy field." +
+                  " The Component Model does not support empty record types.",
+            default = False,
         ),
         "ignore_unsupported_features": attr.bool(
             doc = "Rather than failing with an error for unsupported field types," +

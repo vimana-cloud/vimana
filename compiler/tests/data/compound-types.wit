@@ -22,6 +22,9 @@ interface types {
   use foo:bar-baz:quux:proto/inner-message/a-container/types.{ empty-message };
   use foo:bar-baz:quux:proto/outer-message/types.{ test-interface-namespacing };
   use foo:bar-baz:quux:proto/outer-message/oneofs.{ dilemma };
+  record inner-message {
+    another-layer: empty-message,
+  }
   enum friend {
     myself,
     alyssa,
@@ -30,9 +33,6 @@ interface types {
     eva,
     lem,
     louis,
-  }
-  record inner-message {
-    another-layer: empty-message,
   }
   record outer-message {
     inner: inner-message,
@@ -45,7 +45,9 @@ interface types {
 package foo:bar-baz:quux:proto/inner-message/a-container {
 
   interface types {
-    record empty-message {    }
+    record empty-message {
+      empty: option<string>,
+    }
   }
 }
 

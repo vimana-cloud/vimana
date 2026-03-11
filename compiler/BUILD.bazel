@@ -9,7 +9,9 @@ rust_binary(
     ],
     binary_name = "protoc-gen-vimana",
     compile_data = ["//compiler/wit:deps"],
-    rustc_env = {"WIT_DEPENDENCIES": "$(location //compiler/wit:deps)"},
+    rustc_env = {
+        "WIT_DEPENDENCIES": "$(location //compiler/wit:deps)",
+    },
     visibility = ["//visibility:public"],
     deps = [
         "//runtime:metadata-prost",

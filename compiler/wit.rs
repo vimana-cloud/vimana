@@ -68,6 +68,10 @@ const CONTEXT_PARAMETER_NAME: &str = "context";
 /// Name of the request parameter of each method handler function.
 const REQUEST_PARAMETER_NAME: &str = "request";
 
+/// Name of the synthetic field added to empty message records
+/// to work around the Component Model's restriction on empty record types.
+pub(crate) const EMPTY_SYNTHETIC_FIELD_NAME: &str = "empty";
+
 /// An incrementally-built model of a Vimana server WIT file,
 /// generated from Protobuf service and type definitions.
 pub(crate) struct WitFile<'a> {
@@ -139,6 +143,7 @@ struct TypesInterface<'a> {
 ///
 /// There will be exactly one one-ofs interface
 /// for each message type that includes at least one `oneof` field.
+#[derive(Default)]
 struct OneofsInterface<'a> {
     /// The set of one-of [variants](Variant) defined within the qualifier namespace.
     oneofs_defined: Vec<TypeDef>,
@@ -389,6 +394,21 @@ fn message_definition<'a>(
     syntax: ProtoSyntax,
     parameters: &PluginParameters,
 ) -> Result<Option<(TypesInterface<'a>, OneofsInterface<'a>)>> {
+    // Special handling for empty messages.
+    if descriptor.field.is_empty() {
+        if parameters.allow_empty {
+            return Ok(Some((
+                TypesInterface::empty_message(message_type_name),
+                OneofsInterface::default(),
+            )));
+        } else {
+            bail!(
+                "Message '{message_type_name}' is empty, but the Component Model does not support empty record types. {}",
+                "Either eliminate all empty message types from the service, or set the 'allow-empty' option to enable a workaround to support them.",
+            )
+        }
+    }
+
     // The set of fields (excluding one-ofs) that define this message type.
     let mut fields: Vec<Field> = Vec::with_capacity(descriptor.field.len());
     // Mapping from the short names (Protobuf syntax) of one-of fields contained within this message
@@ -579,6 +599,20 @@ impl<'a> TypesInterface<'a> {
             oneofs_used: Vec::new(),
             oneofs_interface: Some(oneofs_interface),
         }
+    }
+
+    /// The Wasm Component Model does not support empty record types.
+    /// To work around this, add an unused field.
+    fn empty_message(message_type_name: &QualifiedTypeName<'a>) -> Self {
+        let field = Field::new(EMPTY_SYNTHETIC_FIELD_NAME, Type::option(Type::String));
+        Self::define_message(
+            TypeDef::new(
+                message_type_name.name.to_kebab_case(),
+                TypeDefKind::Record(Record::new(vec![field])),
+            ),
+            Vec::default(),
+            Vec::default(),
+        )
     }
 
     fn merge(&mut self, other: TypesInterface<'a>) {

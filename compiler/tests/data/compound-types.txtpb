@@ -81,6 +81,11 @@ messages {
   }
 }
 messages {
+  fields {
+    number: 1
+    name: "empty"
+    scalar_coding: STRING_PERMISSIVE_EXPLICIT
+  }
 }
 messages {
   fields {

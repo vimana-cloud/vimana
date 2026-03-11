@@ -43,7 +43,7 @@ def generateTestCase(rootName: str) -> Callable[[TestCase], None]:
         for path in [witFile, protoFile, metadataFile]:
             self.assertTrue(exists(path), f"File '{path}' is missing")
 
-        result = protoc(protoFile, include=[DATA_PATH])
+        result = protoc(protoFile, include=[DATA_PATH], vimanaOptions=['allow-empty'])
 
         # Show diffs even if they're big.
         self.maxDiff = None

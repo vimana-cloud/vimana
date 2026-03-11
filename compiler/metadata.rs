@@ -12,6 +12,7 @@ use prost_types::{
     ServiceDescriptorProto,
 };
 
+use crate::wit::EMPTY_SYNTHETIC_FIELD_NAME;
 use crate::{
     DescriptorMap, PluginParameters, ProtoPackage, ProtoSyntax, QualifiedTypeName,
     TypeNameQualifier,
@@ -149,7 +150,7 @@ impl<'a> MetadataFile<'a> {
             // If we already compiled this message, return the existing index.
             Ok(*index)
         } else {
-            // Otherwise, reserving an index for the new message before recursing
+            // Otherwise, reserve an index for the new message before recursing
             // to avoid infinite recursion for circular messages.
             let index = self.allocate_message(&message_name)?;
 
@@ -158,41 +159,62 @@ impl<'a> MetadataFile<'a> {
                 .get_message(&message_name)
                 .ok_or_else(|| anyhow!("Type not found: {message_name}"))?;
 
-            let mut fields: Vec<Field> = Vec::new();
-            let mut oneof_fields: Vec<Field> = message_descriptor
-                .oneof_decl
-                .iter()
-                .map(oneof_field)
-                .collect();
-            for field_descriptor in &message_descriptor.field {
-                if let Some(mut field) =
-                    self.compile_field(field_descriptor, server_qualifier, syntax)?
-                {
-                    if let Some(oneof_index) = field_descriptor.oneof_index
-                        && !field_descriptor.proto3_optional()
+            let fields = if message_descriptor.field.is_empty() && self.parameters.allow_empty {
+                // The Wasm Component Model does not support empty record types.
+                // When `allow_empty` is set,
+                // the WIT compiler adds a synthetic `empty: option<string>` field
+                // to empty message records as a workaround.
+                // The metadata compiler must emit a matching field
+                // so the runtime codec can handle the synthetic field.
+                vec![Field {
+                    number: 1,
+                    name: String::from(EMPTY_SYNTHETIC_FIELD_NAME),
+                    coding: Some(Coding::ScalarCoding(
+                        CODING_SCALAR_STRING_PERMISSIVE + CODING_CATEGORY_EXPLICIT,
+                    )),
+                    ..Default::default()
+                }]
+            } else {
+                let mut fields: Vec<Field> = Vec::new();
+                let mut oneof_fields: Vec<Field> = message_descriptor
+                    .oneof_decl
+                    .iter()
+                    .map(oneof_field)
+                    .collect();
+
+                for field_descriptor in &message_descriptor.field {
+                    if let Some(mut field) =
+                        self.compile_field(field_descriptor, server_qualifier, syntax)?
                     {
-                        if let Some(oneof_field) = oneof_fields.get_mut(oneof_index as usize) {
-                            force_explicit_coding(&mut field);
-                            oneof_field.variants.push(field);
+                        if let Some(oneof_index) = field_descriptor.oneof_index
+                            && !field_descriptor.proto3_optional()
+                        {
+                            if let Some(oneof_field) = oneof_fields.get_mut(oneof_index as usize) {
+                                force_explicit_coding(&mut field);
+                                oneof_field.variants.push(field);
+                            } else {
+                                bail!("Invalid oneof index {}", oneof_index);
+                            }
                         } else {
-                            bail!("Invalid oneof index {}", oneof_index);
+                            fields.push(field);
                         }
-                    } else {
-                        fields.push(field);
                     }
                 }
-            }
-            for oneof_field in oneof_fields {
-                // An empty variants vector indicates that the field is a proto3 optional
-                // (synthetic one-of) which does not count as a true one-of.
-                // Protobuf guarantees that all synthetic one-ofs
-                // are preceeded by all true one-ofs,
-                // so we can break early once we encounter the first synthetic.
-                if oneof_field.variants.is_empty() {
-                    break;
+
+                for oneof_field in oneof_fields {
+                    // An empty variants vector indicates that the field is a proto3 optional
+                    // (synthetic one-of) which does not count as a true one-of.
+                    // Protobuf guarantees that all synthetic one-ofs
+                    // are preceeded by all true one-ofs,
+                    // so we can break early once we encounter the first synthetic.
+                    if oneof_field.variants.is_empty() {
+                        break;
+                    }
+                    fields.push(oneof_field);
                 }
-                fields.push(oneof_field);
-            }
+
+                fields
+            };
 
             self.metadata
                 .messages
