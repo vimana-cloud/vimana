@@ -1,0 +1,86 @@
+# Whenever the `main` branch changes,
+# deploy a tiny Bazel registry to GitHub Pages
+# containing the most recent handful of commits from `main` as versions.
+#
+# The Bazel registry is a simple static directory with a specific format.
+# https://bazel.build/external/registry
+
+name: Automatic Bazel Registry
+on:
+  push:
+    branches:
+      - 'main'
+  # Make this workflow re-usable by other repositories.
+  workflow_call: {}
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+# Only allow a single pass of this workflow to run at a time.
+concurrency:
+  group: auto-registry
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      # Generate versions for the most recent 32 commits in `main`.
+      HISTORY: 32
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ env.HISTORY }}
+
+      - name: Install buildozer
+        run: |
+          go install github.com/bazelbuild/buildtools/buildozer@latest
+          echo "BUILDOZER=$(go env GOPATH)/bin/buildozer" >> "$GITHUB_ENV"
+
+      - name: Generate
+        run: |
+          remote='${{ github.server_url }}/${{ github.repository }}.git'
+          module='registry/modules/${{ github.event.repository.name }}'
+          mkdir --parents "$module"
+
+          # Read the most recent commit hashes in the history of the main branch as an array
+          # in reverse order (most recent last).
+          mapfile -t versions < <(
+            git rev-list --abbrev-commit main | head --lines="$HISTORY" | tac
+          )
+
+          # Set up the `metadata.json` file for this module with available versions.
+          versions_json="$(
+            printf '%s\n' "${versions[@]}" | jq --raw-input . | jq --slurp --compact-output .
+          )"
+          echo > "${module}/metadata.json" \
+            "{\"versions\":${versions_json},\"yanked_versions\":{}}"
+
+          for version in "${versions[@]}"
+          do
+            echo >&2 "Generating pages for ${version}"
+            directory="${module}/${version}"
+            mkdir "$directory"
+
+            # Extract the contents of MODULE.bazel at this commit.
+            # and overwrite the value of the version string in MODULE.bazel
+            # with the abbreviated commit hash.
+            git show ${version}:MODULE.bazel > "${directory}/MODULE.bazel"
+            ( cd "$directory" && "$BUILDOZER" "set version ${version}" //MODULE.bazel:%module )
+
+            echo > "${directory}/source.json" \
+              "{\"type\":\"git_repository\",\"remote\":\"${remote}\",\"commit\":\"${version}\"}"
+          done
+
+      - name: Upload
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: registry/
+
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4
